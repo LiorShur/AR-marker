@@ -133,6 +133,26 @@ async function testPreview() {
   check('preview scene loads', true);
   check('rotary-phone.glb renders meshes', modelLoaded > 0, modelLoaded + ' meshes');
 
+  // The model is meshopt-compressed; without the decoder GLTFLoader throws
+  // and the entity stays empty. Check the geometry survived intact and that
+  // it still sits where app.js positions it — gltfpack rewrites node
+  // transforms, and a silently rescaled model would sink into the marker.
+  const geo = await page.evaluate(() => {
+    const el = document.getElementById('shard');
+    let verts = 0;
+    el.object3D.traverse((o) => { if (o.isMesh) verts += o.geometry.attributes.position.count; });
+    const box = new AFRAME.THREE.Box3().setFromObject(el.object3D);
+    const size = box.getSize(new AFRAME.THREE.Vector3());
+    const centre = box.getCenter(new AFRAME.THREE.Vector3());
+    return { verts, size: size.toArray(), centre: centre.toArray(), minY: box.min.y };
+  });
+  check('meshopt geometry decodes fully', geo.verts === 46726, geo.verts + ' vertices');
+  check('model is about a marker-third tall', geo.size[1] > 0.25 && geo.size[1] < 0.45,
+    'height ' + geo.size[1].toFixed(2));
+  check('model rests on the marker', Math.abs(geo.minY) < 0.06, 'base at y=' + geo.minY.toFixed(3));
+  check('model is centred on the marker', Math.hypot(geo.centre[0], geo.centre[2]) < 0.08,
+    'offset ' + Math.hypot(geo.centre[0], geo.centre[2]).toFixed(3));
+
   await page.waitForTimeout(1500);
   check('canvas has drawn something', await canvasHasInk(page));
 
@@ -256,7 +276,7 @@ async function testOffline() {
     const c = await caches.open(keys[0]);
     return !!(await c.match('assets/rotary-phone.glb'));
   });
-  check('the 2.3 MB model is in the precache', glb);
+  check('the model is in the precache', glb);
 
   await context.setOffline(true);
   const res = await page.goto(ORIGIN + '/?preview', { waitUntil: 'load' }).catch(() => null);

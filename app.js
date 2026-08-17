@@ -184,6 +184,13 @@
   // preserveDrawingBuffer is deliberately absent: A-Frame does not forward it
   // to the WebGLRenderer constructor, so setting it here would only look like
   // it worked. capture() re-renders on demand instead.
+  // The model ships meshopt-compressed: 2.29 MB of geometry and textures down
+  // to 894 KB. A-Frame injects this path as a classic script and waits on the
+  // window.MeshoptDecoder it registers. Draco would compress a little harder
+  // and cost a 300 KB WASM blob to do it; this decoder is 29 KB with its WASM
+  // inlined, which matters more when the whole point is offline-first.
+  var MESHOPT = 'gltf-model="meshoptDecoderPath: vendor/meshopt_decoder.js"';
+
   var RENDERER = 'renderer="antialias: true; alpha: true; colorManagement: true; ' +
                  'logarithmicDepthBuffer: true"';
 
@@ -191,6 +198,7 @@
     '<a-scene id="scene" embedded',
     '  vr-mode-ui="enabled: false"',
     '  device-orientation-permission-ui="enabled: false"',
+    '  ' + MESHOPT,
     '  ' + RENDERER,
     '  arjs="sourceType: webcam; detectionMode: mono; patternRatio: 0.5; trackingMethod: best;',
     '        cameraParametersUrl: data/camera_para.dat; debugUIEnabled: false;',
@@ -218,6 +226,7 @@
     '<a-scene id="scene" embedded',
     '  vr-mode-ui="enabled: false"',
     '  device-orientation-permission-ui="enabled: false"',
+    '  ' + MESHOPT,
     '  ' + RENDERER + '>',
 
     '  <a-assets timeout="30000">',

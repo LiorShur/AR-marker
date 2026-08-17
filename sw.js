@@ -5,18 +5,19 @@
    together. install() calls skipWaiting and activate() calls claim, so a
    new worker takes over on the next load rather than the one after —
    provided the host serves this file with no-cache (see firebase.json). */
-var CACHE = 'marker-one-v4';
+var CACHE = 'marker-one-v5';
 
 var ASSETS = [
   './',                       // the navigation URL is "/", not "/index.html"
   'index.html',
   'marker.html',
-  'app.css?v=4',
-  'app.js?v=4',
+  'app.css?v=5',
+  'app.js?v=5',
   'manifest.webmanifest',
   'vendor/aframe.min.js',
   'vendor/aframe-ar.js',
-  'assets/rotary-phone.glb',  // 2.3 MB, and the whole point of the scene
+  'vendor/meshopt_decoder.js',
+  'assets/rotary-phone.glb',  // meshopt-compressed, and the whole point of the scene
   'data/patt.hiro',
   'data/camera_para.dat',
   'data/marker-hiro.png',
