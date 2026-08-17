@@ -1,0 +1,14 @@
+{
+  "name": "marker-one",
+  "version": "1.1.0",
+  "private": true,
+  "description": "A level-1 WebAR proof of concept: point a phone camera at a marker and a tracked object appears.",
+  "type": "module",
+  "scripts": {
+    "start": "node scripts/serve.mjs",
+    "start:http": "node scripts/serve.mjs --http",
+    "test": "node scripts/smoke.mjs",
+    "deploy": "firebase deploy --only hosting"
+  },
+  "engines": { "node": ">=18" }
+}

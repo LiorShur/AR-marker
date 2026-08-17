@@ -9,8 +9,21 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<link rel="stylesheet" href="app.css?v=3">
+
+<meta property="og:title" content="Marker One — WebAR field test">
+<meta property="og:description" content="Point a phone camera at the Hiro marker and a tracked object appears. No install, no store, no SDK.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="icons/icon-512.png">
+
+<!-- The vendor bundle is 3 MB of A-Frame and AR.js. It is fetched on tap,
+     not on load, so the gate paints immediately. Warming the connection
+     early costs nothing and shaves the fetch when the tap comes. -->
+<link rel="prefetch" href="vendor/aframe.min.js" as="script">
+<link rel="prefetch" href="vendor/aframe-ar.js" as="script">
+
+<link rel="stylesheet" href="app.css?v=4">
 </head>
 <body>
 
@@ -25,6 +38,7 @@
     if(!p){
       p = document.createElement('pre');
       p.id = 'crash';
+      p.setAttribute('role', 'alert');
       document.body.appendChild(p);
     }
     p.textContent = kind + '\n\n' + msg + (where ? '\n\n' + where : '');
@@ -47,7 +61,7 @@
   <header class="gate__head">
     <p class="eyebrow">WebAR field test <span class="eyebrow__sep">/</span> level 1 <span class="eyebrow__sep">/</span> marker tracked</p>
     <h1 class="title">Marker<span class="title__break"> </span>One</h1>
-    <p class="lede">Point this phone at the marker. A shard appears on it, holds position as you move, and vanishes when the marker leaves frame. No install, no store, no SDK.</p>
+    <p class="lede">Point this phone at the marker. A rotary phone rises out of it, holds position as you move, and vanishes when the marker leaves frame. No install, no store, no SDK.</p>
   </header>
 
   <section class="readout" aria-label="Device capability">
@@ -70,17 +84,24 @@
     </ul>
   </section>
 
-  <p id="fault" class="fault" hidden></p>
+  <p id="fault" class="fault" role="status" hidden></p>
 
   <div class="actions">
     <button id="start" class="btn btn--primary" disabled>Start camera</button>
     <a class="btn" href="marker.html" target="_blank" rel="noopener">Open the marker</a>
+    <button id="preview" class="btn">Preview without camera</button>
     <button id="install" class="btn btn--ghost" hidden>Add to home screen</button>
   </div>
+
+  <noscript>
+    <p class="fault">This is a WebGL app driven entirely by JavaScript. Nothing will
+    happen with scripting turned off.</p>
+  </noscript>
 
   <footer class="foot">
     <p><span class="foot__k">Marker</span> Hiro, the ARToolKit standard. Print it, or open it on a second screen and point the phone at that.</p>
     <p><span class="foot__k">Works on</span> Android Chrome and iOS Safari, over HTTPS only. Camera access is asked for once and never leaves the device — nothing is uploaded, there is no backend.</p>
+    <p><span class="foot__k">No marker</span> Preview mode renders the same scene with mouse or touch orbit, no camera involved. It is the object, not the tracking.</p>
   </footer>
 </main>
 
@@ -89,14 +110,14 @@
   <div id="scene-slot"></div>
   <div class="hud">
     <button id="exit" class="hud__exit" aria-label="Stop camera">Stop</button>
-    <div id="state" class="hud__state" data-state="seeking">
+    <div id="state" class="hud__state" data-state="seeking" role="status" aria-live="polite">
       <span class="hud__pip"></span><span id="state-text">Seeking marker</span>
     </div>
+    <button id="shoot" class="hud__shoot" aria-label="Take a photo" title="Take a photo"></button>
   </div>
+  <div id="flash" class="flash" hidden></div>
 </div>
 
-<script src="vendor/aframe.min.js"></script>
-<script src="vendor/aframe-ar.js"></script>
-<script src="app.js?v=3"></script>
+<script src="app.js?v=4"></script>
 </body>
 </html>

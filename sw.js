@@ -1,14 +1,22 @@
 /* Precache everything. All assets are same-origin and vendored,
-   so the app runs with the network off once installed. */
-var CACHE = 'marker-one-v3';
+   so the app runs with the network off once installed.
+
+   Updating: bump CACHE here and the ?v= on the two links in index.html,
+   together. install() calls skipWaiting and activate() calls claim, so a
+   new worker takes over on the next load rather than the one after —
+   provided the host serves this file with no-cache (see firebase.json). */
+var CACHE = 'marker-one-v4';
+
 var ASSETS = [
+  './',                       // the navigation URL is "/", not "/index.html"
   'index.html',
   'marker.html',
-  'app.css',
-  'app.js',
+  'app.css?v=4',
+  'app.js?v=4',
   'manifest.webmanifest',
   'vendor/aframe.min.js',
   'vendor/aframe-ar.js',
+  'assets/rotary-phone.glb',  // 2.3 MB, and the whole point of the scene
   'data/patt.hiro',
   'data/camera_para.dat',
   'data/marker-hiro.png',
@@ -18,9 +26,11 @@ var ASSETS = [
 ];
 
 self.addEventListener('install', function (e) {
-  e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(ASSETS); }).then(function () {
-    return self.skipWaiting();
-  }));
+  e.waitUntil(
+    caches.open(CACHE)
+      .then(function (c) { return c.addAll(ASSETS); })
+      .then(function () { return self.skipWaiting(); })
+  );
 });
 
 self.addEventListener('activate', function (e) {
@@ -31,10 +41,36 @@ self.addEventListener('activate', function (e) {
 });
 
 self.addEventListener('fetch', function (e) {
-  if (e.request.method !== 'GET') return;
+  var req = e.request;
+  if (req.method !== 'GET') { return; }
+
+  var url = new URL(req.url);
+  if (url.origin !== self.location.origin) { return; }
+
   e.respondWith(
-    caches.match(e.request).then(function (hit) {
-      return hit || fetch(e.request);
+    // ignoreSearch matters: index.html asks for "app.js?v=4" and "?reset"
+    // hangs a query off the document URL. Without it every versioned
+    // request misses the cache and the app is only offline-capable in
+    // theory.
+    caches.match(req, { ignoreSearch: true }).then(function (hit) {
+      if (hit) {
+        if (req.mode === 'navigate' && !url.search) { e.waitUntil(revalidate(req)); }
+        return hit;
+      }
+      return fetch(req).catch(function () {
+        // Offline and unrecognised: a navigation still gets the shell,
+        // anything else is genuinely unavailable.
+        if (req.mode === 'navigate') { return caches.match('index.html'); }
+        throw new Error('offline and uncached: ' + url.pathname);
+      });
     })
   );
 });
+
+// Keep the shell from pinning itself forever if a deploy lands while the
+// old worker is still the active one.
+function revalidate(req) {
+  return fetch(req).then(function (res) {
+    if (res && res.ok) { return caches.open(CACHE).then(function (c) { return c.put(req, res); }); }
+  }).catch(function () { /* offline is the normal case here */ });
+}

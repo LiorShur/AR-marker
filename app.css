@@ -14,6 +14,9 @@
 }
 
 *{box-sizing:border-box}
+/* .gate sets display:flex, which outranks the UA rule for [hidden] — without
+   this the gate stays on screen underneath the AR view. */
+[hidden]{display:none!important}
 html,body{margin:0;padding:0;height:100%}
 body{
   background:var(--void);
@@ -174,7 +177,7 @@ body{
 }
 
 /* ── AR stage ─────────────────────────────────────── */
-.stage{position:fixed;inset:0;background:#000;z-index:10}
+.stage{position:fixed;inset:0;z-index:10}
 .stage .a-enter-vr,.stage .a-enter-ar,.stage .a-orientation-modal{display:none!important}
 
 .hud{
@@ -262,3 +265,60 @@ body{
   font-family:var(--mono);font-size:11.5px;line-height:1.5;
   white-space:pre-wrap;word-break:break-word;
 }
+
+/* ── HUD: shutter + flash ─────────────────────────── */
+.hud__shoot{
+  pointer-events:auto;
+  appearance:none;
+  flex:0 0 auto;
+  width:46px;height:46px;
+  padding:0;
+  border:1px solid rgba(201,198,228,.35);
+  border-radius:50%;
+  background:rgba(11,10,20,.5);
+  backdrop-filter:blur(6px);
+  cursor:pointer;
+  display:grid;place-items:center;
+}
+.hud__shoot::after{
+  content:"";
+  width:26px;height:26px;border-radius:50%;
+  background:var(--mist);
+  transition:transform .12s ease, background .12s ease;
+}
+.hud__shoot:hover::after{background:#fff}
+.hud__shoot:active::after{transform:scale(.82);background:var(--locked)}
+.hud__shoot:focus-visible{outline:2px solid var(--locked);outline-offset:2px}
+
+.flash{
+  position:fixed;inset:0;z-index:30;
+  background:#fff;
+  opacity:0;
+  pointer-events:none;
+  transition:opacity .26s ease-out;
+}
+.flash.is-on{opacity:.85;transition:opacity .04s linear}
+
+.hud__state[data-state="preview"]{color:var(--mist)}
+.hud__state[data-state="preview"] .hud__pip{animation:none;opacity:.4}
+
+/* While a scene is live the page must not rubber-band behind it. */
+/* AR.js letterboxes by resizing <body> itself and hanging the camera video
+   off it. That only lines up when the scene is a plain child of body; ours
+   lives in a fixed-position stage, so a shifted body slides the feed
+   off-centre while the overlay stays put. Pin body down and let app.js copy
+   the video's own box onto the GL canvas instead. */
+body.is-running{
+  overflow:hidden;
+  position:fixed;
+  inset:0;
+  width:100%!important;
+  height:100%!important;
+  margin:0!important;
+  background:#000;
+}
+
+/* A-Frame's `embedded` scene sizes itself to its container, so the container
+   must have a size. AR mode is unaffected — AR.js positions its own canvas. */
+.stage > #scene-slot{position:absolute;inset:0}
+.stage a-scene{position:absolute;inset:0;width:100%;height:100%}
