@@ -48,7 +48,10 @@ const TYPES = {
   // AR view into a silent black screen when it does.
   '.dat': 'application/octet-stream',
   '.hiro': 'text/plain; charset=utf-8',
-  '.patt': 'text/plain; charset=utf-8'
+  '.patt': 'text/plain; charset=utf-8',
+  '.fset': 'application/octet-stream',
+  '.fset3': 'application/octet-stream',
+  '.iset': 'application/octet-stream'
 };
 
 function lanAddress() {

@@ -86,6 +86,12 @@ try {
 
   console.log('\n  markerless (WebXR)');
   await testXR();
+
+  console.log('\n  natural-feature target');
+  await testNFT();
+
+  console.log('\n  descriptor integrity');
+  await testDescriptors();
 } finally {
   await browser.close();
   server.kill();
@@ -111,10 +117,14 @@ async function testGate() {
   check('start button is enabled', await page.locator('#start').isEnabled());
 
   // The picker is rendered from content.json, so its presence proves the
-  // manifest was fetched, parsed and understood before any tap.
+  // manifest was fetched, parsed and understood before any tap. One row of
+  // chips per axis of choice: which target to track, and what it carries.
   await page.waitForSelector('#picker .chip', { timeout: 10000 }).catch(() => {});
-  const chips = await page.locator('#picker .chip').allTextContents();
-  check('scene picker is built from content.json', chips.length === 2, chips.join(' / '));
+  const rows = await page.locator('#picker .picker__row').count();
+  const targets = await page.locator('#picker .picker__row').nth(0).locator('.chip').allTextContents();
+  const scenes = await page.locator('#picker .picker__row').nth(1).locator('.chip').allTextContents();
+  check('picker offers both targets', rows === 2 && targets.length === 2, targets.join(' / '));
+  check('picker offers both scenes', scenes.length === 2, scenes.join(' / '));
   check('preview button is enabled', await page.locator('#preview').isEnabled());
 
   const vendorLoaded = await page.evaluate(() => typeof window.AFRAME !== 'undefined');
@@ -306,6 +316,145 @@ async function testOffline() {
   await page.screenshot({ path: join(SHOTS, '4-offline.png') });
   await context.setOffline(false);
   await close();
+}
+
+async function testNFT() {
+  const feed = await makeFakeCamera({
+    chromium,
+    markerPath: join(ROOT, 'data', 'poster.jpg'),
+    out: join(SHOTS, 'fake-poster.y4m'),
+    scale: 0.9, width: 1280, height: 960, fit: 'height'
+  });
+
+  const nft = await chromium.launch({
+    args: [
+      '--use-fake-device-for-media-stream',
+      '--use-fake-ui-for-media-stream',
+      `--use-file-for-fake-video-capture=${feed.path}`,
+      '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'
+    ]
+  });
+
+  try {
+    const context = await nft.newContext({ permissions: ['camera'], viewport: { width: 900, height: 700 } });
+    const page = await context.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+
+    await page.goto(ORIGIN + '/?target=poster', { waitUntil: 'load' });
+    await page.locator('#start').click();
+
+    const locked = await page.waitForFunction(
+      () => document.getElementById('state').dataset.state === 'locked',
+      null, { timeout: 120000 }
+    ).then(() => true).catch(() => false);
+    check('tracker locks onto the poster', locked);
+
+    check('the NFT build serves both tracking modes',
+      await page.evaluate(() => !!document.querySelector('a-nft') && !!window.AFRAME.primitives.primitives['a-marker']));
+
+    if (locked) {
+      // The scene layers are authored in marker space; the poster is tracked
+      // in millimetres from its bottom-left corner. If the wrapper transform
+      // is wrong the content is behind the paper, or a metre off it.
+      const placed = await page.evaluate(() => {
+        const THREE = AFRAME.THREE;
+        const marker = document.getElementById('marker');
+        const shard = document.getElementById('shard');
+        const box = new THREE.Box3().setFromObject(shard.object3D);
+        const centre = box.getCenter(new THREE.Vector3());
+        marker.object3D.worldToLocal(centre);
+        return { centre: centre.toArray() };
+      });
+
+      // Poster is 1000x1414 px at 72 dpi: 352.8mm x 498.9mm, origin bottom-left.
+      const dx = Math.abs(placed.centre[0] - 176.4);
+      const dz = Math.abs(placed.centre[2] + 249.4);
+      check('content is centred on the poster', dx < 30 && dz < 30,
+        `off by ${dx.toFixed(0)}mm x ${dz.toFixed(0)}mm`);
+      // NFT space has Y out of the page. A sign error here puts the whole
+      // scene behind the paper, tracked perfectly and completely invisible.
+      check('content sits in front of the paper, not behind it', placed.centre[1] > 0,
+        'centre y=' + placed.centre[1].toFixed(0) + 'mm');
+
+      await page.waitForTimeout(1200);
+      await page.screenshot({ path: join(SHOTS, '8-nft.png') });
+    }
+
+    check('NFT mode throws nothing', errors.length === 0, errors.join('; '));
+    await context.close();
+  } finally {
+    await nft.close();
+  }
+}
+
+// The descriptor generator reads PNG input with the wrong row stride and
+// trains, without complaint, on a sheared and tripled copy of the image —
+// healthy feature counts, no matches, no error anywhere. The only way to
+// catch it is to look at what it stored. Level 0 of the .iset is the image
+// it actually saw; if that does not resemble the source, the dataset is junk.
+async function testDescriptors() {
+  const { readFile } = await import('node:fs/promises');
+  const iset = await readFile(join(ROOT, 'data', 'nft', 'poster.iset'));
+
+  const start = iset.indexOf(Buffer.from([0xff, 0xd8, 0xff, 0xe0]));
+  const end = iset.indexOf(Buffer.from([0xff, 0xd9]), start);
+  check('the iset holds a decodable image', start > 0 && end > start);
+  if (start < 0 || end < 0) { return; }
+
+  const level0 = iset.subarray(start, end + 2);
+  const page = await browser.newPage();
+  const stats = await page.evaluate(async ({ trained, source }) => {
+    const load = async (b64, mime) => {
+      const img = new Image();
+      img.src = `data:${mime};base64,${b64}`;
+      await img.decode();
+      return img;
+    };
+    const grey = (img, w, h) => {
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      const d = ctx.getImageData(0, 0, w, h).data;
+      const g = new Float64Array(w * h);
+      for (let i = 0; i < g.length; i++) {
+        g[i] = 0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2];
+      }
+      return g;
+    };
+
+    const a = await load(trained, 'image/jpeg');
+    const b = await load(source, 'image/jpeg');
+    const W = 96;
+    const H = 136;
+    const ga = grey(a, W, H);
+    const gb = grey(b, W, H);
+
+    // Correlation, not equality: the trainer converts to greyscale and
+    // recompresses, so the pixels differ but the picture should not.
+    const mean = (g) => g.reduce((s, v) => s + v, 0) / g.length;
+    const ma = mean(ga);
+    const mb = mean(gb);
+    let num = 0;
+    let da = 0;
+    let db = 0;
+    for (let i = 0; i < ga.length; i++) {
+      num += (ga[i] - ma) * (gb[i] - mb);
+      da += (ga[i] - ma) ** 2;
+      db += (gb[i] - mb) ** 2;
+    }
+    return { dims: [a.naturalWidth, a.naturalHeight], r: num / Math.sqrt(da * db) };
+  }, {
+    trained: level0.toString('base64'),
+    source: (await readFile(join(ROOT, 'data', 'poster.jpg'))).toString('base64')
+  });
+  await page.close();
+
+  check('the trained image has the source dimensions',
+    stats.dims[0] === 1000 && stats.dims[1] === 1414, stats.dims.join('x'));
+  check('the trainer saw the poster we gave it', stats.r > 0.9,
+    'correlation ' + stats.r.toFixed(3));
 }
 
 async function testXR() {

@@ -48,6 +48,13 @@
         ]
       },
       {
+        "source": "/data/nft/**",
+        "headers": [
+          { "key": "Content-Type", "value": "application/octet-stream" },
+          { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+        ]
+      },
+      {
         "source": "/data/patt.hiro",
         "headers": [
           { "key": "Content-Type", "value": "text/plain; charset=utf-8" },

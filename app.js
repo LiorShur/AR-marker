@@ -19,6 +19,7 @@
   var countEl    = document.getElementById('dial-count');
   var picker     = document.getElementById('picker');
   var xrBtn      = document.getElementById('xr');
+  var sheetLink  = document.getElementById('sheet');
 
   var mode = null;      // 'ar' | 'preview' | null
   var wakeLock = null;
@@ -130,10 +131,14 @@
   // on any scene and fetches its own camera_para.dat from a GitHub Pages URL —
   // which fails offline, throws, and breaks the promise that nothing here
   // touches a CDN. Preview gets A-Frame and nothing else: half the bytes.
+  //
+  // The NFT build is used for both tracking modes: it registers a-marker as
+  // well as a-nft and is 245 bytes larger than the marker-only build, so
+  // shipping two would cost 1.6 MB to save nothing.
   function loadVendor() {
     if (!vendorReady.ar) {
       vendorReady.ar = loadCore()
-        .then(function () { return loadScript('vendor/aframe-ar.js'); })
+        .then(function () { return loadScript('vendor/aframe-ar-nft.js'); })
         .catch(function (err) { vendorReady.ar = null; throw err; });
     }
     return vendorReady.ar;
@@ -343,8 +348,58 @@
   var RENDERER = 'renderer="antialias: true; alpha: true; colorManagement: true; ' +
                  'logarithmicDepthBuffer: true"';
 
-  function arScene(m, target, def) {
+  // Pattern markers and natural-feature targets carry the same content but
+  // sit in different coordinate systems. A pattern marker is one unit per
+  // marker width, origin at the centre, Y up. An NFT target is in the source
+  // image's pixels, origin at its top-left corner, Y down the page. `space`
+  // in the manifest reconciles the two, so the scene layers never have to
+  // know which kind of target they landed on.
+  function trackedTarget(m, target, def) {
+    var content = buildScene(m, def);
+
+    if (target.tracking === 'nft') {
+      // AR.js reports natural-feature poses in millimetres, with the origin at
+      // the target's bottom-left corner: X across it, Z down it, Y out of the
+      // page. Our layers assume one unit per target width, centred, Y up — so
+      // the wrapper carries the whole difference, worked out from the trained
+      // image's own dimensions rather than restated as a magic matrix.
+      var size = target.size || {};
+      var dpi = num(size.dpi, 72);
+      var wide = num(size.width, 1000) / dpi * 25.4;
+      var deep = num(size.height, 1414) / dpi * 25.4;
+      var k = wide * num(target.contentScale, 1);
+      var sp = {
+        position: [wide / 2, 0, -deep / 2],
+        rotation: [0, 0, 0]
+      };
+      return [
+        '  <a-nft id="marker" type="nft" url="' + target.descriptors + '"',
+        '     smooth="true" smooth-count="' + num((target.smooth || {}).count, 10) + '"',
+        '     smooth-tolerance="' + num((target.smooth || {}).tolerance, 0.01) + '"',
+        '     smooth-threshold="' + num((target.smooth || {}).threshold, 5) + '">',
+        '    <a-entity id="space" position="' + xyz(sp.position) + '"',
+        '      rotation="' + xyz(sp.rotation) + '"',
+        '      scale="' + k + ' ' + k + ' ' + k + '">',
+        content,
+        '    </a-entity>',
+        '  </a-nft>'
+      ].join('\n');
+    }
+
     var smooth = target.smooth || {};
+    return [
+      // Note: marker attributes are kebab-case. smoothCount would silently
+      // not map, and the object would jitter with no obvious cause.
+      '  <a-marker id="marker" type="pattern" url="' + target.pattern + '"',
+      '     smooth="true" smooth-count="' + num(smooth.count, 8) + '"',
+      '     smooth-tolerance="' + num(smooth.tolerance, 0.01) + '"',
+      '     smooth-threshold="' + num(smooth.threshold, 4) + '">',
+      content,
+      '  </a-marker>'
+    ].join('\n');
+  }
+
+  function arScene(m, target, def) {
     return [
       '<a-scene id="scene" embedded',
       '  vr-mode-ui="enabled: false"',
@@ -356,14 +411,7 @@
       '        sourceWidth: 1280; sourceHeight: 960; displayWidth: 1280; displayHeight: 960">',
       buildAssets(m, def),
       buildLights(def),
-      // Note: marker attributes are kebab-case. smoothCount would silently
-      // not map, and the object would jitter with no obvious cause.
-      '  <a-marker id="marker" type="pattern" url="' + target.pattern + '"',
-      '     smooth="true" smooth-count="' + num(smooth.count, 8) + '"',
-      '     smooth-tolerance="' + num(smooth.tolerance, 0.01) + '"',
-      '     smooth-threshold="' + num(smooth.threshold, 4) + '">',
-      buildScene(m, def),
-      '  </a-marker>',
+      trackedTarget(m, target, def),
       '  <a-entity camera look-controls="enabled: false" wasd-controls="enabled: false"></a-entity>',
       '</a-scene>'
     ].join('\n');
@@ -604,29 +652,89 @@
      One scene means no picker rather than a control that does nothing. */
 
   function renderPicker(m) {
-    var ids = Object.keys(m.scenes);
-    if (ids.length < 2) { return; }
-
+    if (!chosenTarget || !findTarget(m, chosenTarget)) {
+      chosenTarget = pickTarget(m, null).id;
+    }
     if (!chosenScene || !m.scenes[chosenScene]) {
       chosenScene = pickTarget(m, chosenTarget).scene;
     }
 
     picker.innerHTML = '';
-    ids.forEach(function (id) {
+
+    chipRow('Track', m.targets.map(function (t) {
+      return { id: t.id, label: t.label || t.id };
+    }), function () { return chosenTarget; }, function (id) {
+      chosenTarget = id;
+      // A target names the scene it carries; following it keeps the two in
+      // step unless the visitor then picks a scene explicitly.
+      var next = findTarget(m, id);
+      if (next && m.scenes[next.scene]) { chosenScene = next.scene; syncRows(); }
+      updateSheet(m);
+    });
+
+    chipRow('Carries', Object.keys(m.scenes).map(function (id) {
+      return { id: id, label: m.scenes[id].label || id };
+    }), function () { return chosenScene; }, function (id) { chosenScene = id; });
+
+    updateSheet(m);
+    picker.hidden = picker.children.length === 0;
+  }
+
+  // One row per axis of choice, and none at all when there is nothing to
+  // choose — a control that cannot change anything is worse than no control.
+  function chipRow(label, options, current, onPick) {
+    if (options.length < 2) { return; }
+
+    var row = document.createElement('div');
+    row.className = 'picker__row';
+
+    var name = document.createElement('span');
+    name.className = 'picker__label';
+    name.textContent = label;
+    row.appendChild(name);
+
+    options.forEach(function (opt) {
       var b = document.createElement('button');
       b.type = 'button';
       b.className = 'chip';
-      b.textContent = m.scenes[id].label || id;
-      b.setAttribute('aria-pressed', String(id === chosenScene));
+      b.dataset.value = opt.id;
+      b.textContent = opt.label;
+      b.setAttribute('aria-pressed', String(opt.id === current()));
       b.addEventListener('click', function () {
-        chosenScene = id;
-        Array.prototype.forEach.call(picker.children, function (c) {
+        onPick(opt.id);
+        Array.prototype.forEach.call(row.querySelectorAll('.chip'), function (c) {
           c.setAttribute('aria-pressed', String(c === b));
         });
       });
-      picker.appendChild(b);
+      row.appendChild(b);
     });
-    picker.hidden = false;
+
+    picker.appendChild(row);
+  }
+
+  function syncRows() {
+    Array.prototype.forEach.call(picker.querySelectorAll('.picker__row'), function (row, i) {
+      var want = i === 0 ? chosenTarget : chosenScene;
+      Array.prototype.forEach.call(row.querySelectorAll('.chip'), function (c) {
+        c.setAttribute('aria-pressed', String(c.dataset.value === want));
+      });
+    });
+  }
+
+  // The "open the marker" link has to follow the target, or it hands out the
+  // wrong sheet to print.
+  function updateSheet(m) {
+    var t = findTarget(m, chosenTarget);
+    if (!t || !sheetLink) { return; }
+    sheetLink.href = t.sheet || 'marker.html';
+    sheetLink.textContent = 'Open the ' + (t.tracking === 'nft' ? 'poster' : 'marker');
+  }
+
+  function findTarget(m, id) {
+    for (var i = 0; i < m.targets.length; i++) {
+      if (m.targets[i].id === id) { return m.targets[i]; }
+    }
+    return null;
   }
 
   /* ── state readout ──────────────────────────────────────── */
@@ -676,6 +784,8 @@
         marker.addEventListener('markerFound', function () { setState('locked'); });
         marker.addEventListener('markerLost',  function () { setState('seeking'); });
 
+        if (target.tracking === 'nft') { kickNFT(); }
+
         var scene = document.getElementById('scene');
         scene.addEventListener('loaded', syncFeed);
         window.addEventListener('resize', syncFeed);
@@ -702,6 +812,71 @@
         idle(previewBtn);
       })
       .catch(onStartError);
+  }
+
+  /* ── natural-feature start-up ───────────────────────────────
+     AR.js's NFT path defers all of its setup until a window-level
+     `arjs-video-loaded` event. It only subscribes to that event once the
+     ARToolkit controller exists — and the controller cannot exist until
+     camera_para.dat has been fetched and parsed, which is comfortably after
+     the video became ready and the event already fired. The listener is
+     therefore registered against an event that has been and gone, and the
+     descriptors are never even requested: no error, no lock, nothing.
+
+     Re-dispatching it once the controller is up is enough. The event carries
+     the video element it measures, so it has to be dispatched with the same
+     detail shape AR.js uses. */
+
+  var nftKick = null;
+
+  function kickNFT() {
+    var tries = 0;
+    clearInterval(nftKick);
+    nftKick = setInterval(function () {
+      if (mode !== 'ar' || ++tries > 150) { clearInterval(nftKick); return; }
+
+      var scene = document.getElementById('scene');
+      var sys = scene && scene.systems && scene.systems.arjs;
+      var ctx = sys && sys._arSession && sys._arSession.arContext;
+      var video = document.querySelector('#arjs-video');
+      if (!ctx || !ctx.arController || !video || !video.videoWidth) { return; }
+
+      clearInterval(nftKick);
+      nftKick = null;
+      // One beat, so the anchor's own listener is attached before the event
+      // it is waiting for arrives.
+      setTimeout(function () { dispatchVideoLoaded(video); }, 250);
+    }, 200);
+  }
+
+  /* AR.js reads the video element's *CSS* box when the event fires and then
+     uses those two numbers as the source rectangle of every frame it grabs
+     thereafter — drawImage(video, 0, 0, clientWidth, clientHeight, …). Our
+     video is letterboxed to cover the screen, so its CSS box has nothing to
+     do with its pixel size, and AR.js ends up matching against a crop of one
+     corner of the frame with the rest black. Show the element at its true
+     size for the length of the dispatch — listeners run synchronously, so
+     this is a single frame's worth of lie — and it reads the whole picture. */
+  function dispatchVideoLoaded(video) {
+    var was = {
+      width: video.style.width,
+      height: video.style.height,
+      marginLeft: video.style.marginLeft,
+      marginTop: video.style.marginTop
+    };
+
+    video.style.width = video.videoWidth + 'px';
+    video.style.height = video.videoHeight + 'px';
+    video.style.marginLeft = '0px';
+    video.style.marginTop = '0px';
+    void video.offsetWidth;                       // force the box to settle
+
+    window.dispatchEvent(new CustomEvent('arjs-video-loaded', {
+      detail: { component: video }
+    }));
+
+    Object.keys(was).forEach(function (k) { video.style[k] = was[k]; });
+    applyFeedSize();
   }
 
   /* ── overlay alignment ──────────────────────────────────────
@@ -777,6 +952,8 @@
 
   function stop() {
     releaseWake();
+    clearInterval(nftKick);
+    nftKick = null;
     syncTimers.forEach(clearTimeout);
     syncTimers = [];
     window.removeEventListener('resize', syncFeed);

@@ -9,11 +9,13 @@
 
 import { writeFile, readFile } from 'node:fs/promises';
 
-const WIDTH = 640;
-const HEIGHT = 480;
 const FRAMES = 8;
 
-export async function makeFakeCamera({ chromium, markerPath, out, scale = 0.36 }) {
+export async function makeFakeCamera({
+  chromium, markerPath, out, scale = 0.36, width = 640, height = 480, fit = 'short'
+}) {
+  const WIDTH = width;
+  const HEIGHT = height;
   const browser = await chromium.launch();
   const page = await browser.newPage();
 
@@ -21,7 +23,7 @@ export async function makeFakeCamera({ chromium, markerPath, out, scale = 0.36 }
   // and is not allowed to read off the disk.
   const dataUrl = 'data:image/png;base64,' + (await readFile(markerPath)).toString('base64');
 
-  const rgba = await page.evaluate(async ({ url, w, h, scale }) => {
+  const rgba = await page.evaluate(async ({ url, w, h, scale, fit }) => {
     const img = new Image();
     img.src = url;
     await img.decode();
@@ -36,12 +38,24 @@ export async function makeFakeCamera({ chromium, markerPath, out, scale = 0.36 }
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, w, h);
 
-    const size = Math.round(Math.min(w, h) * scale);
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(img, (w - size) / 2, (h - size) / 2, size, size);
+    // 'short' fits a square target to a fraction of the frame's short side;
+    // 'height' fits a tall target by its height, keeping its aspect.
+    let dw, dh;
+    if (fit === 'height') {
+      dh = Math.round(h * scale);
+      dw = Math.round(dh * (img.naturalWidth / img.naturalHeight));
+    } else {
+      dw = dh = Math.round(Math.min(w, h) * scale);
+    }
+    // Smoothing off for hard-edged glyphs, on for detailed targets — a
+    // nearest-neighbour downscale of fine detail aliases into noise the
+    // feature matcher cannot use.
+    ctx.imageSmoothingEnabled = fit === 'height';
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, (w - dw) / 2, (h - dh) / 2, dw, dh);
 
     return Array.from(ctx.getImageData(0, 0, w, h).data);
-  }, { url: dataUrl, w: WIDTH, h: HEIGHT, scale });
+  }, { url: dataUrl, w: WIDTH, h: HEIGHT, scale, fit });
 
   await browser.close();
 

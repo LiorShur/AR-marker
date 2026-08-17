@@ -21,7 +21,7 @@
      not on load, so the gate paints immediately. Warming the connection
      early costs nothing and shaves the fetch when the tap comes. -->
 <link rel="prefetch" href="vendor/aframe.min.js" as="script">
-<link rel="prefetch" href="vendor/aframe-ar.js" as="script">
+<link rel="prefetch" href="vendor/aframe-ar-nft.js" as="script">
 
 <link rel="stylesheet" href="app.css?v=5">
 </head>
@@ -90,7 +90,7 @@
 
   <div class="actions">
     <button id="start" class="btn btn--primary" disabled>Start camera</button>
-    <a class="btn" href="marker.html" target="_blank" rel="noopener">Open the marker</a>
+    <a id="sheet" class="btn" href="marker.html" target="_blank" rel="noopener">Open the marker</a>
     <button id="xr" class="btn" hidden>Place in the room</button>
     <button id="preview" class="btn">Preview without camera</button>
     <button id="install" class="btn btn--ghost" hidden>Add to home screen</button>

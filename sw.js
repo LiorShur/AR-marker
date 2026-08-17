@@ -5,18 +5,24 @@
    together. install() calls skipWaiting and activate() calls claim, so a
    new worker takes over on the next load rather than the one after —
    provided the host serves this file with no-cache (see firebase.json). */
-var CACHE = 'marker-one-v5';
+var CACHE = 'marker-one-v7';
 
+// Precached at install. The natural-feature descriptors are deliberately not
+// in here: they are 1.4 MB for a target most visitors will never print, and
+// making every first load pay for them to save a second load is the wrong
+// trade. They are cached on first use instead, along with anything else
+// same-origin the app reaches for.
 var ASSETS = [
   './',                       // the navigation URL is "/", not "/index.html"
   'index.html',
   'marker.html',
+  'poster.html',
   'app.css?v=5',
   'app.js?v=5',
   'manifest.webmanifest',
   'content.json',
   'vendor/aframe.min.js',
-  'vendor/aframe-ar.js',
+  'vendor/aframe-ar-nft.js',
   'vendor/meshopt_decoder.js',
   'assets/rotary-phone.glb',  // meshopt-compressed, and the whole point of the scene
   'data/patt.hiro',
@@ -59,7 +65,15 @@ self.addEventListener('fetch', function (e) {
         if (req.mode === 'navigate' && !url.search) { e.waitUntil(revalidate(req)); }
         return hit;
       }
-      return fetch(req).catch(function () {
+      return fetch(req).then(function (res) {
+        // First use of an on-demand asset — the NFT descriptors, the poster —
+        // puts it in the cache so the next run works offline too.
+        if (res && res.ok && res.type === 'basic') {
+          var copy = res.clone();
+          e.waitUntil(caches.open(CACHE).then(function (c) { return c.put(req, copy); }));
+        }
+        return res;
+      }).catch(function () {
         // Offline and unrecognised: a navigation still gets the shell,
         // anything else is genuinely unavailable.
         if (req.mode === 'navigate') { return caches.match('index.html'); }

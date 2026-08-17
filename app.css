@@ -136,7 +136,12 @@ body{
 }
 
 /* ── scene picker ─────────────────────────────────── */
-.picker{display:flex;flex-wrap:wrap;gap:calc(var(--step));margin-bottom:calc(var(--step)*-2)}
+.picker{display:flex;flex-direction:column;gap:calc(var(--step)*1.5);margin-bottom:calc(var(--step)*-2)}
+.picker__row{display:flex;flex-wrap:wrap;align-items:center;gap:calc(var(--step))}
+.picker__label{
+  font-family:var(--mono);font-size:10px;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--dim);flex:0 0 4.6em;
+}
 .chip{
   appearance:none;
   padding:calc(var(--step)*.9) calc(var(--step)*1.75);
@@ -262,6 +267,15 @@ body{
   height:auto;
   image-rendering:pixelated;
   display:block;
+}
+/* The poster is a photographic-style target, not a hard-edged glyph —
+   smoothing it is correct, and it is tall rather than square. */
+.markerpage--sheet img{
+  width:auto;
+  height:min(74vh,900px);
+  max-width:88vw;
+  image-rendering:auto;
+  box-shadow:0 1px 24px rgba(16,16,24,.14);
 }
 .markerpage p{
   max-width:46ch;text-align:center;color:#3A3856;font-size:13px;
