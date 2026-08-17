@@ -1,0 +1,85 @@
+name: test
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+# A push that lands while an earlier run is still going supersedes it —
+# the suite drives a browser and takes a few minutes.
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # The app itself has no dependencies. Playwright is dev-only, and is
+      # pinned here rather than in package.json so that cloning the repo to
+      # run the app stays a zero-install operation.
+      - name: Install Playwright
+        run: npm i --no-save --no-audit --no-fund playwright@1.56.1
+
+      - name: Cache browsers
+        id: browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-chromium-1.56.1-${{ runner.os }}
+
+      - name: Install Chromium
+        if: steps.browsers.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Install system deps
+        if: steps.browsers.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
+      - name: Smoke suite
+        run: npm test
+
+      # Screenshots are the readable half of the result: what the gate, the
+      # preview, both trackers and the shutter actually produced.
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: |
+            screenshots/*.png
+          if-no-files-found: warn
+          retention-days: 14
+
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Parse every script and config
+        run: |
+          for f in app.js sw.js scripts/*.mjs; do node --check "$f"; done
+          for f in content.json firebase.json manifest.webmanifest package.json .firebaserc; do
+            node -e "JSON.parse(require('fs').readFileSync('$f','utf8'))" || exit 1
+          done
+          echo "all parsed"
+
+      # The service worker's precache list is the offline contract. A file
+      # renamed without updating it fails silently at install time, on the
+      # user's phone, with no error anywhere.
+      - name: Precached assets all exist
+        run: node scripts/check-precache.mjs

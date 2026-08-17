@@ -1,8 +1,9 @@
 # Marker One
 
-A level-1 WebAR proof of concept. Point a phone camera at the Hiro marker and a
-tracked rotary phone appears on it, holding position on the marker as you move
-around. No app store, no SDK, no backend, no accounts.
+A WebAR proof of concept with three ways to put an object in the world: a
+printed Hiro marker, a printed poster the tracker reads from its own detail,
+and — where the device supports it — a real surface with no printed target at
+all. No app store, no SDK, no backend, no accounts.
 
 Everything is vendored locally — A-Frame, AR.js, the pattern file and the camera
 calibration file all ship in this folder. Nothing is fetched from a CDN at
@@ -29,6 +30,18 @@ npm run start:http        # plain http, localhost only, no warning
 npm run deploy            # firebase deploy --only hosting
 ```
 
+### The three modes
+
+| Mode | Needs | How it works |
+|---|---|---|
+| **Start camera** | A printed Hiro square, or `marker.html` on a second screen | ARToolKit pattern tracking. Fast, robust, and the black border must stay in frame. |
+| **Place in the room** | A WebXR device — most recent Android phones | WebXR hit test against a real floor or table. Tap to place. The button appears only if the browser reports support; iOS has none. |
+| **Preview without camera** | Nothing | The same scene on the same marker plane, drag to orbit. |
+
+Which target the camera looks for is a chip in the gate, or `?target=`. The
+poster target (`poster.html`) is tracked from its own texture, so unlike the
+Hiro square it can be partly covered and still hold.
+
 ### Without a marker, or without a camera
 
 Tap **Preview without camera**, or open `/?preview`. It renders the same scene
@@ -43,51 +56,118 @@ npm i -D playwright && npx playwright install chromium
 npm test
 ```
 
-The suite drives a real Chromium against a real server with a **synthetic camera
-feed of the Hiro marker**, generated on the fly and handed to Chrome's fake
-capture device. It asserts the things that actually break: the gate grading the
-device, the model rendering, the tracker locking on, the overlay registering on
-the marker to within a few percent, the shutter compositing a real photo, and
-the whole app coming up with the network switched off. Screenshots land in
-`screenshots/`.
+Sixty assertions. The suite drives a real Chromium against a real server with
+**synthetic camera feeds of the Hiro marker and of the poster**, generated on
+the fly and handed to Chrome's fake capture device. It asserts the things that
+actually break: the gate grading the device, the manifest compiling, the model
+decoding and landing where it should, both trackers locking on, the overlay
+registering to within a few percent, the shutter compositing a real photo, the
+descriptors matching the image they were trained from, and the whole app coming
+up with the network switched off. Screenshots land in `screenshots/`.
+
+Markerless mode is the exception: headless Chromium has no XR device, so the
+suite covers the capability gate, the compiled session's wiring and the refusal
+path, but the hit test itself needs real hardware.
+
+CI runs the same suite on every push and keeps the screenshots as artefacts.
 
 ## What's in here
 
 | File | Role |
 |---|---|
 | `index.html` | Capability gate and the AR stage |
-| `app.js` | Checks, lazy vendor loading, both scenes, HUD, capture, teardown |
+| `app.js` | Checks, lazy vendor loading, the scene compiler, all three modes, HUD, capture, teardown |
+| `content.json` | What the targets carry — assets, targets, scenes |
 | `app.css` | All styling |
 | `marker.html` | The Hiro marker, full bleed, for printing or a second screen |
-| `sw.js` | Precaches every asset; offline after first load |
+| `poster.html` | The natural-feature poster, likewise |
+| `sw.js` | Precaches the app; caches the rest on first use |
 | `firebase.json` | Hosting config — MIME types, cache headers, and no SPA rewrite |
 | `scripts/serve.mjs` | Local HTTPS server, no dependencies |
+| `scripts/make-poster.mjs` | Draws the natural-feature poster from a seeded PRNG |
 | `scripts/smoke.mjs` | End-to-end tests against a synthetic camera |
-| `vendor/` | A-Frame 1.5.0 and AR.js 3.4.8 (marker build) |
-| `data/` | Hiro pattern file, ARToolKit camera calibration, marker image |
+| `scripts/check-precache.mjs` | Guards the service worker's offline contract |
+| `vendor/` | A-Frame 1.5.0, AR.js 3.4.8 (NFT build), meshopt decoder |
+| `data/` | Hiro pattern, camera calibration, poster and its descriptors |
 
-## Tuning
+## Changing what appears
 
-The scene is a set of template strings near the top of `app.js`. `CONTENT` is
-shared by both modes, so anything added there shows up on the marker and in
-preview. Marker space is one unit per marker width, Y up, origin at the marker
-centre — so `position="0 0.6 0"` floats an object roughly six-tenths of a marker
-width above it.
+`content.json`, not `app.js`. A **scene** is a list of typed layers — `halo`,
+`ring`, `shell`, `motes`, `model`, and a raw `entity` that takes A-Frame
+attributes verbatim for anything else. A **target** binds a tracked thing to
+the scene it carries. Every scene works in all three modes.
 
-Two attributes worth knowing:
+```json
+{
+  "assets": { "phone": "assets/rotary-phone.glb" },
+  "targets": [
+    { "id": "hiro", "tracking": "pattern", "pattern": "data/patt.hiro",
+      "scene": "rotary-phone", "smooth": { "count": 8 } }
+  ],
+  "scenes": {
+    "rotary-phone": {
+      "roomScale": 0.3,
+      "layers": [{ "type": "model", "asset": "phone", "scale": 0.35, "spin": 14000 }]
+    }
+  }
+}
+```
 
-- `smooth-count` (default 8 here) — frames averaged before the pose updates.
-  Raise it for a steadier object that lags; lower it for a responsive one that
-  jitters.
-- `patternRatio: 0.5` in the `arjs` attribute — the fraction of the marker taken
-  up by the black border. Only change this if you swap in a custom marker
+Coordinates are **one unit per target width**, Y up, origin at the centre, in
+every mode — so `"position": [0, 0.6, 0]` floats an object six-tenths of a
+target width above it whatever it is printed at. `roomScale` converts that to
+metres for markerless mode; without it the object arrives on the floor at the
+size of a small car. `contentScale` on a target fits a scene to a sheet that
+isn't square.
+
+A second scene, `beacon`, ships as a worked example: no model at all, its own
+lights, and it loads no GLB.
+
+Two tracking parameters worth knowing:
+
+- `smooth.count` (8 here) — frames averaged before the pose updates. Raise it
+  for a steadier object that lags; lower it for a responsive one that jitters.
+- `patternRatio: 0.5` in the `arjs` attribute — the fraction of the Hiro marker
+  taken up by its black border. Only change it if you swap in a custom pattern
   generated at a different ratio.
 
 Marker attributes are **kebab-case** (`smooth-count`, not `smoothCount`).
 Attributes inside a component string — `geometry`, `material`, `animation` — are
 camelCase. Getting this backwards fails silently.
 
-## Three things that are load-bearing and not obvious
+## Making your own natural-feature target
+
+```bash
+node scripts/make-poster.mjs            # or bring your own image
+npm i -D @webarkit/nft-marker-creator-app
+node node_modules/@webarkit/nft-marker-creator-app/src/NFTMarkerCreator.js -i poster.jpg
+```
+
+Copy the resulting `.fset`, `.fset3` and `.iset` into `data/nft/` and add a
+target to `content.json` with the trained image's width, height and dpi. The
+app derives the placement transform from those three numbers.
+
+Three things will waste your afternoon otherwise:
+
+**Feed the generator a JPEG.** Its PNG path reads the image with the wrong row
+stride and trains on a sheared, tripled copy — six hundred healthy-looking
+features per level, zero matches, no error. `npm test` extracts level 0 of the
+`.iset` and correlates it against the source image, which is the only way this
+is visible.
+
+**Feature count is not the metric.** A page of solid shapes on white scores as
+highly as a photograph and matches nothing: the matcher describes each feature
+by the light and dark around it, and every corner of a graphic describes
+identically. What works is continuously varying texture — which is why
+`make-poster.mjs` builds the sheet out of multi-octave value noise and lays the
+structure over the top.
+
+**Mind the scale.** AR.js matches on a 320×240 downsample of the camera feed
+whatever the camera's real resolution, so a target filling the frame is about
+200 pixels tall by the time it is matched. Detail finer than ~2% of its width
+is gone.
+
+## Five things that are load-bearing and not obvious
 
 **The camera video is not part of the scene.** AR.js appends a plain `<video>`
 to `<body>` at `z-index: -2` and draws the AR overlay on a transparent WebGL
@@ -106,6 +186,20 @@ violently — the overlay renders as a stretched ellipse nowhere near the marker
 **`[hidden]` needs `display: none !important`.** `.gate` sets `display: flex`,
 which outranks the UA stylesheet's rule for the `hidden` attribute, so the gate
 stays on screen underneath the AR view.
+
+**AR.js's NFT path has to be kicked.** It defers its setup until a window-level
+`arjs-video-loaded` event, but only subscribes once the ARToolkit controller
+exists — which cannot happen until `camera_para.dat` has loaded, comfortably
+after that event has fired. Left alone it waits forever for something already
+gone, requests no descriptors and reports no error. `kickNFT()` re-dispatches
+it once the controller is up.
+
+**AR.js grabs frames using the video's CSS box.** It reads `clientWidth` and
+`clientHeight` when that event fires and uses those two numbers as the *source
+rectangle* of every frame thereafter. Our video is letterboxed to cover the
+screen, so it was matching against a crop of one corner.
+`dispatchVideoLoaded()` shows the element at its true pixel size for the length
+of the dispatch — listeners run synchronously — and restores it immediately.
 
 ## If it doesn't work
 
@@ -144,14 +238,29 @@ To ship a change to `app.js` or `app.css`, bump the `?v=` on both links in
 `skipWaiting()` and `clients.claim()`, so a new version takes over on the next
 load rather than the one after.
 
+## Weight
+
+| | |
+|---|---|
+| Gate, first paint | ~40 KB |
+| A-Frame | 1.4 MB, on tap |
+| AR.js (NFT build, serves both trackers) | 1.7 MB, only for camera modes |
+| Model | 894 KB, meshopt-compressed from 2.3 MB |
+| Poster descriptors | 1.4 MB, only if you use that target |
+
+Preview mode never loads AR.js at all. The descriptors are cached on first use
+rather than precached, so a visitor who never prints the poster never pays for
+it.
+
 ## Where this goes next
 
-The interesting swap is `data/patt.hiro` for a custom pattern, which is a
-15-minute change: generate a `.patt` from your own image with the AR.js marker
-training tool, drop it in `data/`, and repoint the `url` attribute. Everything
-else stays.
-
-Beyond that, in rough order of payoff per hour: NFT image tracking so any
-printed image works as the marker, a WebXR hit-test path for markerless
-placement on modern Android, and a content manifest so the model on the marker
-is data rather than a hard-coded asset id.
+- **Texture compression on the model.** The three 1024² JPEGs are 456 KB of the
+  remaining 894 KB. WebP would take perhaps 150 KB off it, at the cost of a
+  glTF extension with its own compatibility story.
+- **Anchors in markerless mode.** WebXR anchors would hold a placed object
+  against drift far better than a one-shot hit test does.
+- **Occlusion.** A depth-sensing pass on capable Android devices would let the
+  object go behind real furniture, which is most of what separates this from a
+  sticker.
+- **More than one target at once.** Nothing in the manifest format prevents it;
+  the scene compiler currently builds one.
