@@ -23,6 +23,8 @@
   "scenes": {
     "rotary-phone": {
       "label": "Rotary phone",
+      "//roomScale": "In marker mode one unit is the marker's width. In the room one unit is a metre, so the whole scene is scaled down to sit on a table rather than fill it.",
+      "roomScale": 0.3,
       "lights": [
         { "type": "ambient", "color": "#8F8CC0", "intensity": 0.85 },
         { "type": "directional", "color": "#FFFFFF", "intensity": 0.75, "position": [1, 2, 1] },
@@ -66,6 +68,7 @@
 
     "beacon": {
       "label": "Beacon",
+      "roomScale": 0.35,
       "//": "No model at all — pure primitives. Loads instantly, and useful for checking tracking on a slow connection or a weak device.",
       "lights": [
         { "type": "ambient", "color": "#FFFFFF", "intensity": 1 }

@@ -18,6 +18,7 @@
   var stateTxt   = document.getElementById('state-text');
   var countEl    = document.getElementById('dial-count');
   var picker     = document.getElementById('picker');
+  var xrBtn      = document.getElementById('xr');
 
   var mode = null;      // 'ar' | 'preview' | null
   var wakeLock = null;
@@ -368,6 +369,37 @@
     ].join('\n');
   }
 
+  /* Markerless placement. No AR.js at all: WebXR gives us the camera, the
+     pose and a hit test against real surfaces, and A-Frame's built-in
+     ar-hit-test draws the reticle and anchors the target where the user taps.
+
+     Marker space is one unit per marker width; room space is one unit per
+     metre. Without roomScale the object arrives on the floor at the size of
+     a small car. */
+  function xrScene(m, def) {
+    var scale = num(def.roomScale, 0.3);
+    return [
+      '<a-scene id="scene"',
+      '  vr-mode-ui="enabled: false"',
+      '  ar-mode-ui="enabled: false"',
+      '  device-orientation-permission-ui="enabled: false"',
+      '  ' + MESHOPT,
+      '  ' + RENDERER,
+      '  webxr="requiredFeatures: local-floor, hit-test; optionalFeatures: dom-overlay; overlayElement: #hud"',
+      '  ar-hit-test="target: #placeable; type: map">',
+      buildAssets(m, def),
+      buildLights(def),
+      // ar-hit-test reveals and anchors the target itself on tap, so it
+      // starts invisible rather than hovering at the origin.
+      '  <a-entity id="placeable" visible="false"',
+      '    scale="' + scale + ' ' + scale + ' ' + scale + '">',
+      buildScene(m, def),
+      '  </a-entity>',
+      '  <a-entity camera></a-entity>',
+      '</a-scene>'
+    ].join('\n');
+  }
+
   // Same layers, no camera feed and no tracker. The marker itself is laid in
   // as a floor plane so the preview reads as the real thing at rest.
   function previewScene(m, def) {
@@ -514,6 +546,57 @@
     var dx = touches[0].clientX - touches[1].clientX;
     var dy = touches[0].clientY - touches[1].clientY;
     return Math.max(1, Math.sqrt(dx * dx + dy * dy));
+  }
+
+  /* ── markerless mode ────────────────────────────────────────
+     Offered only where it actually works. isSessionSupported is async and
+     absent on iOS entirely, so the button starts hidden and appears if the
+     answer comes back yes — never the other way round, which would flash a
+     control most visitors cannot use. */
+
+  function probeXR() {
+    if (!navigator.xr || !navigator.xr.isSessionSupported) { return; }
+    navigator.xr.isSessionSupported('immersive-ar')
+      .then(function (ok) { if (ok) { xrBtn.hidden = false; } })
+      .catch(function () { /* treat any failure as unsupported */ });
+  }
+
+  function startXR() {
+    busy(xrBtn, 'Loading engine…');
+    fault.hidden = true;
+
+    Promise.all([loadCore(), loadManifest()])
+      .then(function () {
+        mode = 'xr';
+        enterStage();
+        setState('seeking', 'Point at the floor');
+
+        var target = pickTarget(manifest, chosenTarget);
+        slot.innerHTML = xrScene(manifest, pickScene(manifest, target, chosenScene));
+
+        var scene = document.getElementById('scene');
+        scene.addEventListener('ar-hit-test-achieved', function () {
+          setState('seeking', 'Tap to place');
+        });
+        scene.addEventListener('ar-hit-test-select', function () {
+          setState('locked', 'Placed');
+        });
+        // The headset or the system back gesture can end the session without
+        // going through our own Stop button.
+        scene.addEventListener('exit-vr', function () { if (mode === 'xr') { stop(); } });
+
+        idle(xrBtn);
+        return sceneReady(scene).then(function () { return scene.enterAR(); });
+      })
+      .then(keepAwake)
+      .catch(onStartError);
+  }
+
+  function sceneReady(scene) {
+    if (scene.hasLoaded) { return Promise.resolve(); }
+    return new Promise(function (resolve) {
+      scene.addEventListener('loaded', resolve, { once: true });
+    });
   }
 
   /* ── scene picker ───────────────────────────────────────────
@@ -682,6 +765,8 @@
       msg = 'Camera access was refused. Allow the camera for this site in your browser settings, then reload.';
     } else if (name === 'NotFoundError' || name === 'OverconstrainedError') {
       msg = 'No rear-facing camera was found on this device. Preview mode still works.';
+    } else if (mode === 'xr' || (err && /XR|session/i.test(err.message || ''))) {
+      msg = 'This device would not start a WebXR session. Marker mode and preview both still work.';
     } else if (err && /Failed to load/.test(err.message || '')) {
       msg = err.message + ' — check the connection and reload.';
     }
@@ -704,6 +789,7 @@
     var scene = document.getElementById('scene');
     if (scene) {
       try {
+        if (scene.is && scene.is('ar-mode')) { scene.exitVR(); }
         if (scene.renderer) { scene.renderer.dispose(); }
         if (scene.pause) { scene.pause(); }
       } catch (e) { /* teardown is best-effort */ }
@@ -724,6 +810,7 @@
     document.body.classList.remove('is-running');
     idle(startBtn);
     idle(previewBtn);
+    idle(xrBtn);
   }
 
   /* ── photo ──────────────────────────────────────────────────
@@ -819,6 +906,7 @@
   });
 
   startBtn.addEventListener('click', startAR);
+  xrBtn.addEventListener('click', startXR);
   previewBtn.addEventListener('click', startPreview);
   exitBtn.addEventListener('click', stop);
   shootBtn.addEventListener('click', capture);
@@ -864,6 +952,7 @@
   // The manifest is a couple of kilobytes and the picker needs it before any
   // tap, so it is fetched at load — unlike the 3 MB of engine behind it.
   loadManifest().then(renderPicker);
+  probeXR();
 
   // ?preview on the URL jumps straight in, for a link that needs no tap.
   if (location.search.indexOf('preview') !== -1 && !previewBtn.disabled) {

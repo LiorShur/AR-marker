@@ -83,6 +83,9 @@ try {
 
   console.log('\n  manifest');
   await testManifest();
+
+  console.log('\n  markerless (WebXR)');
+  await testXR();
 } finally {
   await browser.close();
   server.kill();
@@ -303,6 +306,97 @@ async function testOffline() {
   await page.screenshot({ path: join(SHOTS, '4-offline.png') });
   await context.setOffline(false);
   await close();
+}
+
+async function testXR() {
+  // Headless Chromium has no XR device, so the session itself cannot be
+  // exercised here. What can: that the button is offered only where the
+  // browser claims support, that the scene compiles with the right WebXR
+  // and hit-test wiring, and that a refused session degrades to a message
+  // rather than a dead screen.
+  const stub = (requestSession) => `
+    Object.defineProperty(navigator, 'xr', {
+      configurable: true,
+      value: {
+        isSessionSupported: (m) => Promise.resolve(m === 'immersive-ar'),
+        requestSession: ${requestSession}
+      }
+    });`;
+
+  {
+    const { page, close } = await open();
+    await page.goto(ORIGIN + '/', { waitUntil: 'load' });
+    await page.waitForTimeout(600);
+    check('markerless button is hidden without WebXR', await page.locator('#xr').isHidden());
+    await close();
+  }
+
+  {
+    // A session request that never settles holds the scene up long enough to
+    // read it. Rejecting here would tear it down mid-assertion.
+    const { page, close } = await open();
+    await page.addInitScript(stub('() => new Promise(() => {})'));
+    await page.goto(ORIGIN + '/', { waitUntil: 'load' });
+
+    const offered = await page.waitForSelector('#xr:not([hidden])', { timeout: 10000 })
+      .then(() => true).catch(() => false);
+    check('markerless button appears when the browser supports it', offered);
+    if (!offered) { await close(); return; }
+
+    await page.locator('#xr').click();
+    await page.waitForFunction(() => document.getElementById('placeable'), null, { timeout: 45000 });
+    await page.waitForTimeout(400);
+
+    const w = await page.evaluate(() => {
+      const scene = document.getElementById('scene');
+      const placeable = document.getElementById('placeable');
+      const hit = scene.getAttribute('ar-hit-test');
+      return {
+        // components parse into objects once initialised, strings before that
+        hitTarget: typeof hit === 'string' ? hit : (hit && hit.target && hit.target.id),
+        webxr: scene.getAttribute('webxr'),
+        arjs: scene.hasAttribute('arjs'),
+        arjsGlobal: typeof window.ARjs === 'undefined',
+        scale: placeable.object3D.scale.toArray(),
+        visible: placeable.object3D.visible,
+        layers: placeable.children.length,
+        overlay: !!document.getElementById('hud')
+      };
+    });
+
+    check('hit test targets the placeable group', /placeable/.test(String(w.hitTarget)),
+      String(w.hitTarget));
+    const required = (w.webxr && w.webxr.requiredFeatures) || [];
+    check('the session asks for hit-test and local-floor',
+      required.includes('hit-test') && required.includes('local-floor'), required.join(', '));
+    check('the HUD is the dom-overlay element', w.overlay);
+    check('markerless mode loads no AR.js', w.arjs === false && w.arjsGlobal);
+    check('content is scaled to room size', Math.abs(w.scale[0] - 0.3) < 1e-6, w.scale.join(', '));
+    check('content starts hidden until placed', w.visible === false);
+    check('the manifest layers are in the placeable group', w.layers === 5, w.layers + ' layers');
+
+    await page.screenshot({ path: join(SHOTS, '7-xr-scene.png') });
+    await close();
+  }
+
+  {
+    const { page, close } = await open();
+    await page.addInitScript(stub("() => Promise.reject(new Error('no XR device in this test'))"));
+    await page.goto(ORIGIN + '/', { waitUntil: 'load' });
+    await page.waitForSelector('#xr:not([hidden])', { timeout: 10000 });
+    await page.locator('#xr').click();
+
+    const recovered = await page.waitForFunction(
+      () => !document.getElementById('fault').hidden && !document.getElementById('gate').hidden,
+      null, { timeout: 45000 }
+    ).then(() => true).catch(() => false);
+    check('a refused session returns to the gate with a message', recovered,
+      (await page.locator('#fault').textContent().catch(() => '')).slice(0, 60));
+
+    const torn = await page.evaluate(() => document.getElementById('scene') === null);
+    check('the refused session leaves nothing behind', torn);
+    await close();
+  }
 }
 
 async function testManifest() {
