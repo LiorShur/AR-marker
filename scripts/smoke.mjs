@@ -80,6 +80,9 @@ try {
 
   console.log('\n  offline');
   await testOffline();
+
+  console.log('\n  manifest');
+  await testManifest();
 } finally {
   await browser.close();
   server.kill();
@@ -103,6 +106,12 @@ async function testGate() {
   check('all three capability checks pass', count === '3/3', count);
 
   check('start button is enabled', await page.locator('#start').isEnabled());
+
+  // The picker is rendered from content.json, so its presence proves the
+  // manifest was fetched, parsed and understood before any tap.
+  await page.waitForSelector('#picker .chip', { timeout: 10000 }).catch(() => {});
+  const chips = await page.locator('#picker .chip').allTextContents();
+  check('scene picker is built from content.json', chips.length === 2, chips.join(' / '));
   check('preview button is enabled', await page.locator('#preview').isEnabled());
 
   const vendorLoaded = await page.evaluate(() => typeof window.AFRAME !== 'undefined');
@@ -294,6 +303,52 @@ async function testOffline() {
   await page.screenshot({ path: join(SHOTS, '4-offline.png') });
   await context.setOffline(false);
   await close();
+}
+
+async function testManifest() {
+  // A second scene with no model at all: proves layers, lights and assets are
+  // all driven by the manifest rather than hard-coded around one GLB.
+  const { page, errors, close } = await open();
+  await page.goto(ORIGIN + '/?preview&scene=beacon', { waitUntil: 'load' });
+
+  await page.waitForFunction(() => document.getElementById('scene')?.hasLoaded,
+    null, { timeout: 45000 });
+  await page.waitForTimeout(1500);
+
+  const built = await page.evaluate(() => {
+    const scene = document.getElementById('scene');
+    let meshes = 0;
+    scene.object3D.traverse((o) => { if (o.isMesh) meshes++; });
+    return {
+      meshes,
+      model: !!document.getElementById('shard'),
+      assets: document.querySelectorAll('a-asset-item').length,
+      lights: document.querySelectorAll('[light]').length
+    };
+  });
+
+  check('a model-free scene builds', built.meshes > 4, built.meshes + ' meshes');
+  check('it loads no model asset', built.model === false && built.assets === 0);
+  check('its own lights are used', built.lights === 1, built.lights + ' light(s)');
+  check('the beacon scene throws nothing', errors.length === 0, errors.join('; '));
+  check('canvas has drawn something', await canvasHasInk(page));
+
+  await page.screenshot({ path: join(SHOTS, '6-beacon.png') });
+  await close();
+
+  // A broken manifest must not take the app down with it.
+  const { page: p2, close: c2 } = await open();
+  await p2.route('**/content.json', (r) => r.fulfill({ status: 500, body: 'nope' }));
+  await p2.goto(ORIGIN + '/?preview', { waitUntil: 'load' });
+  const survived = await p2.waitForFunction(() => {
+    const el = document.getElementById('shard');
+    if (!el || !el.object3D) return false;
+    let m = 0;
+    el.object3D.traverse((o) => { if (o.isMesh) m++; });
+    return m > 0;
+  }, null, { timeout: 45000 }).then(() => true).catch(() => false);
+  check('a failed manifest falls back instead of dying', survived);
+  await c2();
 }
 
 /* ── helpers ────────────────────────────────────────────── */

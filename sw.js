@@ -14,6 +14,7 @@ var ASSETS = [
   'app.css?v=5',
   'app.js?v=5',
   'manifest.webmanifest',
+  'content.json',
   'vendor/aframe.min.js',
   'vendor/aframe-ar.js',
   'vendor/meshopt_decoder.js',

@@ -1,0 +1,95 @@
+{
+  "version": 1,
+  "//": "What the markers carry. Swapping content is an edit here, not a code change. Marker space is one unit per marker width, Y up, origin at the marker centre.",
+
+  "assets": {
+    "phone": "assets/rotary-phone.glb"
+  },
+
+  "default": "hiro",
+
+  "targets": [
+    {
+      "id": "hiro",
+      "label": "Hiro marker",
+      "tracking": "pattern",
+      "pattern": "data/patt.hiro",
+      "sheet": "marker.html",
+      "scene": "rotary-phone",
+      "smooth": { "count": 8, "tolerance": 0.01, "threshold": 4 }
+    }
+  ],
+
+  "scenes": {
+    "rotary-phone": {
+      "label": "Rotary phone",
+      "lights": [
+        { "type": "ambient", "color": "#8F8CC0", "intensity": 0.85 },
+        { "type": "directional", "color": "#FFFFFF", "intensity": 0.75, "position": [1, 2, 1] },
+        { "type": "point", "color": "#6BE3E8", "intensity": 0.9, "distance": 4, "position": [0, 1.2, 0] }
+      ],
+      "layers": [
+        {
+          "type": "halo",
+          "//": "reads as the object's footprint on the marker",
+          "innerRadius": 0.62, "outerRadius": 0.74, "color": "#6BE3E8",
+          "opacity": 0.55, "breathe": 2600
+        },
+        {
+          "type": "ring",
+          "position": [0, 0.6, 0], "rotation": [72, 0, 18],
+          "radius": 0.62, "thickness": 0.008, "color": "#6BE3E8",
+          "opacity": 0.75, "spin": 11000
+        },
+        {
+          "type": "shell",
+          "position": [0, 0.6, 0], "radius": 0.52, "color": "#A9F0F3",
+          "opacity": 0.32, "spin": 16000
+        },
+        {
+          "type": "model",
+          "asset": "phone",
+          "//": "the model is ~1 unit tall and centred on its origin, so at scale 0.35 a Y of 0.18 rests it on the marker instead of half-sinking it",
+          "position": [0, 0.18, 0], "scale": 0.35, "spin": 14000
+        },
+        {
+          "type": "motes",
+          "position": [0, 0.6, 0], "spin": 6000,
+          "items": [
+            { "position": [0.78, 0.06, 0], "radius": 0.035, "color": "#FFFFFF", "opacity": 0.9 },
+            { "position": [-0.39, -0.14, 0.68], "radius": 0.028, "color": "#6BE3E8", "opacity": 0.85 },
+            { "position": [-0.39, 0.2, -0.68], "radius": 0.024, "color": "#A9F0F3", "opacity": 0.8 }
+          ]
+        }
+      ]
+    },
+
+    "beacon": {
+      "label": "Beacon",
+      "//": "No model at all — pure primitives. Loads instantly, and useful for checking tracking on a slow connection or a weak device.",
+      "lights": [
+        { "type": "ambient", "color": "#FFFFFF", "intensity": 1 }
+      ],
+      "layers": [
+        {
+          "type": "halo",
+          "innerRadius": 0.5, "outerRadius": 0.58, "color": "#F2A65A",
+          "opacity": 0.7, "breathe": 1800
+        },
+        {
+          "type": "shell",
+          "position": [0, 0.45, 0], "radius": 0.42, "color": "#F2A65A",
+          "opacity": 0.6, "spin": 9000
+        },
+        {
+          "type": "motes",
+          "position": [0, 0.45, 0], "spin": 4200,
+          "items": [
+            { "position": [0.6, 0, 0], "radius": 0.05, "color": "#FFFFFF", "opacity": 0.95 },
+            { "position": [-0.6, 0, 0], "radius": 0.05, "color": "#F2A65A", "opacity": 0.95 }
+          ]
+        }
+      ]
+    }
+  }
+}

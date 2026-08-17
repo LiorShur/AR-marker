@@ -135,6 +135,27 @@ body{
   color:var(--mist);
 }
 
+/* ── scene picker ─────────────────────────────────── */
+.picker{display:flex;flex-wrap:wrap;gap:calc(var(--step));margin-bottom:calc(var(--step)*-2)}
+.chip{
+  appearance:none;
+  padding:calc(var(--step)*.9) calc(var(--step)*1.75);
+  border:1px solid var(--line);
+  border-radius:999px;
+  background:transparent;
+  color:var(--dim);
+  font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;
+  cursor:pointer;
+  transition:border-color .2s,color .2s,background .2s;
+}
+.chip:hover{border-color:var(--dim);color:var(--mist)}
+.chip:focus-visible{outline:2px solid var(--locked);outline-offset:2px}
+.chip[aria-pressed="true"]{
+  border-color:var(--locked);
+  color:var(--locked);
+  background:rgba(107,227,232,.08);
+}
+
 /* ── actions ──────────────────────────────────────── */
 .actions{display:flex;flex-direction:column;gap:calc(var(--step)*1.5)}
 .btn{

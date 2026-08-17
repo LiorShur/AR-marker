@@ -86,6 +86,8 @@
 
   <p id="fault" class="fault" role="status" hidden></p>
 
+  <div id="picker" class="picker" role="group" aria-label="What the marker carries" hidden></div>
+
   <div class="actions">
     <button id="start" class="btn btn--primary" disabled>Start camera</button>
     <a class="btn" href="marker.html" target="_blank" rel="noopener">Open the marker</a>
@@ -102,6 +104,7 @@
     <p><span class="foot__k">Marker</span> Hiro, the ARToolKit standard. Print it, or open it on a second screen and point the phone at that.</p>
     <p><span class="foot__k">Works on</span> Android Chrome and iOS Safari, over HTTPS only. Camera access is asked for once and never leaves the device — nothing is uploaded, there is no backend.</p>
     <p><span class="foot__k">No marker</span> Preview mode renders the same scene with mouse or touch orbit, no camera involved. It is the object, not the tracking.</p>
+    <p><span class="foot__k">Content</span> What the marker carries is described in <code>content.json</code> — models, decoration and tracking parameters. Swapping it is an edit to that file, not a code change.</p>
   </footer>
 </main>
 

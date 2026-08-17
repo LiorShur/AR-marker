@@ -17,9 +17,14 @@
   var stateEl    = document.getElementById('state');
   var stateTxt   = document.getElementById('state-text');
   var countEl    = document.getElementById('dial-count');
+  var picker     = document.getElementById('picker');
 
   var mode = null;      // 'ar' | 'preview' | null
   var wakeLock = null;
+
+  var params = new URLSearchParams(location.search);
+  var chosenTarget = params.get('target');
+  var chosenScene = params.get('scene');
 
   /* ── capability checks ──────────────────────────────────────
      Three real checks, drawn as three arcs. Any failure explains
@@ -133,57 +138,197 @@
     return vendorReady.ar;
   }
 
-  /* ── scene content ──────────────────────────────────────────
-     Marker space is one unit per marker width, Y up, origin at the
-     marker centre. The same subtree is used by both modes, so what
-     preview shows is what the marker carries. */
+  /* ── content ────────────────────────────────────────────────
+     What the marker carries lives in content.json, not here. A scene is
+     a list of typed layers; this module turns each into A-Frame markup.
+     Marker space is one unit per marker width, Y up, origin at the marker
+     centre, so every number in the manifest is a fraction of the printed
+     marker's width and stays right whatever size it is printed at. */
 
-  var CONTENT = [
-    // ground halo — reads as the object's footprint on the marker
-    '<a-entity position="0 0.012 0" rotation="-90 0 0"',
-    '  geometry="primitive: ring; radiusInner: 0.62; radiusOuter: 0.74; segmentsTheta: 64"',
-    '  material="color: #6BE3E8; shader: flat; opacity: 0.55; transparent: true; side: double"',
-    '  animation="property: scale; to: 1.14 1.14 1.14; dir: alternate; loop: true; dur: 2600; easing: easeInOutSine">',
-    '</a-entity>',
+  // Enough of the manifest to run if content.json is missing or malformed —
+  // the app is offline-first, and a failed fetch must not be fatal.
+  var FALLBACK = {
+    assets: { phone: 'assets/rotary-phone.glb' },
+    'default': 'hiro',
+    targets: [{
+      id: 'hiro', label: 'Hiro marker', tracking: 'pattern',
+      pattern: 'data/patt.hiro', sheet: 'marker.html', scene: 'fallback',
+      smooth: { count: 8, tolerance: 0.01, threshold: 4 }
+    }],
+    scenes: {
+      fallback: {
+        label: 'Rotary phone',
+        lights: [{ type: 'ambient', color: '#8F8CC0', intensity: 0.85 },
+                 { type: 'directional', color: '#FFFFFF', intensity: 0.75, position: [1, 2, 1] }],
+        layers: [{ type: 'model', asset: 'phone', position: [0, 0.18, 0], scale: 0.35, spin: 14000 }]
+      }
+    }
+  };
 
-    // orbit ring
-    '<a-entity position="0 0.6 0" rotation="72 0 18"',
-    '  geometry="primitive: torus; radius: 0.62; radiusTubular: 0.008; segmentsRadial: 12; segmentsTubular: 64"',
-    '  material="color: #6BE3E8; shader: flat; opacity: 0.75; transparent: true"',
-    '  animation="property: rotation; to: 72 360 18; loop: true; dur: 11000; easing: linear">',
-    '</a-entity>',
+  var manifest = null;
 
-    // wireframe shell
-    '<a-entity position="0 0.6 0"',
-    '  geometry="primitive: octahedron; radius: 0.52"',
-    '  material="color: #A9F0F3; wireframe: true; opacity: 0.32; transparent: true; shader: flat"',
-    '  animation="property: rotation; to: 0 -360 0; loop: true; dur: 16000; easing: linear">',
-    '</a-entity>',
+  function loadManifest() {
+    if (manifest) { return Promise.resolve(manifest); }
+    return fetch('content.json')
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(new Error(r.status)); })
+      .catch(function () { return FALLBACK; })
+      .then(function (m) {
+        manifest = (m && m.targets && m.scenes) ? m : FALLBACK;
+        return manifest;
+      });
+  }
 
-    // the model — centred on its origin and ~1 unit tall, so at scale 0.35
-    // a Y of 0.18 rests it on the marker instead of half-sinking it
-    '<a-entity id="shard" position="0 0.18 0" scale="0.35 0.35 0.35"',
-    '  gltf-model="#phone"',
-    '  animation="property: rotation; to: 0 360 0; loop: true; dur: 14000; easing: linear">',
-    '</a-entity>',
+  function pickTarget(m, id) {
+    var wanted = id || m['default'];
+    for (var i = 0; i < m.targets.length; i++) {
+      if (m.targets[i].id === wanted) { return m.targets[i]; }
+    }
+    return m.targets[0];
+  }
 
-    // three motes on a shared pivot
-    '<a-entity position="0 0.6 0" animation="property: rotation; to: 0 360 0; loop: true; dur: 6000; easing: linear">',
-    '  <a-entity position="0.78 0.06 0" geometry="primitive: sphere; radius: 0.035; segmentsWidth: 16; segmentsHeight: 12" material="color: #FFFFFF; shader: flat; opacity: 0.9; transparent: true"></a-entity>',
-    '  <a-entity position="-0.39 -0.14 0.68" geometry="primitive: sphere; radius: 0.028; segmentsWidth: 16; segmentsHeight: 12" material="color: #6BE3E8; shader: flat; opacity: 0.85; transparent: true"></a-entity>',
-    '  <a-entity position="-0.39 0.2 -0.68" geometry="primitive: sphere; radius: 0.024; segmentsWidth: 16; segmentsHeight: 12" material="color: #A9F0F3; shader: flat; opacity: 0.8; transparent: true"></a-entity>',
-    '</a-entity>'
-  ].join('\n');
+  // A target says which scene it carries by default; the picker and the
+  // ?scene= parameter override that without touching the manifest.
+  function pickScene(m, target, id) {
+    return m.scenes[id] || m.scenes[target.scene] || m.scenes[Object.keys(m.scenes)[0]];
+  }
 
-  var LIGHTS = [
-    '<a-entity light="type: ambient; color: #8F8CC0; intensity: 0.85"></a-entity>',
-    '<a-entity light="type: directional; color: #FFFFFF; intensity: 0.75" position="1 2 1"></a-entity>',
-    '<a-entity light="type: point; color: #6BE3E8; intensity: 0.9; distance: 4" position="0 1.2 0"></a-entity>'
-  ].join('\n');
+  /* ── layer compiler ─────────────────────────────────────────
+     A small vocabulary of named recipes, plus a raw `entity` escape hatch
+     for anything the vocabulary does not cover. */
 
-  // preserveDrawingBuffer is deliberately absent: A-Frame does not forward it
-  // to the WebGLRenderer constructor, so setting it here would only look like
-  // it worked. capture() re-renders on demand instead.
+  var LAYERS = {
+    // the object's footprint, a ring flat on the marker
+    halo: function (l) {
+      return el({
+        position: xyz(l.position || [0, 0.012, 0]),
+        rotation: '-90 0 0',
+        geometry: 'primitive: ring; radiusInner: ' + num(l.innerRadius, 0.62) +
+                  '; radiusOuter: ' + num(l.outerRadius, 0.74) + '; segmentsTheta: 64',
+        material: flat(l, 0.55) + '; side: double',
+        animation: l.breathe ? 'property: scale; to: 1.14 1.14 1.14; dir: alternate; loop: true; dur: ' +
+                   l.breathe + '; easing: easeInOutSine' : null
+      });
+    },
+
+    ring: function (l) {
+      return el({
+        position: xyz(l.position || [0, 0.6, 0]),
+        rotation: xyz(l.rotation || [72, 0, 18]),
+        geometry: 'primitive: torus; radius: ' + num(l.radius, 0.62) +
+                  '; radiusTubular: ' + num(l.thickness, 0.008) +
+                  '; segmentsRadial: 12; segmentsTubular: 64',
+        material: flat(l, 0.75),
+        animation: l.spin ? 'property: rotation; to: ' + spinTo(l.rotation || [72, 0, 18]) +
+                   '; loop: true; dur: ' + l.spin + '; easing: linear' : null
+      });
+    },
+
+    shell: function (l) {
+      return el({
+        position: xyz(l.position || [0, 0.6, 0]),
+        geometry: 'primitive: octahedron; radius: ' + num(l.radius, 0.52),
+        material: flat(l, 0.32) + '; wireframe: true',
+        animation: l.spin ? 'property: rotation; to: 0 -360 0; loop: true; dur: ' +
+                   l.spin + '; easing: linear' : null
+      });
+    },
+
+    // several small spheres on one shared pivot, so they orbit together
+    motes: function (l) {
+      var kids = (l.items || []).map(function (m) {
+        return el({
+          position: xyz(m.position),
+          geometry: 'primitive: sphere; radius: ' + num(m.radius, 0.03) +
+                    '; segmentsWidth: 16; segmentsHeight: 12',
+          material: flat(m, 0.9)
+        });
+      }).join('\n');
+      return el({
+        position: xyz(l.position || [0, 0.6, 0]),
+        animation: l.spin ? 'property: rotation; to: 0 360 0; loop: true; dur: ' +
+                   l.spin + '; easing: linear' : null
+      }, kids);
+    },
+
+    model: function (l, m) {
+      if (!m.assets || !m.assets[l.asset]) { return ''; }
+      var scale = num(l.scale, 1);
+      return el({
+        id: 'shard',
+        position: xyz(l.position || [0, 0, 0]),
+        scale: scale + ' ' + scale + ' ' + scale,
+        'gltf-model': '#asset-' + l.asset,
+        animation: l.spin ? 'property: rotation; to: 0 360 0; loop: true; dur: ' +
+                   l.spin + '; easing: linear' : null
+      });
+    },
+
+    // anything the recipes above do not cover: attributes, verbatim
+    entity: function (l) { return el(l.attributes || {}); }
+  };
+
+  function buildScene(m, def) {
+    return (def.layers || []).map(function (l) {
+      var make = LAYERS[l.type];
+      return make ? make(l, m) : '';
+    }).join('\n');
+  }
+
+  function buildLights(def) {
+    return (def.lights || []).map(function (l) {
+      var light = 'type: ' + (l.type || 'ambient') +
+                  '; color: ' + (l.color || '#FFFFFF') +
+                  '; intensity: ' + num(l.intensity, 1);
+      if (l.distance) { light += '; distance: ' + l.distance; }
+      return el({ light: light, position: l.position ? xyz(l.position) : null });
+    }).join('\n');
+  }
+
+  // Only the assets this scene actually references — the beacon scene loads
+  // no model at all, and should not pay for one.
+  function buildAssets(m, def) {
+    var used = {};
+    (def.layers || []).forEach(function (l) { if (l.asset) { used[l.asset] = true; } });
+    var items = Object.keys(used).map(function (id) {
+      return '<a-asset-item id="asset-' + id + '" src="' + m.assets[id] + '"></a-asset-item>';
+    });
+    return '<a-assets timeout="30000">\n' + items.join('\n') + '\n</a-assets>';
+  }
+
+  /* ── markup helpers ─────────────────────────────────────── */
+
+  function el(attrs, children) {
+    var out = '<a-entity';
+    Object.keys(attrs).forEach(function (k) {
+      if (attrs[k] === null || attrs[k] === undefined) { return; }
+      out += ' ' + k + '="' + String(attrs[k]).replace(/"/g, '&quot;') + '"';
+    });
+    return children ? out + '>\n' + children + '\n</a-entity>' : out + '></a-entity>';
+  }
+
+  function flat(l, fallbackOpacity) {
+    var o = num(l.opacity, fallbackOpacity);
+    return 'color: ' + (l.color || '#FFFFFF') + '; shader: flat; opacity: ' + o +
+           '; transparent: ' + (o < 1);
+  }
+
+  function xyz(v) {
+    return Array.isArray(v) ? v.join(' ') : String(v);
+  }
+
+  function num(v, fallback) {
+    return typeof v === 'number' && isFinite(v) ? v : fallback;
+  }
+
+  // Spin a tilted ring about its own Y without losing the tilt.
+  function spinTo(rotation) {
+    return rotation[0] + ' 360 ' + rotation[2];
+  }
+
+  /* ── scenes ─────────────────────────────────────────────────
+     Built on demand so the camera permission prompt is tied to a tap,
+     not to page load. */
+
   // The model ships meshopt-compressed: 2.29 MB of geometry and textures down
   // to 894 KB. A-Frame injects this path as a classic script and waits on the
   // window.MeshoptDecoder it registers. Draco would compress a little harder
@@ -191,63 +336,62 @@
   // inlined, which matters more when the whole point is offline-first.
   var MESHOPT = 'gltf-model="meshoptDecoderPath: vendor/meshopt_decoder.js"';
 
+  // preserveDrawingBuffer is deliberately absent: A-Frame does not forward it
+  // to the WebGLRenderer constructor, so setting it here would only look like
+  // it worked. capture() re-renders on demand instead.
   var RENDERER = 'renderer="antialias: true; alpha: true; colorManagement: true; ' +
                  'logarithmicDepthBuffer: true"';
 
-  var AR_SCENE = [
-    '<a-scene id="scene" embedded',
-    '  vr-mode-ui="enabled: false"',
-    '  device-orientation-permission-ui="enabled: false"',
-    '  ' + MESHOPT,
-    '  ' + RENDERER,
-    '  arjs="sourceType: webcam; detectionMode: mono; patternRatio: 0.5; trackingMethod: best;',
-    '        cameraParametersUrl: data/camera_para.dat; debugUIEnabled: false;',
-    '        sourceWidth: 1280; sourceHeight: 960; displayWidth: 1280; displayHeight: 960">',
+  function arScene(m, target, def) {
+    var smooth = target.smooth || {};
+    return [
+      '<a-scene id="scene" embedded',
+      '  vr-mode-ui="enabled: false"',
+      '  device-orientation-permission-ui="enabled: false"',
+      '  ' + MESHOPT,
+      '  ' + RENDERER,
+      '  arjs="sourceType: webcam; detectionMode: mono; patternRatio: 0.5; trackingMethod: best;',
+      '        cameraParametersUrl: data/camera_para.dat; debugUIEnabled: false;',
+      '        sourceWidth: 1280; sourceHeight: 960; displayWidth: 1280; displayHeight: 960">',
+      buildAssets(m, def),
+      buildLights(def),
+      // Note: marker attributes are kebab-case. smoothCount would silently
+      // not map, and the object would jitter with no obvious cause.
+      '  <a-marker id="marker" type="pattern" url="' + target.pattern + '"',
+      '     smooth="true" smooth-count="' + num(smooth.count, 8) + '"',
+      '     smooth-tolerance="' + num(smooth.tolerance, 0.01) + '"',
+      '     smooth-threshold="' + num(smooth.threshold, 4) + '">',
+      buildScene(m, def),
+      '  </a-marker>',
+      '  <a-entity camera look-controls="enabled: false" wasd-controls="enabled: false"></a-entity>',
+      '</a-scene>'
+    ].join('\n');
+  }
 
-    '  <a-assets timeout="30000">',
-    '    <a-asset-item id="phone" src="assets/rotary-phone.glb"></a-asset-item>',
-    '  </a-assets>',
-
-    LIGHTS,
-
-    // Note: marker attributes are kebab-case. smoothCount would silently
-    // not map, and the object would jitter with no obvious cause.
-    '  <a-marker id="marker" type="pattern" url="data/patt.hiro"',
-    '     smooth="true" smooth-count="8" smooth-tolerance="0.01" smooth-threshold="4">',
-    CONTENT,
-    '  </a-marker>',
-    '  <a-entity camera look-controls="enabled: false" wasd-controls="enabled: false"></a-entity>',
-    '</a-scene>'
-  ].join('\n');
-
-  // Same subtree, no camera feed and no tracker. The marker itself is laid
-  // in as a floor plane so the preview reads as the real thing at rest.
-  var PREVIEW_SCENE = [
-    '<a-scene id="scene" embedded',
-    '  vr-mode-ui="enabled: false"',
-    '  device-orientation-permission-ui="enabled: false"',
-    '  ' + MESHOPT,
-    '  ' + RENDERER + '>',
-
-    '  <a-assets timeout="30000">',
-    '    <a-asset-item id="phone" src="assets/rotary-phone.glb"></a-asset-item>',
-    '    <img id="markerimg" src="data/marker-hiro.png">',
-    '  </a-assets>',
-
-    '  <a-sky color="#0B0A14"></a-sky>',
-    '  <a-entity geometry="primitive: plane; width: 1; height: 1" rotation="-90 0 0"',
-    '    material="src: #markerimg; shader: flat; side: double"></a-entity>',
-    '  <a-entity geometry="primitive: plane; width: 12; height: 12" rotation="-90 0 0" position="0 -0.002 0"',
-    '    material="color: #17162B; shader: flat"></a-entity>',
-
-    LIGHTS,
-    CONTENT,
-
-    '  <a-entity id="rig" orbit="radius: 2.6; theta: 22; phi: 24; target: 0 0.5 0">',
-    '    <a-entity camera="fov: 55" look-controls="enabled: false" wasd-controls="enabled: false"></a-entity>',
-    '  </a-entity>',
-    '</a-scene>'
-  ].join('\n');
+  // Same layers, no camera feed and no tracker. The marker itself is laid in
+  // as a floor plane so the preview reads as the real thing at rest.
+  function previewScene(m, def) {
+    return [
+      '<a-scene id="scene" embedded',
+      '  vr-mode-ui="enabled: false"',
+      '  device-orientation-permission-ui="enabled: false"',
+      '  ' + MESHOPT,
+      '  ' + RENDERER + '>',
+      buildAssets(m, def).replace('</a-assets>',
+        '<img id="markerimg" src="data/marker-hiro.png">\n</a-assets>'),
+      '  <a-sky color="#0B0A14"></a-sky>',
+      '  <a-entity geometry="primitive: plane; width: 1; height: 1" rotation="-90 0 0"',
+      '    material="src: #markerimg; shader: flat; side: double"></a-entity>',
+      '  <a-entity geometry="primitive: plane; width: 12; height: 12" rotation="-90 0 0" position="0 -0.002 0"',
+      '    material="color: #17162B; shader: flat"></a-entity>',
+      buildLights(def),
+      buildScene(m, def),
+      '  <a-entity id="rig" orbit="radius: 2.6; theta: 22; phi: 24; target: 0 0.5 0">',
+      '    <a-entity camera="fov: 55" look-controls="enabled: false" wasd-controls="enabled: false"></a-entity>',
+      '  </a-entity>',
+      '</a-scene>'
+    ].join('\n');
+  }
 
   /* ── orbit control (preview only) ───────────────────────────
      A-Frame ships no orbit camera. This is the smallest thing that
@@ -372,6 +516,36 @@
     return Math.max(1, Math.sqrt(dx * dx + dy * dy));
   }
 
+  /* ── scene picker ───────────────────────────────────────────
+     Rendered from the manifest, and only when there is a choice to make.
+     One scene means no picker rather than a control that does nothing. */
+
+  function renderPicker(m) {
+    var ids = Object.keys(m.scenes);
+    if (ids.length < 2) { return; }
+
+    if (!chosenScene || !m.scenes[chosenScene]) {
+      chosenScene = pickTarget(m, chosenTarget).scene;
+    }
+
+    picker.innerHTML = '';
+    ids.forEach(function (id) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'chip';
+      b.textContent = m.scenes[id].label || id;
+      b.setAttribute('aria-pressed', String(id === chosenScene));
+      b.addEventListener('click', function () {
+        chosenScene = id;
+        Array.prototype.forEach.call(picker.children, function (c) {
+          c.setAttribute('aria-pressed', String(c === b));
+        });
+      });
+      picker.appendChild(b);
+    });
+    picker.hidden = false;
+  }
+
   /* ── state readout ──────────────────────────────────────── */
 
   function setState(s, label) {
@@ -399,7 +573,7 @@
     // Probe first, then build the scene. Some devices — iOS especially —
     // will not hand the camera to two getUserMedia calls at once, so the
     // probe track is released before AR.js opens its own stream.
-    loadVendor()
+    Promise.all([loadVendor(), loadManifest()])
       .then(function () {
         busy(startBtn, 'Opening camera…');
         return navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
@@ -412,7 +586,8 @@
         mode = 'ar';
         enterStage();
         setState('seeking');
-        slot.innerHTML = AR_SCENE;
+        var target = pickTarget(manifest, chosenTarget);
+        slot.innerHTML = arScene(manifest, target, pickScene(manifest, target, chosenScene));
 
         var marker = document.getElementById('marker');
         marker.addEventListener('markerFound', function () { setState('locked'); });
@@ -434,12 +609,13 @@
     busy(previewBtn, 'Loading engine…');
     fault.hidden = true;
 
-    loadCore()
+    Promise.all([loadCore(), loadManifest()])
       .then(function () {
         mode = 'preview';
         enterStage();
         setState('preview', 'Preview — drag to orbit');
-        slot.innerHTML = PREVIEW_SCENE;
+        slot.innerHTML = previewScene(manifest,
+          pickScene(manifest, pickTarget(manifest, chosenTarget), chosenScene));
         idle(previewBtn);
       })
       .catch(onStartError);
@@ -684,6 +860,10 @@
       navigator.serviceWorker.register('sw.js').catch(function () { /* offline is optional */ });
     });
   }
+
+  // The manifest is a couple of kilobytes and the picker needs it before any
+  // tap, so it is fetched at load — unlike the 3 MB of engine behind it.
+  loadManifest().then(renderPicker);
 
   // ?preview on the URL jumps straight in, for a link that needs no tap.
   if (location.search.indexOf('preview') !== -1 && !previewBtn.disabled) {
