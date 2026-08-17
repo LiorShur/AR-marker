@@ -1,0 +1,16 @@
+{
+  "name": "Marker One — WebAR field test",
+  "short_name": "Marker One",
+  "description": "A level-1 WebAR proof of concept: point a phone camera at a marker and a tracked object appears.",
+  "start_url": "index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0B0A14",
+  "theme_color": "#0B0A14",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

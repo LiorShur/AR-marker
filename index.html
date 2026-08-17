@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Marker One — WebAR field test</title>
+<meta name="description" content="A level-1 WebAR proof of concept. Point a phone camera at a printed marker and a tracked object appears.">
+<meta name="theme-color" content="#0B0A14">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="stylesheet" href="app.css?v=3">
+</head>
+<body>
+
+<!-- ─────────────────────────  GATE  ───────────────────────── -->
+<script>
+/* On-screen error trap. Phones have no console you can reach without a cable,
+   and a parse error in app.js is otherwise completely silent — the page just
+   sits at its default state forever. This prints it where you can read it. */
+(function(){
+  function show(kind, msg, where){
+    var p = document.getElementById('crash');
+    if(!p){
+      p = document.createElement('pre');
+      p.id = 'crash';
+      document.body.appendChild(p);
+    }
+    p.textContent = kind + '\n\n' + msg + (where ? '\n\n' + where : '');
+    p.hidden = false;
+  }
+  window.addEventListener('error', function(e){
+    if (e.target && e.target.tagName === 'SCRIPT') {
+      show('Script failed to load', e.target.src || '(inline)', '');
+      return;
+    }
+    show('JavaScript error', e.message || String(e.error), (e.filename||'') + ':' + (e.lineno||'?'));
+  }, true);
+  window.addEventListener('unhandledrejection', function(e){
+    show('Unhandled rejection', (e.reason && (e.reason.message || e.reason)) || 'unknown', '');
+  });
+})();
+</script>
+
+<main id="gate" class="gate">
+  <header class="gate__head">
+    <p class="eyebrow">WebAR field test <span class="eyebrow__sep">/</span> level 1 <span class="eyebrow__sep">/</span> marker tracked</p>
+    <h1 class="title">Marker<span class="title__break"> </span>One</h1>
+    <p class="lede">Point this phone at the marker. A shard appears on it, holds position as you move, and vanishes when the marker leaves frame. No install, no store, no SDK.</p>
+  </header>
+
+  <section class="readout" aria-label="Device capability">
+    <div class="dial">
+      <svg viewBox="0 0 120 120" role="img" aria-labelledby="dial-title">
+        <title id="dial-title">Three capability checks</title>
+        <circle class="dial__track" cx="60" cy="60" r="52"></circle>
+        <circle class="dial__track" cx="60" cy="60" r="42"></circle>
+        <circle class="dial__track" cx="60" cy="60" r="32"></circle>
+        <circle id="arc-secure" class="dial__arc" cx="60" cy="60" r="52"></circle>
+        <circle id="arc-camera" class="dial__arc" cx="60" cy="60" r="42"></circle>
+        <circle id="arc-webgl"  class="dial__arc" cx="60" cy="60" r="32"></circle>
+      </svg>
+      <span id="dial-count" class="dial__count">0/3</span>
+    </div>
+    <ul class="checks">
+      <li id="chk-secure"><span class="checks__dot"></span><span class="checks__label">Secure origin</span><span class="checks__val">…</span></li>
+      <li id="chk-camera"><span class="checks__dot"></span><span class="checks__label">Camera API</span><span class="checks__val">…</span></li>
+      <li id="chk-webgl"><span class="checks__dot"></span><span class="checks__label">WebGL</span><span class="checks__val">…</span></li>
+    </ul>
+  </section>
+
+  <p id="fault" class="fault" hidden></p>
+
+  <div class="actions">
+    <button id="start" class="btn btn--primary" disabled>Start camera</button>
+    <a class="btn" href="marker.html" target="_blank" rel="noopener">Open the marker</a>
+    <button id="install" class="btn btn--ghost" hidden>Add to home screen</button>
+  </div>
+
+  <footer class="foot">
+    <p><span class="foot__k">Marker</span> Hiro, the ARToolKit standard. Print it, or open it on a second screen and point the phone at that.</p>
+    <p><span class="foot__k">Works on</span> Android Chrome and iOS Safari, over HTTPS only. Camera access is asked for once and never leaves the device — nothing is uploaded, there is no backend.</p>
+  </footer>
+</main>
+
+<!-- ─────────────────────────  AR  ───────────────────────── -->
+<div id="stage" class="stage" hidden>
+  <div id="scene-slot"></div>
+  <div class="hud">
+    <button id="exit" class="hud__exit" aria-label="Stop camera">Stop</button>
+    <div id="state" class="hud__state" data-state="seeking">
+      <span class="hud__pip"></span><span id="state-text">Seeking marker</span>
+    </div>
+  </div>
+</div>
+
+<script src="vendor/aframe.min.js"></script>
+<script src="vendor/aframe-ar.js"></script>
+<script src="app.js?v=3"></script>
+</body>
+</html>
