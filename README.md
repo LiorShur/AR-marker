@@ -176,7 +176,7 @@ whatever the camera's real resolution, so a target filling the frame is about
 200 pixels tall by the time it is matched. Detail finer than ~2% of its width
 is gone.
 
-## Five things that are load-bearing and not obvious
+## Six things that are load-bearing and not obvious
 
 **The camera video is not part of the scene.** AR.js appends a plain `<video>`
 to `<body>` at `z-index: -2` and draws the AR overlay on a transparent WebGL
@@ -191,6 +191,23 @@ embedded scene's canvas to its container. On a tall phone those disagree
 violently — the overlay renders as a stretched ellipse nowhere near the marker.
 `applyFeedSize()` in `app.js` copies the video's box onto the canvas and pins
 `<body>` so AR.js cannot shift it.
+
+**Exiting a camera mode has to dispose four separate things.** Removing the
+scene from the page stops the render loop and nothing else. AR.js keeps an
+ARToolKit context with a WASM heap of tens of megabytes, and a worker that goes
+on grabbing frames from a video that no longer has a stream. three.js keeps
+every geometry, material and texture on the GPU. AR.js also leaves two
+anonymous `window` resize handlers per session that dereference a null element
+once disposed, so every rotation of the phone afterwards fires all of them. And
+`renderer.dispose()` frees three's own resources but leaves the **WebGL context
+alive until the garbage collector gets to the canvas** — browsers allow about
+sixteen, phones far fewer, so the third session finds none available.
+
+None of it errors. None of it is visible. It presents as the browser locking up
+on returning to the gate, and it does not reproduce on a desktop with sixteen
+contexts and eight gigabytes. `teardown()` in `app.js` handles all four, and the
+suite runs three start/stop cycles asserting that live contexts stay flat, the
+worker is terminated, and the gate still works afterwards.
 
 **`geolocation=()` is off, not "ask".** An empty Permissions-Policy allowlist
 disables the API outright — the call fails and the browser never shows a

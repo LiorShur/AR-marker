@@ -35,9 +35,19 @@
 
   function hasWebGL() {
     try {
-      var c = document.createElement('canvas');
-      return !!(window.WebGLRenderingContext &&
-        (c.getContext('webgl') || c.getContext('experimental-webgl')));
+      if (!window.WebGLRenderingContext) { return false; }
+
+      var canvas = document.createElement('canvas');
+      var gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+      if (!gl) { return false; }
+
+      // Hand it straight back. A browser allows only a handful of live
+      // contexts — as few as four on a modest phone — and holding one for the
+      // rest of the session to answer a question already answered is a
+      // context the AR view then cannot have.
+      var lose = gl.getExtension('WEBGL_lose_context');
+      if (lose) { lose.loseContext(); }
+      return true;
     } catch (e) { return false; }
   }
 
@@ -137,6 +147,7 @@
   // well as a-nft and is 245 bytes larger than the marker-only build, so
   // shipping two would cost 1.6 MB to save nothing.
   function loadVendor() {
+    trackWorkers();
     if (!vendorReady.ar) {
       vendorReady.ar = loadCore()
         .then(function () { return loadScript('vendor/aframe-ar-nft.js'); })
@@ -661,6 +672,7 @@
         setState('seeking', 'Point at the floor');
 
         var target = pickTarget(manifest, chosenTarget);
+        captureWindowListeners();
         slot.innerHTML = xrScene(manifest, pickScene(manifest, target, chosenScene));
 
         var scene = document.getElementById('scene');
@@ -715,6 +727,7 @@
         mode = 'world';
         enterStage();
         setState('seeking', 'Finding you…');
+        captureWindowListeners();
         slot.innerHTML = worldScene(manifest);
 
         var scene = document.getElementById('scene');
@@ -1019,6 +1032,7 @@
         enterStage();
         setState('seeking');
         var target = pickTarget(manifest, chosenTarget);
+        captureWindowListeners();
         slot.innerHTML = arScene(manifest, target, pickScene(manifest, target, chosenScene));
 
         var marker = document.getElementById('marker');
@@ -1048,6 +1062,7 @@
         mode = 'preview';
         enterStage();
         setState('preview', 'Preview — drag to orbit');
+        captureWindowListeners();
         slot.innerHTML = previewScene(manifest,
           pickScene(manifest, pickTarget(manifest, chosenTarget), chosenScene));
         idle(previewBtn);
@@ -1206,28 +1221,11 @@
     window.removeEventListener('resize', syncFeed);
     window.removeEventListener('orientationchange', syncFeed);
 
-    // Tear the scene down entirely: A-Frame keeps the video track alive
-    // otherwise, and the camera light stays on. Dispose the renderer too —
-    // browsers cap live WebGL contexts, and start/stop cycles otherwise
-    // leak one each time until the whole page goes black.
     var scene = document.getElementById('scene');
-    if (scene) {
-      try {
-        if (scene.is && scene.is('ar-mode')) { scene.exitVR(); }
-        if (scene.renderer) { scene.renderer.dispose(); }
-        if (scene.pause) { scene.pause(); }
-      } catch (e) { /* teardown is best-effort */ }
-    }
 
-    Array.prototype.forEach.call(document.querySelectorAll('video'), function (video) {
-      if (video.srcObject) {
-        video.srcObject.getTracks().forEach(function (t) { t.stop(); });
-        video.srcObject = null;
-      }
-      if (video.parentNode) { video.parentNode.removeChild(video); }
-    });
-
-    slot.innerHTML = '';
+    // The gate comes back now, not when the teardown finishes. Disposing a
+    // renderer and a WASM heap takes long enough to feel like a hang if it
+    // happens between the tap and the screen changing.
     mode = null;
     stage.hidden = true;
     gate.hidden = false;
@@ -1236,6 +1234,168 @@
     idle(previewBtn);
     idle(xrBtn);
     idle(worldBtn);
+
+    // An immersive session has to be ended before its renderer is pulled
+    // apart, and exitVR is asynchronous. Tearing down underneath it leaves
+    // the compositor holding a session that no longer has anything to draw.
+    Promise.resolve()
+      .then(function () {
+        if (scene && scene.is && scene.is('ar-mode')) { return scene.exitVR(); }
+      })
+      .catch(function () { /* it may already be gone */ })
+      .then(function () { teardown(scene); });
+  }
+
+  /* ── teardown ───────────────────────────────────────────────
+     The expensive half, and the reason this app used to wedge a phone after
+     a session or two. Nothing here is optional:
+
+     AR.js allocates an ARToolKit context with its own WASM heap, tens of
+     megabytes of it, and a camera source. Neither is freed by removing the
+     scene from the page.
+
+     three.js keeps every geometry, material and texture on the GPU until
+     something disposes them.
+
+     And the WebGL context itself outlives renderer.dispose(): three frees its
+     own resources but leaves the context alive until the garbage collector
+     gets round to the canvas. Desktop browsers allow about sixteen live
+     contexts and phones far fewer, so on a phone the third session finds
+     none available — which presents as the browser locking up rather than as
+     anything resembling an error. forceContextLoss releases it now. */
+
+  function teardown(scene) {
+    if (!scene) { return; }
+
+    // First, before anything can fire. AR.js registers two window resize
+    // handlers per session and offers no way to remove them; once its source
+    // is disposed they dereference a null domElement and throw. They survive
+    // the scene, so every session leaves two more behind, and every rotation
+    // of the phone afterwards fires the lot.
+    releaseWindowListeners();
+
+    disposeARjs(scene);
+    stopCameraTracks();
+
+    if (scene.parentNode) { scene.parentNode.removeChild(scene); }
+    slot.innerHTML = '';
+
+    disposeSceneGraph(scene);
+    disposeRenderer(scene);
+    terminateWorkers();
+  }
+
+  function disposeARjs(scene) {
+    try {
+      var system = scene.systems && scene.systems.arjs;
+      var session = system && system._arSession;
+      if (!session) { return; }
+      // Order matters: the context owns the marker controls and the
+      // ARToolKit heap; the source owns the camera.
+      if (session.arContext && session.arContext.dispose) { session.arContext.dispose(); }
+      if (session.arSource && session.arSource.dispose) { session.arSource.dispose(); }
+    } catch (e) { /* best effort — a half-built session may have neither */ }
+  }
+
+  function stopCameraTracks() {
+    Array.prototype.forEach.call(document.querySelectorAll('video'), function (video) {
+      if (video.srcObject) {
+        video.srcObject.getTracks().forEach(function (t) { t.stop(); });
+        video.srcObject = null;
+      }
+      if (video.parentNode) { video.parentNode.removeChild(video); }
+    });
+  }
+
+  function disposeSceneGraph(scene) {
+    try {
+      scene.object3D.traverse(function (object) {
+        if (object.geometry && object.geometry.dispose) { object.geometry.dispose(); }
+
+        var materials = Array.isArray(object.material) ? object.material
+          : (object.material ? [object.material] : []);
+
+        materials.forEach(function (material) {
+          // Textures are the big ones — the model alone carries three
+          // 1024-square maps — and disposing the material does not touch them.
+          Object.keys(material).forEach(function (key) {
+            var value = material[key];
+            if (value && value.isTexture && value.dispose) { value.dispose(); }
+          });
+          if (material.dispose) { material.dispose(); }
+        });
+      });
+    } catch (e) { /* best effort */ }
+  }
+
+  function disposeRenderer(scene) {
+    try {
+      var renderer = scene.renderer;
+      if (!renderer) { return; }
+      if (renderer.setAnimationLoop) { renderer.setAnimationLoop(null); }
+      renderer.dispose();
+      if (renderer.forceContextLoss) { renderer.forceContextLoss(); }
+    } catch (e) { /* best effort */ }
+  }
+
+  /* Window listeners added while a scene exists belong to that scene.
+     A-Frame's own are removed with it; AR.js's are not, and are anonymous, so
+     removeEventListener cannot reach them. Recording them as they are added
+     is the only handle. */
+
+  var captured = [];
+  var realAddEventListener = null;
+
+  function captureWindowListeners() {
+    if (realAddEventListener) { return; }
+
+    realAddEventListener = window.addEventListener;
+    window.addEventListener = function (type, listener, options) {
+      if (type === 'resize' || type === 'orientationchange') {
+        captured.push([type, listener, options]);
+      }
+      return realAddEventListener.call(window, type, listener, options);
+    };
+  }
+
+  function releaseWindowListeners() {
+    if (realAddEventListener) {
+      window.addEventListener = realAddEventListener;
+      realAddEventListener = null;
+    }
+    captured.forEach(function (entry) {
+      try { window.removeEventListener(entry[0], entry[1], entry[2]); } catch (e) { /* fine */ }
+    });
+    captured = [];
+  }
+
+  /* AR.js starts a worker for natural-feature tracking and offers no way to
+     reach it. Left alone it keeps its loop going after the scene is gone —
+     grabbing frames from a video that no longer has a stream and shipping a
+     320x240 buffer to a worker nobody is listening to, forever. Wrapping the
+     constructor is the only handle there is. */
+
+  var workers = [];
+
+  function trackWorkers() {
+    if (typeof Worker !== 'function' || Worker.__marker_one) { return; }
+
+    var Real = Worker;
+    function Tracked(url, opts) {
+      var worker = new Real(url, opts);
+      workers.push(worker);
+      return worker;
+    }
+    Tracked.prototype = Real.prototype;
+    Tracked.__marker_one = true;
+    window.Worker = Tracked;
+  }
+
+  function terminateWorkers() {
+    workers.forEach(function (worker) {
+      try { worker.terminate(); } catch (e) { /* already gone */ }
+    });
+    workers = [];
   }
 
   /* ── photo ──────────────────────────────────────────────────

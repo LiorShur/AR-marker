@@ -95,6 +95,9 @@ try {
 
   console.log('\n  placements in the world');
   await testWorld();
+
+  console.log('\n  teardown');
+  await testTeardown();
 } finally {
   await browser.close();
   server.kill();
@@ -362,6 +365,117 @@ async function testOffline() {
   await page.screenshot({ path: join(SHOTS, '4-offline.png') });
   await context.setOffline(false);
   await close();
+}
+
+async function testTeardown() {
+  // The bug this pins down: stopping a camera mode used to leave the WebGL
+  // context, the ARToolKit heap, AR.js's resize handlers and its worker all
+  // alive. Nothing errors, nothing is visible, and after a session or two a
+  // phone has no contexts left to give and locks up. It survived this long
+  // because on a desktop with sixteen contexts and eight gigabytes it simply
+  // does not show.
+  const { page, errors, close } = await open();
+  await page.goto(ORIGIN + '/', { waitUntil: 'load' });
+
+  const readings = [];
+  for (let i = 0; i < 3; i++) {
+    await page.locator('#start').click();
+    await page.waitForFunction(() => document.getElementById('scene')?.hasLoaded,
+      null, { timeout: 60000 });
+    await page.waitForTimeout(1200);
+    await page.evaluate(() => { window.__renderer = document.getElementById('scene').renderer; });
+
+    await page.locator('#exit').click();
+    await page.waitForTimeout(1200);
+
+    readings.push(await page.evaluate(async () => {
+      const before = window.__renderer ? window.__renderer.info.render.frame : -1;
+      await new Promise((r) => setTimeout(r, 700));
+      return {
+        stillRendering: window.__renderer ? window.__renderer.info.render.frame - before : -1,
+        glLive: window.__glLive,
+        glMade: window.__glMade,
+        canvases: document.querySelectorAll('canvas').length,
+        videos: document.querySelectorAll('video').length,
+        scenes: document.querySelectorAll('a-scene').length
+      };
+    }));
+  }
+
+  const last = readings[readings.length - 1];
+  check('the render loop stops', readings.every((r) => r.stillRendering === 0));
+  check('the canvas, video and scene are all gone',
+    readings.every((r) => r.canvases === 0 && r.videos === 0 && r.scenes === 0));
+  check('a new context is taken each session', last.glMade >= 3, last.glMade + ' created');
+  check('and released each time — contexts do not accumulate',
+    readings.every((r) => r.glLive === readings[0].glLive),
+    readings.map((r) => r.glLive).join(' -> ') + ' live');
+  check('teardown throws nothing', errors.length === 0, errors.slice(0, 2).join('; '));
+
+  // The gate has to be usable afterwards, not merely visible. An error
+  // overlay or a stuck fixed-position body both leave it looking fine.
+  check('the gate is interactive again', await page.locator('#preview').isEnabled());
+  await page.locator('#preview').click();
+  const recovered = await page.waitForFunction(() => document.getElementById('scene'),
+    null, { timeout: 45000 }).then(() => true).catch(() => false);
+  check('a mode can be started again after three cycles', recovered);
+  await close();
+
+  // Natural-feature mode is the one that starts a worker, and the worker
+  // outlives the scene: it keeps grabbing frames from a dead video and
+  // shipping buffers to nobody.
+  const feed = await makeFakeCamera({
+    chromium,
+    markerPath: join(ROOT, 'data', 'poster.jpg'),
+    out: join(SHOTS, 'fake-poster.y4m'),
+    scale: 0.9, width: 1280, height: 960, fit: 'height'
+  });
+  const nft = await chromium.launch({
+    args: [
+      '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream',
+      `--use-file-for-fake-video-capture=${feed.path}`,
+      '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'
+    ]
+  });
+  try {
+    const context = await nft.newContext({
+      permissions: ['camera'], viewport: { width: 900, height: 700 }
+    });
+    const page2 = await context.newPage();
+    await page2.addInitScript(() => {
+      window.__workersMade = 0;
+      window.__workersLive = 0;
+      const RealWorker = window.Worker;
+      function Counted(...args) {
+        const worker = new RealWorker(...args);
+        window.__workersMade++;
+        window.__workersLive++;
+        const terminate = worker.terminate.bind(worker);
+        worker.terminate = function () { window.__workersLive--; return terminate(); };
+        return worker;
+      }
+      Counted.prototype = RealWorker.prototype;
+      window.Worker = Counted;
+    });
+
+    await page2.goto(ORIGIN + '/?target=poster', { waitUntil: 'load' });
+    await page2.locator('#start').click();
+    await page2.waitForFunction(
+      () => document.getElementById('state').dataset.state === 'locked',
+      null, { timeout: 120000 }
+    ).catch(() => {});
+
+    const started = await page2.evaluate(() => window.__workersMade);
+    await page2.locator('#exit').click();
+    await page2.waitForTimeout(1500);
+    const alive = await page2.evaluate(() => window.__workersLive);
+
+    check('natural-feature tracking starts a worker', started > 0, started + ' started');
+    check('and it is terminated on exit', alive === 0, alive + ' still running');
+    await context.close();
+  } finally {
+    await nft.close();
+  }
 }
 
 async function testWorld() {
@@ -862,6 +976,36 @@ async function open() {
   const errors = [];
   const offsite = [];
   page.on('pageerror', (e) => { errors.push(e.message); console.log('    [page error] ' + (e.stack || e.message)); });
+  await page.addInitScript(() => {
+    // Live WebGL contexts, and whether AR.js's worker is ever shut down.
+    // Both are invisible from the page and both wedge a phone when they leak.
+    window.__glLive = 0;
+    window.__glMade = 0;
+    const getContext = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function (type, ...rest) {
+      const ctx = getContext.call(this, type, ...rest);
+      if (/webgl/.test(type) && ctx) {
+        window.__glMade++;
+        window.__glLive++;
+        this.addEventListener('webglcontextlost', () => { window.__glLive--; }, { once: true });
+      }
+      return ctx;
+    };
+
+    window.__workersMade = 0;
+    window.__workersLive = 0;
+    const RealWorker = window.Worker;
+    function Counted(...args) {
+      const worker = new RealWorker(...args);
+      window.__workersMade++;
+      window.__workersLive++;
+      const terminate = worker.terminate.bind(worker);
+      worker.terminate = function () { window.__workersLive--; return terminate(); };
+      return worker;
+    }
+    Counted.prototype = RealWorker.prototype;
+    window.Worker = Counted;
+  });
   page.on('request', (r) => {
     const u = new URL(r.url());
     if (u.origin !== ORIGIN && u.protocol !== 'data:' && u.protocol !== 'blob:') { offsite.push(r.url()); }
