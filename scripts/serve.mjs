@@ -54,6 +54,47 @@ const TYPES = {
   '.iset': 'application/octet-stream'
 };
 
+/* The headers Firebase Hosting will send, sent here too.
+ *
+ * Without this, local and deployed are different environments and the
+ * difference is invisible until someone is standing in a field. A
+ * Permissions-Policy of `geolocation=()` is an empty allowlist — it disables
+ * the API outright and the browser never even offers a prompt — and it went
+ * unnoticed for exactly as long as the dev server declined to send it.
+ */
+async function hostingHeaders() {
+  let config;
+  try {
+    config = JSON.parse(await readFile(join(ROOT, 'firebase.json'), 'utf8'));
+  } catch {
+    return () => ({});
+  }
+
+  const rules = ((config.hosting && config.hosting.headers) || []).map((rule) => ({
+    match: globToRegExp(rule.source),
+    headers: rule.headers || []
+  }));
+
+  return (path) => {
+    const out = {};
+    // Firebase applies every matching rule in order, later ones winning.
+    for (const rule of rules) {
+      if (!rule.match.test(path)) { continue; }
+      for (const h of rule.headers) { out[h.key] = h.value; }
+    }
+    return out;
+  };
+}
+
+function globToRegExp(glob) {
+  const escaped = String(glob).replace(/[.+^${}()|[\]\\]/g, '\\$&');
+  const body = escaped
+    .replace(/\*\*/g, '\u0000')      // ** spans separators
+    .replace(/\*/g, '[^/]*')          // * does not
+    .replace(/\u0000/g, '.*');
+  return new RegExp(glob.startsWith('/') ? `^${body}$` : `^.*${body}$`);
+}
+
 function lanAddress() {
   for (const list of Object.values(networkInterfaces())) {
     for (const net of list ?? []) {
@@ -100,6 +141,8 @@ async function certificate(host) {
   return { key: await readFile(key), cert: await readFile(cert) };
 }
 
+const headersFor = await hostingHeaders();
+
 async function handler(req, res) {
   const url = new URL(req.url, 'http://x');
   let path = decodeURIComponent(url.pathname);
@@ -115,9 +158,11 @@ async function handler(req, res) {
   try {
     const body = await readFile(file);
     res.writeHead(200, {
+      ...headersFor(path),
       'Content-Type': TYPES[extname(file).toLowerCase()] ?? 'application/octet-stream',
       // Never cache in dev — a stale service worker asset is the single most
-      // confusing failure mode this project has.
+      // confusing failure mode this project has. This deliberately overrides
+      // whatever Cache-Control the hosting config asks for.
       'Cache-Control': 'no-store, must-revalidate',
       'Service-Worker-Allowed': '/'
     });

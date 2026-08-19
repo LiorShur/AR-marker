@@ -155,7 +155,9 @@
               }
             });
           }, function (err) {
-            reject(new Error('location unavailable: ' + (err && err.message || 'refused')));
+            var e = new Error(explain(err));
+            e.code = err && err.code;
+            reject(e);
           }, {
             enableHighAccuracy: true,
             timeout: timeout,
@@ -164,6 +166,30 @@
         });
       }
     };
+  }
+
+  // The three ways this fails are three different problems with three
+  // different fixes, and "location unavailable" helps with none of them. The
+  // permissions-policy case is worth calling out by name: the browser refuses
+  // without ever prompting, so it reads to a user as the app being broken.
+  function explain(err) {
+    var message = (err && err.message) || '';
+
+    if (/permissions policy|disabled in this document/i.test(message)) {
+      return 'Geolocation is blocked by this page\'s permissions policy — ' +
+             'the browser will not even ask. Check the Permissions-Policy header.';
+    }
+    if (err && err.code === 1) {
+      return 'Location was refused. Allow it for this site in the browser, then reload.';
+    }
+    if (err && err.code === 2) {
+      return 'No position available. Turn on location services on the device — ' +
+             'the site permission is not enough on its own.';
+    }
+    if (err && err.code === 3) {
+      return 'Timed out waiting for a fix. Try again outdoors with a view of the sky.';
+    }
+    return 'Location unavailable: ' + (message || 'refused');
   }
 
   /* ── heading from a walked baseline ────────────────────────

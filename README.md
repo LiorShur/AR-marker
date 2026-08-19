@@ -88,6 +88,7 @@ CI runs the same suite on every push and keeps the screenshots as artefacts.
 | `scripts/make-poster.mjs` | Draws the natural-feature poster from a seeded PRNG |
 | `scripts/smoke.mjs` | End-to-end tests against a synthetic camera |
 | `scripts/check-precache.mjs` | Guards the service worker's offline contract |
+| `scripts/check-policy.mjs` | Fails if Permissions-Policy blocks an API in use |
 | `scripts/unit.mjs` | Fast tests for the pure logic — no browser |
 | `spatial/geo.js` | WGS84, ENU, and geohash indexing |
 | `spatial/store.js` | Placements over the Firestore REST API |
@@ -190,6 +191,14 @@ embedded scene's canvas to its container. On a tall phone those disagree
 violently — the overlay renders as a stretched ellipse nowhere near the marker.
 `applyFeedSize()` in `app.js` copies the video's box onto the canvas and pins
 `<body>` so AR.js cannot shift it.
+
+**`geolocation=()` is off, not "ask".** An empty Permissions-Policy allowlist
+disables the API outright — the call fails and the browser never shows a
+prompt, which to a user is indistinguishable from the feature being broken and
+to a reader looks like a sensible lockdown. It shipped that way. The header
+lives only in `firebase.json`, where no test could see it, so `scripts/serve.mjs`
+now mirrors the hosting headers and `scripts/check-policy.mjs` fails CI if the
+policy contradicts an API the code actually calls.
 
 **`[hidden]` needs `display: none !important`.** `.gate` sets `display: flex`,
 which outranks the UA stylesheet's rule for the `hidden` attribute, so the gate

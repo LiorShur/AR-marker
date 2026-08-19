@@ -708,6 +708,10 @@
 
     Promise.all([loadCore(), loadManifest()])
       .then(function () {
+        busy(worldBtn, 'Checking location…');
+        return warmLocation();
+      })
+      .then(function () {
         mode = 'world';
         enterStage();
         setState('seeking', 'Finding you…');
@@ -744,6 +748,45 @@
         }, 4000);
       })
       .catch(onStartError);
+  }
+
+  /* Ask for location while the page is still an ordinary page.
+     Two reasons. A permission prompt raised inside an immersive WebXR session
+     is at best awkward and at worst never shown at all, so the session would
+     start and then quietly fail to locate. And a refusal is worth finding out
+     about before the camera is running, not after. A cold receiver that has
+     not fixed yet is not a refusal — the session can start and the fix can
+     arrive a moment later. */
+  function warmLocation() {
+    if (!navigator.geolocation) {
+      return Promise.reject(new Error('This browser has no geolocation.'));
+    }
+
+    return new Promise(function (resolve, reject) {
+      navigator.geolocation.getCurrentPosition(
+        function () { resolve(true); },
+        function (err) {
+          if (err && (err.code === 1 || /permissions policy/i.test(err.message || ''))) {
+            var e = new Error(locationMessage(err));
+            e.isLocation = true;
+            reject(e);
+            return;
+          }
+          resolve(false);
+        },
+        { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 }
+      );
+    });
+  }
+
+  function locationMessage(err) {
+    if (/permissions policy|disabled in this document/i.test((err && err.message) || '')) {
+      return 'Geolocation is blocked by this page\'s permissions policy, so the ' +
+             'browser will not even ask. This is a server header, not a setting on your phone.';
+    }
+    return 'Location was refused. Allow it for this site, then reload. ' +
+           'On Android, check the device location toggle too — the site permission ' +
+           'alone is not enough.';
   }
 
   // Where the device is in the session's own frame. The controller needs this
@@ -823,6 +866,11 @@
 
     var at = e.detail && e.detail.position;
     if (!at) { return; }
+
+    // ar-hit-test anchors its target on select, which would leave the reticle
+    // sitting on the ground. It is an aiming mark, not the content.
+    var reticle = document.getElementById('reticle');
+    if (reticle) { reticle.setAttribute('visible', false); }
 
     // Face whatever the user is facing, so a placed object reads the right way
     // round to the person who put it there.
@@ -1133,8 +1181,8 @@
       msg = 'Camera access was refused. Allow the camera for this site in your browser settings, then reload.';
     } else if (name === 'NotFoundError' || name === 'OverconstrainedError') {
       msg = 'No rear-facing camera was found on this device. Preview mode still works.';
-    } else if (mode === 'world' && err && /location|geolocation/i.test(err.message || '')) {
-      msg = 'Location is needed to place things in the world. Allow it for this site, then reload.';
+    } else if (err && err.isLocation) {
+      msg = err.message;
     } else if (mode === 'xr' || mode === 'world' || (err && /XR|session/i.test(err.message || ''))) {
       msg = 'This device would not start a WebXR session. Marker mode and preview both still work.';
     } else if (err && /Failed to load/.test(err.message || '')) {

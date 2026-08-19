@@ -88,3 +88,8 @@ jobs:
       # user's phone, with no error anywhere.
       - name: Precached assets all exist
         run: node scripts/check-precache.mjs
+
+      # An empty Permissions-Policy allowlist is off, not "prompt", and the
+      # header lives only in the hosting config where no test can see it.
+      - name: Permissions-Policy allows what the app calls
+        run: node scripts/check-policy.mjs

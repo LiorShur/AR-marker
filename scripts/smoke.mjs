@@ -119,6 +119,30 @@ async function testGate() {
 
   check('start button is enabled', await page.locator('#start').isEnabled());
 
+  // The dev server mirrors the hosting headers so that local and deployed are
+  // the same environment. They were not, and geolocation was disabled in
+  // production by a header no test could see.
+  const policy = await page.evaluate(async () => {
+    const res = await fetch(location.href, { method: 'GET', cache: 'no-store' });
+    return res.headers.get('permissions-policy') || '';
+  });
+  check('the dev server sends the hosting headers', policy.length > 0, policy);
+  check('geolocation is not disabled by policy',
+    !/geolocation=\(\)/.test(policy) && /geolocation=\(self\)/.test(policy));
+  check('the camera is not disabled by policy', /camera=\(self\)/.test(policy));
+
+  // And the API is genuinely reachable, not merely un-forbidden on paper.
+  const reachable = await page.evaluate(() => new Promise((resolve) => {
+    if (!navigator.geolocation) { return resolve('absent'); }
+    navigator.geolocation.getCurrentPosition(
+      () => resolve('ok'),
+      (err) => resolve(/permissions policy|disabled in this document/i.test(err.message || '')
+        ? 'blocked by policy' : 'ok'),
+      { timeout: 3000 }
+    );
+  }));
+  check('geolocation is actually callable', reachable === 'ok', reachable);
+
   // The picker is rendered from content.json, so its presence proves the
   // manifest was fetched, parsed and understood before any tap. One row of
   // chips per axis of choice: which target to track, and what it carries.
@@ -829,7 +853,9 @@ async function grabShutterOutput(page) {
 
 async function open() {
   const context = await browser.newContext({
-    permissions: ['camera'],
+    permissions: ['camera', 'geolocation'],
+    // Somewhere with a known position, so a fix resolves rather than hanging.
+    geolocation: { latitude: 51.5007, longitude: -0.1246, accuracy: 5 },
     viewport: { width: 900, height: 700 }
   });
   const page = await context.newPage();
