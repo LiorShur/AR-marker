@@ -36,6 +36,7 @@ npm run deploy            # firebase deploy --only hosting
 |---|---|---|
 | **Start camera** | A printed Hiro square, or `marker.html` on a second screen | ARToolKit pattern tracking. Fast, robust, and the black border must stay in frame. |
 | **Place in the room** | A WebXR device — most recent Android phones | WebXR hit test against a real floor or table. Tap to place. The button appears only if the browser reports support; iOS has none. |
+| **Place in the world** | A WebXR device and a Firebase project | Objects left at a place and found again — by you tomorrow, or by anyone standing there. |
 | **Preview without camera** | Nothing | The same scene on the same marker plane, drag to orbit. |
 
 Which target the camera looks for is a chip in the gate, or `?target=`. The
@@ -91,6 +92,7 @@ CI runs the same suite on every push and keeps the screenshots as artefacts.
 | `spatial/geo.js` | WGS84, ENU, and geohash indexing |
 | `spatial/store.js` | Placements over the Firestore REST API |
 | `spatial/localize.js` | Localization providers and the frame transform |
+| `spatial/world.js` | The session controller — fixes, calibration, placements |
 | `spatial/config.js` | Firebase project settings — empty means "stay local" |
 | `firestore.rules` | Who may write what, assuming the client is a lie |
 | `vendor/` | A-Frame 1.5.0, AR.js 3.4.8 (NFT build), meshopt decoder |
@@ -285,19 +287,49 @@ it fixes heading.
 `headingFromBaseline()` is the cheap answer that works anywhere, including
 under trees where nothing visual will help: two positions a few metres apart
 give a bearing to well under a degree, and the session's own tracking says
-which way that was in local terms. It refuses baselines shorter than the
-position noise, because at five metres apart a two-metre error is twenty
-degrees.
+which way that was in local terms.
+
+It refuses three things, and each refusal is a real failure seen in the field:
+a baseline shorter than the position noise (at five metres apart, two metres of
+error is twenty degrees); a baseline swamped by a poor fix; and a walk the
+session did not track — tracking lost, or the device moved without the camera
+agreeing, as in a vehicle. In that last case the two bearings describe
+different journeys and subtracting them yields a confident, meaningless
+number.
+
+### Using it
+
+**Place in the world** appears on the gate once a project is configured and the
+device can hold a WebXR session. Then:
+
+1. It finds you — a GPS fix, a few metres of accuracy.
+2. **It asks you to walk.** This is the part nobody expects. One fix is a
+   position; two, far enough apart, are a position *and a bearing*. Until it
+   has both it says `calibrating` and shows how far you have gone, because a
+   phone compass is tens of degrees out and tens of degrees is the wrong
+   street.
+3. Once located, the HUD shows `±5m · ±6°` — position and heading accuracy,
+   both, always. Nearby placements appear where they were left.
+4. Tap the reticle to leave something. What you placed is written with the
+   accuracy it was placed at, so anyone reading it back knows what it is worth.
+
+It keeps sampling: to refine the bearing while you walk, and to re-anchor the
+frame once you have moved far enough that WebXR's own drift matters.
 
 ### Setting it up
 
 ```bash
 firebase deploy --only firestore:rules,firestore:indexes,storage   # npm run deploy:rules
+cp spatial/config.local.example.js spatial/config.local.js         # then fill it in
 ```
 
-Then fill in `projectId` and `apiKey` in `spatial/config.js`. The web API key is
-not a secret — it identifies the project and authorises nothing. What protects
-the data is `firestore.rules`.
+`spatial/config.local.js` is gitignored and loaded after the committed
+defaults, so your project settings stay out of version control and pulls stay
+clean. It is optional — absent, the app runs entirely locally, and the
+on-screen error trap knows to stay quiet about it.
+
+The web API key is not a secret — it identifies the project and authorises
+nothing. What protects the data is `firestore.rules`.
 
 **Anonymous auth is not a security boundary.** Anyone can mint a uid for the
 cost of one HTTP request, so the rules treat every write as hostile: shape,
@@ -337,3 +369,11 @@ it.
   sticker.
 - **More than one target at once.** Nothing in the manifest format prevents it;
   the scene compiler currently builds one.
+- **A better localization provider.** The provider interface is the seam:
+  Immersal's REST API would give sub-metre position *and* orientation from one
+  camera frame, with no walking, and works indoors and in nature. ARCore's
+  Geospatial API would beat it outdoors where Street View reaches, but only
+  from a native app.
+- **Only yaw is applied.** Placements store a full quaternion, as GeoPose does,
+  but content standing on the ground only ever uses the heading. Roll and pitch
+  survive a round trip and nothing reads them.

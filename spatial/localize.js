@@ -92,6 +92,12 @@
       // was authored facing a particular way in the world.
       headingToLocalYaw: function (headingDeg) {
         return geo.headingToYaw(headingDeg - (local.yawDeg || 0));
+      },
+
+      // The inverse, for recording which way something was facing when the
+      // user put it down.
+      localYawToHeading: function (yawRad) {
+        return ((-yawRad * 180 / Math.PI) + (local.yawDeg || 0) + 360) % 360;
       }
     };
   }
@@ -185,11 +191,17 @@
 
     var localBearing = null;
     if (a.local && b.local) {
-      var t = geo.threeToEnu({
-        x: b.local.x - a.local.x,
-        y: 0,
-        z: b.local.z - a.local.z
-      });
+      var dx = b.local.x - a.local.x;
+      var dz = b.local.z - a.local.z;
+      var travelled = Math.hypot(dx, dz);
+
+      // The session has to have seen the same walk. If it did not — tracking
+      // was lost, or the device moved without the camera agreeing, as in a
+      // vehicle — then the two bearings describe different journeys and
+      // subtracting them produces a confident, meaningless number.
+      if (travelled < separation * 0.5 || travelled > separation * 2) { return null; }
+
+      var t = geo.threeToEnu({ x: dx, y: 0, z: dz });
       localBearing = (Math.atan2(t.e, t.n) * 180 / Math.PI + 360) % 360;
     }
 

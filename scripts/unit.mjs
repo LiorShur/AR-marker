@@ -16,6 +16,7 @@ const require = createRequire(import.meta.url);
 const geo = require(join(ROOT, 'spatial', 'geo.js'));
 const { createStore } = require(join(ROOT, 'spatial', 'store.js'));
 const local = require(join(ROOT, 'spatial', 'localize.js'));
+const world = require(join(ROOT, 'spatial', 'world.js'));
 
 const results = [];
 const check = (name, ok, detail = '') => {
@@ -257,6 +258,13 @@ console.log('\n  baseline heading');
   check('refuses a baseline swamped by a poor fix',
     local.headingFromBaseline(at(0, 0, 0, 0, 20), at(30, 0, 0, -30, 20)) === null);
 
+  // The session must have observed the same journey. A walk the tracker did
+  // not see is not a bearing, however confident the arithmetic looks.
+  check('refuses a walk the session did not track',
+    local.headingFromBaseline(at(0, 0, 0, 0), at(30, 0, 0, 0)) === null);
+  check('refuses a session that moved further than the walk',
+    local.headingFromBaseline(at(0, 0, 0, 0), at(30, 0, 0, -200)) === null);
+
   // Error shrinks as the baseline grows — the whole reason to walk further.
   const short = local.headingFromBaseline(at(0, 0, 0, 0), at(10, 0, 0, -10));
   const long = local.headingFromBaseline(at(0, 0, 0, 0), at(100, 0, 0, -100));
@@ -388,6 +396,167 @@ console.log('\n  placement store');
   await store2.place({ geopose: { position: { lat: 0, lon: 0 } } })
     .then(() => check('rejects a placement with no scene', false))
     .catch((e) => check('rejects a placement with no scene', /scene/.test(e.message)));
+}
+
+/* ── orientation ─────────────────────────────────────────── */
+console.log('\n  orientation');
+{
+  for (const h of [0, 45, 90, 180, 270, 359]) {
+    const back = geo.headingFromQuaternion(geo.headingToQuaternion(h));
+    if (!near(back, h, 0.001)) { check(`heading ${h} survives a quaternion`, false, String(back)); }
+  }
+  check('every heading survives a quaternion round trip', true, '0 to 359 degrees');
+
+  check('an identity quaternion faces north',
+    near(geo.headingFromQuaternion({ x: 0, y: 0, z: 0, w: 1 }), 0, 1e-9));
+  check('a missing quaternion is treated as north', geo.headingFromQuaternion(null) === 0);
+
+  const f = local.makeFrame({ position: { lat: 0, lon: 0, h: 0 }, headingDeg: 30, accuracy: {} });
+  check('session yaw and world heading are inverses',
+    near(f.localYawToHeading(f.headingToLocalYaw(210)), 210, 1e-9));
+}
+
+/* ── the world session ───────────────────────────────────── */
+console.log('\n  world session');
+{
+  const ORIGIN = { lat: 51.5007, lon: -0.1246 };
+  const north = (m) => ORIGIN.lat + (m / 6371008.8) * 180 / Math.PI;
+
+  // A device that walks north while the session records it going forward:
+  // the session's forward axis is north.
+  function rig({ walk = [0, 30], accuracy = 3, placements = [] } = {}) {
+    let step = 0;
+    let local = { x: 0, y: 0, z: 0 };
+
+    const provider = {
+      id: 'test',
+      available: () => Promise.resolve(true),
+      locate: () => {
+        const m = walk[Math.min(step, walk.length - 1)];
+        local = { x: 0, y: 0, z: -m };
+        step++;
+        return Promise.resolve({
+          position: { lat: north(m), lon: ORIGIN.lon, h: 0 },
+          headingDeg: 0,
+          accuracy: { positionM: accuracy, headingDeg: 25 },
+          at: 1000 * step
+        });
+      }
+    };
+
+    const written = [];
+    const store = {
+      nearby: () => Promise.resolve(placements.map((p) => ({ ...p }))),
+      place: (p) => { written.push(p); return Promise.resolve({ ...p, id: 'w' + written.length }); },
+      remove: () => Promise.resolve(true)
+    };
+
+    const states = [];
+    let rendered = [];
+    const w = world.create({
+      store, provider,
+      config: { radiusM: 300, relocalizeAfterM: 25 },
+      pose: () => local,
+      onState: (s, d) => states.push({ s, d }),
+      onPlacements: (list) => { rendered = list; }
+    });
+
+    return { w, states, written, get rendered() { return rendered; } };
+  }
+
+  const one = rig();
+  await one.w.start();
+  check('one fix is not enough to know which way north is',
+    one.w.state() === 'calibrating', one.w.state());
+  check('and it says so rather than pretending', one.states[one.states.length - 1].s === 'calibrating');
+
+  await one.w.sample();
+  check('a second fix far enough away resolves it', one.w.state() === 'ready', one.w.state());
+
+  const frame = one.w.frame();
+  check('the session forward axis is found to be north',
+    near(frame.headingToLocalYaw(0), 0, 0.01),
+    (frame.headingToLocalYaw(0) * 180 / Math.PI).toFixed(2) + '°');
+  check('heading accuracy reflects the baseline walked',
+    frame.accuracy.headingDeg > 0 && frame.accuracy.headingDeg < 10,
+    frame.accuracy.headingDeg.toFixed(1) + '° over ' + one.w.walked().toFixed(0) + 'm');
+
+  // A walk too short to mean anything must not be accepted as a bearing.
+  const shuffle = rig({ walk: [0, 2, 3] });
+  await shuffle.w.start();
+  await shuffle.w.sample();
+  await shuffle.w.sample();
+  check('shuffling a few metres does not count as calibration',
+    shuffle.w.state() === 'calibrating', shuffle.w.state());
+  check('and it reports how far has actually been walked',
+    shuffle.w.walked() > 2 && shuffle.w.walked() < 4, shuffle.w.walked().toFixed(1) + 'm');
+
+  // Placements come back in session coordinates.
+  const withContent = rig({
+    placements: [
+      { id: 'a', scene: 'rotary-phone', scale: 1, distance: 50,
+        geopose: { position: { lat: north(80), lon: ORIGIN.lon, h: 0 },
+                   quaternion: geo.headingToQuaternion(90) } }
+    ]
+  });
+  await withContent.w.start();
+  await withContent.w.sample();
+  await withContent.w.refresh();
+
+  const seen = withContent.rendered;
+  check('placements arrive in session coordinates', seen.length === 1);
+  // The last fix was 30m north; the placement is at 80m north, so 50m ahead.
+  check('a placement to the north is ahead of the walker',
+    near(seen[0].local.z, -80, 1) && near(seen[0].local.x, 0, 1),
+    `x=${seen[0].local.x.toFixed(1)} z=${seen[0].local.z.toFixed(1)}`);
+  check('its facing is carried into the session frame',
+    near(seen[0].yawRad, -Math.PI / 2, 0.01),
+    (seen[0].yawRad * 180 / Math.PI).toFixed(1) + '°');
+
+  // Placing goes the other way, and records how it was localized.
+  await withContent.w.place('beacon', { x: 0, y: 0, z: -50 }, 0);
+  const wrote = withContent.written[0];
+  check('placing converts session coordinates back to the globe',
+    near(wrote.geopose.position.lat, north(50), 1e-5),
+    `${wrote.geopose.position.lat.toFixed(6)} vs ${north(50).toFixed(6)}`);
+  check('the placement records how it was localized',
+    wrote.fix.provider === 'test' && wrote.fix.positionM === 3 && wrote.fix.headingDeg > 0,
+    JSON.stringify(wrote.fix));
+  check('a new placement appears without a round trip',
+    withContent.rendered.length === 2);
+
+  // Refusing to place before it knows where it is.
+  const cold = rig();
+  await cold.w.place('x', { x: 0, y: 0, z: 0 })
+    .then(() => check('refuses to place before localizing', false))
+    .catch((e) => check('refuses to place before localizing', /not localized/.test(e.message)));
+
+  // Drift.
+  const drifting = rig({ walk: [0, 30] });
+  await drifting.w.start();
+  await drifting.w.sample();
+  check('no relocalization needed while standing still', !drifting.w.needsRelocalize());
+
+  const far = rig({ walk: [0, 30] });
+  await far.w.start();
+  await far.w.sample();
+  // pose() now reports the walker 40m past the last fix
+  check('relocalization is needed after walking far enough',
+    world.create({
+      store: { nearby: () => Promise.resolve([]) },
+      provider: { locate: () => Promise.resolve({}) },
+      config: { relocalizeAfterM: 25 },
+      pose: () => ({ x: 0, y: 0, z: -100 })
+    }).needsRelocalize());
+
+  // A provider that fails must say so, not hang in 'locating'.
+  const broken = world.create({
+    store: { nearby: () => Promise.resolve([]) },
+    provider: { id: 'broken', locate: () => Promise.reject(new Error('location refused')) },
+    onState: () => {}
+  });
+  await broken.start().catch(() => {});
+  check('a refused fix becomes an error state', broken.state() === 'error', broken.state());
 }
 
 const failed = results.filter((r) => !r.ok);

@@ -19,6 +19,7 @@
   var countEl    = document.getElementById('dial-count');
   var picker     = document.getElementById('picker');
   var xrBtn      = document.getElementById('xr');
+  var worldBtn   = document.getElementById('world');
   var sheetLink  = document.getElementById('sheet');
 
   var mode = null;      // 'ar' | 'preview' | null
@@ -448,6 +449,42 @@
     ].join('\n');
   }
 
+  /* Placements in the world. The same WebXR session as markerless mode, but
+     the content comes from the store rather than from a tap, and a tap adds
+     to it. The reticle is what ar-hit-test drives; #placements is filled by
+     the controller and is otherwise none of the scene's business. */
+  function worldScene(m) {
+    var assets = {};
+    Object.keys(m.scenes).forEach(function (id) {
+      (m.scenes[id].layers || []).forEach(function (l) { if (l.asset) { assets[l.asset] = true; } });
+    });
+    var items = Object.keys(assets).map(function (id) {
+      return '<a-asset-item id="asset-' + id + '" src="' + m.assets[id] + '"></a-asset-item>';
+    });
+
+    return [
+      '<a-scene id="scene"',
+      '  vr-mode-ui="enabled: false"',
+      '  ar-mode-ui="enabled: false"',
+      '  device-orientation-permission-ui="enabled: false"',
+      '  ' + MESHOPT,
+      '  ' + RENDERER,
+      '  webxr="requiredFeatures: local-floor, hit-test; optionalFeatures: dom-overlay; overlayElement: #hud"',
+      '  ar-hit-test="target: #reticle; type: map">',
+      // Every scene's assets, because any of them may turn up nearby.
+      '  <a-assets timeout="30000">' + items.join('\n') + '</a-assets>',
+      buildLights(m.scenes[Object.keys(m.scenes)[0]]),
+      '  <a-entity id="reticle" visible="false"',
+      '    geometry="primitive: ring; radiusInner: 0.12; radiusOuter: 0.16; segmentsTheta: 48"',
+      '    rotation="-90 0 0"',
+      '    material="color: #6BE3E8; shader: flat; opacity: 0.8; transparent: true; side: double">',
+      '  </a-entity>',
+      '  <a-entity id="placements"></a-entity>',
+      '  <a-entity camera></a-entity>',
+      '</a-scene>'
+    ].join('\n');
+  }
+
   // Same layers, no camera feed and no tracker. The marker itself is laid in
   // as a floor plane so the preview reads as the real thing at rest.
   function previewScene(m, def) {
@@ -605,7 +642,11 @@
   function probeXR() {
     if (!navigator.xr || !navigator.xr.isSessionSupported) { return; }
     navigator.xr.isSessionSupported('immersive-ar')
-      .then(function (ok) { if (ok) { xrBtn.hidden = false; } })
+      .then(function (ok) {
+        if (!ok) { return; }
+        xrBtn.hidden = false;
+        if (window.SpatialConfig && window.SpatialConfig.enabled) { worldBtn.hidden = false; }
+      })
       .catch(function () { /* treat any failure as unsupported */ });
   }
 
@@ -645,6 +686,158 @@
     return new Promise(function (resolve) {
       scene.addEventListener('loaded', resolve, { once: true });
     });
+  }
+
+  /* ── the world ──────────────────────────────────────────────
+     Content anchored to places rather than to printed targets. Offered only
+     when a project is configured and the device can hold a WebXR session,
+     because without both there is nothing to anchor to. */
+
+  var world = null;
+  var worldTimer = null;
+  var rendered = {};        // placement id -> element, so models are not reloaded
+
+  function worldAvailable() {
+    return !!(window.SpatialConfig && window.SpatialConfig.enabled &&
+              window.SpatialStore && window.SpatialWorld && !xrBtn.hidden);
+  }
+
+  function startWorld() {
+    busy(worldBtn, 'Loading engine…');
+    fault.hidden = true;
+
+    Promise.all([loadCore(), loadManifest()])
+      .then(function () {
+        mode = 'world';
+        enterStage();
+        setState('seeking', 'Finding you…');
+        slot.innerHTML = worldScene(manifest);
+
+        var scene = document.getElementById('scene');
+        scene.addEventListener('ar-hit-test-select', onPlaceHere);
+        scene.addEventListener('exit-vr', function () { if (mode === 'world') { stop(); } });
+
+        world = SpatialWorld.create({
+          store: SpatialStore.createStore(window.SpatialConfig),
+          provider: SpatialLocalize.gpsProvider(),
+          config: window.SpatialConfig,
+          pose: sessionPose,
+          onState: onWorldState,
+          onPlacements: renderPlacements
+        });
+
+        idle(worldBtn);
+        return sceneReady(scene).then(function () { return scene.enterAR(); });
+      })
+      .then(function () {
+        keepAwake();
+        world.start().catch(function () { /* onWorldState already reported it */ });
+        // Fixes keep arriving: first to find north, then to correct the drift
+        // that WebXR tracking accumulates without ever mentioning it.
+        worldTimer = setInterval(function () {
+          if (mode !== 'world' || !world) { return; }
+          if (world.state() !== 'ready' || world.needsRelocalize()) {
+            world.sample().then(function (state) {
+              if (state === 'ready') { world.refresh(); }
+            }).catch(function () {});
+          }
+        }, 4000);
+      })
+      .catch(onStartError);
+  }
+
+  // Where the device is in the session's own frame. The controller needs this
+  // paired with each fix — a position on the globe is only half of a bearing.
+  function sessionPose() {
+    var scene = document.getElementById('scene');
+    if (!scene || !scene.camera) { return { x: 0, y: 0, z: 0 }; }
+    var v = new AFRAME.THREE.Vector3();
+    scene.camera.getWorldPosition(v);
+    return { x: v.x, y: v.y, z: v.z };
+  }
+
+  function onWorldState(next, detail) {
+    if (next === 'locating') { setState('seeking', 'Finding you…'); }
+    else if (next === 'calibrating') {
+      // The honest version of the compass problem: a magnetometer is tens of
+      // degrees out, so the bearing comes from the walk instead.
+      var walked = Math.round(detail.walked || 0);
+      setState('seeking', 'Walk a few metres — ' + walked + 'm so far');
+    } else if (next === 'ready') {
+      setState('locked', fixLabel(detail.accuracy));
+    } else if (next === 'error') {
+      setState('seeking', detail.message || 'Cannot find you');
+    }
+  }
+
+  function fixLabel(accuracy) {
+    if (!accuracy) { return 'Located'; }
+    return '±' + Math.round(accuracy.positionM) + 'm · ±' + Math.round(accuracy.headingDeg) + '°';
+  }
+
+  /* Placements are diffed rather than rebuilt. Re-creating the entities on
+     every refresh would drop and refetch every model, which is both slow and
+     visible. */
+  function renderPlacements(list) {
+    var host = document.getElementById('placements');
+    if (!host) { return; }
+
+    var seen = {};
+    list.forEach(function (p) {
+      seen[p.id] = true;
+      var el = rendered[p.id];
+
+      if (!el) {
+        var def = manifest.scenes[p.scene];
+        if (!def) { return; }
+        var scale = num(def.roomScale, 0.3) * num(p.scale, 1);
+
+        el = document.createElement('a-entity');
+        el.setAttribute('scale', scale + ' ' + scale + ' ' + scale);
+        el.innerHTML = buildScene(manifest, def);
+        host.appendChild(el);
+        rendered[p.id] = el;
+      }
+
+      el.setAttribute('position', p.local.x + ' ' + p.local.y + ' ' + p.local.z);
+      el.setAttribute('rotation', '0 ' + (p.yawRad * 180 / Math.PI) + ' 0');
+    });
+
+    Object.keys(rendered).forEach(function (id) {
+      if (seen[id]) { return; }
+      if (rendered[id].parentNode) { rendered[id].parentNode.removeChild(rendered[id]); }
+      delete rendered[id];
+    });
+
+    if (world && world.state() === 'ready') {
+      var frame = world.frame();
+      setState('locked', list.length + ' nearby · ' + fixLabel(frame && frame.accuracy));
+    }
+  }
+
+  function onPlaceHere(e) {
+    if (!world || world.state() !== 'ready') {
+      setState('seeking', 'Not located yet — keep walking');
+      return;
+    }
+
+    var at = e.detail && e.detail.position;
+    if (!at) { return; }
+
+    // Face whatever the user is facing, so a placed object reads the right way
+    // round to the person who put it there.
+    var scene = document.getElementById('scene');
+    var forward = new AFRAME.THREE.Vector3();
+    scene.camera.getWorldDirection(forward);
+    var yaw = Math.atan2(-forward.x, -forward.z);
+
+    setState('locked', 'Placing…');
+    world.place(chosenScene || pickTarget(manifest, chosenTarget).scene,
+      { x: at.x, y: at.y, z: at.z }, yaw)
+      .then(function () { flash(); })
+      .catch(function (err) {
+        setState('locked', 'Could not save: ' + (err.message || 'refused'));
+      });
   }
 
   /* ── scene picker ───────────────────────────────────────────
@@ -940,7 +1133,9 @@
       msg = 'Camera access was refused. Allow the camera for this site in your browser settings, then reload.';
     } else if (name === 'NotFoundError' || name === 'OverconstrainedError') {
       msg = 'No rear-facing camera was found on this device. Preview mode still works.';
-    } else if (mode === 'xr' || (err && /XR|session/i.test(err.message || ''))) {
+    } else if (mode === 'world' && err && /location|geolocation/i.test(err.message || '')) {
+      msg = 'Location is needed to place things in the world. Allow it for this site, then reload.';
+    } else if (mode === 'xr' || mode === 'world' || (err && /XR|session/i.test(err.message || ''))) {
       msg = 'This device would not start a WebXR session. Marker mode and preview both still work.';
     } else if (err && /Failed to load/.test(err.message || '')) {
       msg = err.message + ' — check the connection and reload.';
@@ -952,6 +1147,10 @@
 
   function stop() {
     releaseWake();
+    clearInterval(worldTimer);
+    worldTimer = null;
+    if (world) { world.reset(); world = null; }
+    rendered = {};
     clearInterval(nftKick);
     nftKick = null;
     syncTimers.forEach(clearTimeout);
@@ -988,6 +1187,7 @@
     idle(startBtn);
     idle(previewBtn);
     idle(xrBtn);
+    idle(worldBtn);
   }
 
   /* ── photo ──────────────────────────────────────────────────
@@ -1084,6 +1284,7 @@
 
   startBtn.addEventListener('click', startAR);
   xrBtn.addEventListener('click', startXR);
+  worldBtn.addEventListener('click', startWorld);
   previewBtn.addEventListener('click', startPreview);
   exitBtn.addEventListener('click', stop);
   shootBtn.addEventListener('click', capture);

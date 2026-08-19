@@ -4,3 +4,6 @@ node_modules/
 .DS_Store
 certs/
 screenshots/
+
+# Local Firebase settings — see spatial/config.local.example.js
+spatial/config.local.js

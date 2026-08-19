@@ -92,6 +92,9 @@ try {
 
   console.log('\n  descriptor integrity');
   await testDescriptors();
+
+  console.log('\n  placements in the world');
+  await testWorld();
 } finally {
   await browser.close();
   server.kill();
@@ -334,6 +337,140 @@ async function testOffline() {
 
   await page.screenshot({ path: join(SHOTS, '4-offline.png') });
   await context.setOffline(false);
+  await close();
+}
+
+async function testWorld() {
+  // The controller's logic is covered thoroughly by the unit suite. What the
+  // browser adds is integration: that the modules see each other's globals,
+  // that the mode is gated on both a project and a WebXR device, and that the
+  // scene it builds is wired to the hit test.
+  const xrStub = `
+    Object.defineProperty(navigator, 'xr', {
+      configurable: true,
+      value: {
+        isSessionSupported: (m) => Promise.resolve(m === 'immersive-ar'),
+        requestSession: () => new Promise(() => {})
+      }
+    });`;
+
+  {
+    const { page, close } = await open();
+    await page.addInitScript(xrStub);
+    await page.goto(ORIGIN + '/', { waitUntil: 'load' });
+    await page.waitForSelector('#xr:not([hidden])', { timeout: 10000 }).catch(() => {});
+    check('world mode is hidden with no project configured',
+      await page.locator('#world').isHidden());
+    await close();
+  }
+
+  const { page, errors, close } = await open();
+  await page.addInitScript(xrStub);
+  await page.addInitScript(() => {
+    // config.local.js is gitignored, so stand in for it the same way it would.
+    window.addEventListener('DOMContentLoaded', () => {}, { once: true });
+    Object.defineProperty(window, '__stubConfig', { value: true });
+  });
+  // Applied after config.js defines override(), before app.js reads enabled.
+  await page.route('**/spatial/config.local.js', (r) => r.fulfill({
+    status: 200,
+    contentType: 'text/javascript',
+    body: "SpatialConfig.override({ projectId: 'test-project', apiKey: 'test-key' });"
+  }));
+
+  await page.goto(ORIGIN + '/', { waitUntil: 'load' });
+
+  check('an optional local config is applied when present',
+    await page.evaluate(() => window.SpatialConfig.enabled === true &&
+      window.SpatialConfig.projectId === 'test-project'));
+
+  const offered = await page.waitForSelector('#world:not([hidden])', { timeout: 10000 })
+    .then(() => true).catch(() => false);
+  check('world mode appears with a project and a WebXR device', offered);
+
+  if (offered) {
+    await page.locator('#world').click();
+    await page.waitForFunction(() => document.getElementById('placements'), null, { timeout: 45000 });
+    await page.waitForTimeout(400);
+
+    const wiring = await page.evaluate(() => {
+      const scene = document.getElementById('scene');
+      const hit = scene.getAttribute('ar-hit-test');
+      return {
+        hitTarget: typeof hit === 'string' ? hit : (hit && hit.target && hit.target.id),
+        reticle: !!document.getElementById('reticle'),
+        reticleHidden: document.getElementById('reticle').getAttribute('visible') === false,
+        container: !!document.getElementById('placements'),
+        assets: document.querySelectorAll('a-asset-item').length,
+        arjs: typeof window.ARjs === 'undefined'
+      };
+    });
+    check('the hit test drives a reticle', /reticle/.test(String(wiring.hitTarget)));
+    check('the reticle starts hidden', wiring.reticleHidden);
+    check('there is a container for placements', wiring.container);
+    check('every scene\'s assets are declared', wiring.assets >= 1, wiring.assets + ' asset(s)');
+    check('world mode loads no AR.js', wiring.arjs);
+  }
+
+  // The controller, driven directly in the browser with stubs — the walk that
+  // resolves north cannot be performed by a headless XR session.
+  const ran = await page.evaluate(async () => {
+    let walked = 0;
+    let local = { x: 0, y: 0, z: 0 };
+    const north = (m) => 51.5007 + (m / 6371008.8) * 180 / Math.PI;
+
+    const provider = {
+      id: 'stub',
+      locate: () => {
+        const m = walked;
+        local = { x: 0, y: 0, z: -m };
+        walked += 30;
+        return Promise.resolve({
+          position: { lat: north(m), lon: -0.1246, h: 0 },
+          headingDeg: 0,
+          accuracy: { positionM: 3, headingDeg: 25 }
+        });
+      }
+    };
+
+    const store = {
+      nearby: () => Promise.resolve([{
+        id: 'p1', scene: 'rotary-phone', scale: 1, distance: 20,
+        geopose: {
+          position: { lat: north(60), lon: -0.1246, h: 0 },
+          quaternion: { x: 0, y: 0, z: 0, w: 1 }
+        }
+      }]),
+      place: (p) => Promise.resolve({ ...p, id: 'p2' })
+    };
+
+    const seen = [];
+    const w = window.SpatialWorld.create({
+      store, provider,
+      config: { radiusM: 300, relocalizeAfterM: 25 },
+      pose: () => local,
+      onState: () => {},
+      onPlacements: (list) => seen.push(list)
+    });
+
+    await w.start();
+    const afterOne = w.state();
+    await w.sample();
+    const afterTwo = w.state();
+    await w.refresh();
+
+    const last = seen[seen.length - 1] || [];
+    return { afterOne, afterTwo, count: last.length, z: last[0] && last[0].local.z };
+  });
+
+  check('one fix leaves it calibrating in the browser too', ran.afterOne === 'calibrating',
+    ran.afterOne);
+  check('a walked baseline makes it ready', ran.afterTwo === 'ready', ran.afterTwo);
+  check('a placement to the north lands ahead of the walker',
+    ran.count === 1 && Math.abs(ran.z + 60) < 1, `z=${ran.z && ran.z.toFixed(1)}`);
+  check('world mode throws nothing', errors.length === 0, errors.join('; '));
+
+  await page.screenshot({ path: join(SHOTS, '9-world.png') });
   await close();
 }
 

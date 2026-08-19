@@ -131,6 +131,38 @@
     return -degreesFromNorth * D2R;
   }
 
+  /* ── orientation ─────────────────────────────────────────────
+     Placements store a full quaternion, in the ENU basis with X east, Y north
+     and Z up, and with an object's own forward taken as +Y. Only the yaw is
+     meaningful for content standing on the ground, so these two convert
+     between that quaternion and a compass heading; roll and pitch survive a
+     round trip through storage but nothing currently reads them. */
+
+  function headingToQuaternion(headingDeg) {
+    // Clockwise from north is a negative rotation about up.
+    var half = -headingDeg * D2R / 2;
+    return { x: 0, y: 0, z: Math.sin(half), w: Math.cos(half) };
+  }
+
+  function headingFromQuaternion(q) {
+    if (!q) { return 0; }
+    // Rotate north by q and read where it points.
+    var v = rotate(q, { x: 0, y: 1, z: 0 });
+    return (Math.atan2(v.x, v.y) * R2D + 360) % 360;
+  }
+
+  function rotate(q, v) {
+    // v' = v + 2 * cross(q.xyz, cross(q.xyz, v) + q.w * v)
+    var tx = 2 * (q.y * v.z - q.z * v.y);
+    var ty = 2 * (q.z * v.x - q.x * v.z);
+    var tz = 2 * (q.x * v.y - q.y * v.x);
+    return {
+      x: v.x + q.w * tx + (q.y * tz - q.z * ty),
+      y: v.y + q.w * ty + (q.z * tx - q.x * tz),
+      z: v.z + q.w * tz + (q.x * ty - q.y * tx)
+    };
+  }
+
   /* ── distance ────────────────────────────────────────────── */
 
   var EARTH_MEAN_R = 6371008.8;
@@ -237,6 +269,9 @@
     enuToThree: enuToThree,
     threeToEnu: threeToEnu,
     headingToYaw: headingToYaw,
+    headingToQuaternion: headingToQuaternion,
+    headingFromQuaternion: headingFromQuaternion,
+    rotateByQuaternion: rotate,
     haversine: haversine,
     geohash: encode,
     geohashPrecisionFor: precisionFor,
