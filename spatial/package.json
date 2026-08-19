@@ -1,0 +1,5 @@
+{
+  "//": "Node treats .js under the root package as ESM. These files are plain browser scripts with a CommonJS footer so the tests can require the maths without a browser; this marks the directory accordingly. It is not a package and is never installed.",
+  "type": "commonjs",
+  "private": true
+}

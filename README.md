@@ -87,6 +87,12 @@ CI runs the same suite on every push and keeps the screenshots as artefacts.
 | `scripts/make-poster.mjs` | Draws the natural-feature poster from a seeded PRNG |
 | `scripts/smoke.mjs` | End-to-end tests against a synthetic camera |
 | `scripts/check-precache.mjs` | Guards the service worker's offline contract |
+| `scripts/unit.mjs` | Fast tests for the pure logic — no browser |
+| `spatial/geo.js` | WGS84, ENU, and geohash indexing |
+| `spatial/store.js` | Placements over the Firestore REST API |
+| `spatial/localize.js` | Localization providers and the frame transform |
+| `spatial/config.js` | Firebase project settings — empty means "stay local" |
+| `firestore.rules` | Who may write what, assuming the client is a lie |
 | `vendor/` | A-Frame 1.5.0, AR.js 3.4.8 (NFT build), meshopt decoder |
 | `data/` | Hiro pattern, camera calibration, poster and its descriptors |
 
@@ -237,6 +243,73 @@ To ship a change to `app.js` or `app.css`, bump the `?v=` on both links in
 `index.html` **and** `CACHE` in `sw.js`, together. The worker calls
 `skipWaiting()` and `clients.claim()`, so a new version takes over on the next
 load rather than the one after.
+
+## Placing things in the world
+
+Optional, and off until `spatial/config.js` names a Firebase project. Empty, the
+app is exactly what it was: local `content.json`, no network, no accounts.
+
+The design turns on one idea. **Content is stored in one global frame** —
+latitude, longitude, height, and an orientation in the local East-North-Up
+frame. **Localization is a pluggable provider** whose only job is to report,
+once, where the device is in that frame. From that single observation the
+transform between global coordinates and the WebXR session's arbitrary local
+metres falls out, and the session's own tracking carries it from there.
+
+Nothing needs continuous global positioning — which is just as well, because
+none of the accurate ways of getting it are cheap enough to run per frame.
+Localize, compute the transform, render locally, re-localize occasionally to
+correct drift.
+
+```
+provider.locate() -> { position: {lat, lon, h}, headingDeg, accuracy }
+      |
+      v
+makeFrame(fix, sessionPose) -> { toLocal(geoPosition), toGlobal(localPoint) }
+```
+
+That seam is why a GPS fix, a visual positioning fix and an RTK fix are
+interchangeable: they differ only in what they put in `accuracy`, which is
+recorded on every placement rather than inferred, because a placement made by
+GPS and one made by a visual fix are the same shape and nothing like the same
+thing.
+
+### Heading is the hard part
+
+Position is not what ruins geolocated AR. Five metres of position error on
+something fifty metres away is a few degrees and barely visible; twenty degrees
+of heading error puts it in the wrong street. A phone magnetometer is routinely
+that bad. Every localization method worth having is worth having mostly because
+it fixes heading.
+
+`headingFromBaseline()` is the cheap answer that works anywhere, including
+under trees where nothing visual will help: two positions a few metres apart
+give a bearing to well under a degree, and the session's own tracking says
+which way that was in local terms. It refuses baselines shorter than the
+position noise, because at five metres apart a two-metre error is twenty
+degrees.
+
+### Setting it up
+
+```bash
+firebase deploy --only firestore:rules,firestore:indexes,storage   # npm run deploy:rules
+```
+
+Then fill in `projectId` and `apiKey` in `spatial/config.js`. The web API key is
+not a secret — it identifies the project and authorises nothing. What protects
+the data is `firestore.rules`.
+
+**Anonymous auth is not a security boundary.** Anyone can mint a uid for the
+cost of one HTTP request, so the rules treat every write as hostile: shape,
+ranges and ownership are all checked server-side. What rules cannot do is
+rate-limit, so turn on **App Check** before this is public — it is the only
+control that costs an abuser anything.
+
+No Firebase SDK. The modular SDK wants a bundler and every hosted copy is a CDN
+request, which this project does not make. The REST API needs neither. What
+that costs is snapshot listeners: "someone else just placed something" needs a
+poll. When shared sessions need to be live rather than merely shared, that is
+the moment to vendor the SDK — not before.
 
 ## Weight
 

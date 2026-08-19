@@ -1,0 +1,14 @@
+{
+  "//": "A geohash range query is a single-field inequality and needs no composite index. Filtering by scene as well as position does, because Firestore will not combine an equality and a range on different fields without one.",
+  "indexes": [
+    {
+      "collectionGroup": "placements",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "scene", "order": "ASCENDING" },
+        { "fieldPath": "geohash", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

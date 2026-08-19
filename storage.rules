@@ -1,0 +1,32 @@
+rules_version = '2';
+
+/* Models and textures placed in the world.
+ *
+ * Read is open: the content is meant to be seen by anyone who walks past it.
+ * Write is deliberately narrow — an anonymous uid is free, so an open bucket
+ * with no size cap is a free CDN for whatever anyone likes. Uploads are
+ * confined to a folder named for the uploader, capped, and restricted to the
+ * two types this app can actually render.
+ */
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    match /models/{owner}/{file} {
+      allow read: if true;
+
+      allow write: if request.auth != null
+                   && request.auth.uid == owner
+                   && request.resource.size < 8 * 1024 * 1024
+                   && (request.resource.contentType == 'model/gltf-binary'
+                       || request.resource.contentType == 'image/jpeg'
+                       || request.resource.contentType == 'image/png');
+
+      allow delete: if request.auth != null && request.auth.uid == owner;
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

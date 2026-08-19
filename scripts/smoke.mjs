@@ -130,6 +130,25 @@ async function testGate() {
   const vendorLoaded = await page.evaluate(() => typeof window.AFRAME !== 'undefined');
   check('vendor bundle is NOT loaded on first paint', vendorLoaded === false);
 
+  // The spatial modules are plain scripts with a CommonJS footer so the unit
+  // tests can require them. If that footer misfires they register nothing and
+  // fail only in a browser — which is the one place the unit suite never looks.
+  const spatial = await page.evaluate(() => ({
+    geo: typeof window.SpatialGeo,
+    store: typeof window.SpatialStore,
+    localize: typeof window.SpatialLocalize,
+    config: typeof window.SpatialConfig,
+    enabled: window.SpatialConfig && window.SpatialConfig.enabled,
+    // and the maths survives the trip into a browser
+    hash: window.SpatialGeo && window.SpatialGeo.geohash(57.64911, 10.40744, 11)
+  }));
+  check('the spatial modules register in a browser too',
+    spatial.geo === 'object' && spatial.store === 'object' &&
+    spatial.localize === 'object' && spatial.config === 'object',
+    Object.entries(spatial).map(([k, v]) => `${k}=${v}`).join(' '));
+  check('geodesy works the same in the browser', spatial.hash === 'u4pruydqqvj', spatial.hash);
+  check('placements stay off until a project is configured', spatial.enabled === false);
+
   await page.screenshot({ path: join(SHOTS, '1-gate.png') });
   await close();
 }

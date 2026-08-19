@@ -1,0 +1,77 @@
+rules_version = '2';
+
+/* Anonymous authentication is not a security boundary.
+ *
+ * Anyone can mint an anonymous uid — it is a device identifier, not a person,
+ * and it costs an attacker one HTTP request. So request.auth != null means
+ * "this write came from something that bothered to get a token", nothing more.
+ * Every rule below assumes the caller is hostile and the client is a lie:
+ * shape, ranges and ownership are all checked here, because the checks in
+ * spatial/store.js are for catching mistakes, not for stopping anyone.
+ *
+ * What this does NOT solve is volume. Rules cannot rate-limit, and an
+ * anonymous uid is free, so a determined nuisance can fill the collection.
+ * Turn on App Check (Play Integrity / reCAPTCHA Enterprise) before this is
+ * public — that is the control that actually costs an attacker something.
+ */
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /placements/{placement} {
+
+      allow read: if resource.data.visibility == 'public'
+                  || (request.auth != null && request.auth.uid == resource.data.owner);
+
+      allow create: if request.auth != null
+                    && request.resource.data.owner == request.auth.uid
+                    && isWellFormed(request.resource.data)
+                    && request.resource.data.createdAt is string;
+
+      // The owner may move or retire their own placement, but never hand it to
+      // someone else, and never edit its geohash out of step with its position.
+      allow update: if request.auth != null
+                    && resource.data.owner == request.auth.uid
+                    && request.resource.data.owner == resource.data.owner
+                    && isWellFormed(request.resource.data);
+
+      allow delete: if request.auth != null
+                    && resource.data.owner == request.auth.uid;
+    }
+
+    // Anything not named above is closed. Collections get rules deliberately
+    // or they get nothing.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+
+  function isWellFormed(data) {
+    return data.keys().hasOnly([
+             'geopose', 'geohash', 'scene', 'scale', 'fix',
+             'visibility', 'owner', 'createdAt'
+           ])
+           && data.keys().hasAll(['geopose', 'geohash', 'scene', 'scale', 'visibility', 'owner'])
+           && isGeoPose(data.geopose)
+           && data.geohash is string
+           && data.geohash.size() >= 4 && data.geohash.size() <= 12
+           && data.scene is string
+           && data.scene.size() > 0 && data.scene.size() <= 64
+           && data.scale is number
+           && data.scale > 0 && data.scale <= 1000
+           && data.visibility in ['public', 'private'];
+  }
+
+  function isGeoPose(pose) {
+    return pose.keys().hasOnly(['position', 'quaternion'])
+           && pose.position.lat is number
+           && pose.position.lat >= -90 && pose.position.lat <= 90
+           && pose.position.lon is number
+           && pose.position.lon >= -180 && pose.position.lon <= 180
+           && pose.position.h is number
+           // Below the Dead Sea or above the stratosphere is a bug, not a place.
+           && pose.position.h >= -500 && pose.position.h <= 20000
+           && pose.quaternion.x is number && pose.quaternion.y is number
+           && pose.quaternion.z is number && pose.quaternion.w is number;
+  }
+}

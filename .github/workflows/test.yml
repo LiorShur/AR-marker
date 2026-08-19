@@ -45,7 +45,7 @@ jobs:
         run: npx playwright install-deps chromium
 
       - name: Smoke suite
-        run: npm test
+        run: npm run test:smoke
 
       # Screenshots are the readable half of the result: what the gate, the
       # preview, both trackers and the shutter actually produced.
@@ -70,10 +70,15 @@ jobs:
         with:
           node-version: '22'
 
+      # No browser, no dependencies, a second to run — geodesy, geohashing and
+      # the placement store, all of which fail silently when they fail.
+      - name: Unit tests
+        run: npm run test:unit
+
       - name: Parse every script and config
         run: |
-          for f in app.js sw.js scripts/*.mjs; do node --check "$f"; done
-          for f in content.json firebase.json manifest.webmanifest package.json .firebaserc; do
+          for f in app.js sw.js spatial/*.js scripts/*.mjs; do node --check "$f"; done
+          for f in content.json firebase.json manifest.webmanifest package.json .firebaserc firestore.indexes.json spatial/package.json; do
             node -e "JSON.parse(require('fs').readFileSync('$f','utf8'))" || exit 1
           done
           echo "all parsed"
