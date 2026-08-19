@@ -21,8 +21,8 @@
   'use strict';
 
   root.SpatialConfig = {
-    projectId: 'markerone1965',                 // e.g. 'markerone1965'
-    apiKey: 'AIzaSyCs8wP-LOM2MmYExyBA9J5N8lLgIh8q_pE',                    // Project settings -> Your apps -> Web API Key
+    projectId: '',                 // e.g. 'markerone1965'
+    apiKey: '',                    // Project settings -> Your apps -> Web API Key
 
     // Placements further than this from the viewer are not fetched. Loading a
     // city's worth of content to render the three things you can actually see
