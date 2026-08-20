@@ -177,7 +177,7 @@ whatever the camera's real resolution, so a target filling the frame is about
 200 pixels tall by the time it is matched. Detail finer than ~2% of its width
 is gone.
 
-## Seven things that are load-bearing and not obvious
+## Nine things that are load-bearing and not obvious
 
 **The camera video is not part of the scene.** AR.js appends a plain `<video>`
 to `<body>` at `z-index: -2` and draws the AR overlay on a transparent WebGL
@@ -192,6 +192,20 @@ embedded scene's canvas to its container. On a tall phone those disagree
 violently — the overlay renders as a stretched ellipse nowhere near the marker.
 `applyFeedSize()` in `app.js` copies the video's box onto the canvas and pins
 `<body>` so AR.js cannot shift it.
+
+**A tap on the overlay is also an XR `select`.** With dom-overlay active, a
+touch on the interface reaches the DOM *and* the session. Pressing Stop
+therefore also fired the hit test — creating an XR anchor at the exact moment
+the session was being ended. `beforexrselect` with `preventDefault()` on the
+overlay root is the documented way to say "this touch was for the interface".
+
+**Ending an immersive session is not the same as `exitVR()` resolving.** The
+XRSession's own `end` event is. Disposing in between — and in particular
+forcing the loss of a context still bound to a live `XRWebGLLayer` — leaves the
+compositor holding a session with nothing to draw, which is what a frozen page
+after leaving AR actually is. `endSession()` waits for the event, with a three
+second ceiling so a session that will not end cannot take the gate down with
+it.
 
 **dom-overlay draws one element and nothing else.** During an immersive WebXR
 session the page is not rendered; only the element named by `overlayElement`

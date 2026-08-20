@@ -9,7 +9,7 @@
      job is to answer "am I running the code I just deployed", which during a
      week of deploy-and-walk-outside is a question worth being able to answer
      in one glance rather than by bisecting behaviour. */
-  var BUILD = '9';
+  var BUILD = '10';
 
   var gate       = document.getElementById('gate');
   var stage      = document.getElementById('stage');
@@ -1453,15 +1453,60 @@
     idle(xrBtn);
     idle(worldBtn);
 
-    // An immersive session has to be ended before its renderer is pulled
-    // apart, and exitVR is asynchronous. Tearing down underneath it leaves
-    // the compositor holding a session that no longer has anything to draw.
-    Promise.resolve()
-      .then(function () {
-        if (scene && scene.is && scene.is('ar-mode')) { return scene.exitVR(); }
-      })
-      .catch(function () { /* it may already be gone */ })
-      .then(function () { teardown(scene); });
+    endSession(scene).then(function () { teardown(scene); });
+  }
+
+  /* An immersive session has to be *finished* before its renderer is taken
+     apart, and exitVR's promise resolving is not that. The XRSession's own
+     `end` event is. Disposing in between — and in particular forcing the loss
+     of a context still bound to a live XRWebGLLayer — leaves the compositor
+     holding a session with nothing to draw, which is what a frozen page after
+     leaving AR actually is.
+
+     Never longer than a moment, though: a session that will not end must not
+     take the teardown, and the gate, with it. */
+  function endSession(scene) {
+    if (!scene || !scene.is || !(scene.is('ar-mode') || scene.is('vr-mode'))) {
+      trace('no session to end');
+      return Promise.resolve();
+    }
+
+    var session = scene.xrSession;
+
+    return new Promise(function (resolve) {
+      var settled = false;
+      var finish = function (why) {
+        if (settled) { return; }
+        settled = true;
+        trace('session ended (' + why + ')');
+        resolve();
+      };
+
+      if (session && session.addEventListener) {
+        session.addEventListener('end', function () { finish('end event'); }, { once: true });
+      }
+      scene.addEventListener('exit-vr', function () { finish('exit-vr'); }, { once: true });
+      setTimeout(function () { finish('timed out'); }, 3000);
+
+      trace('ending session');
+      try {
+        Promise.resolve(scene.exitVR()).catch(function () { finish('exitVR rejected'); });
+      } catch (e) { finish('exitVR threw'); }
+    }).then(function () {
+      // One more beat for the browser to leave the compositor before the
+      // context is taken away from it.
+      return new Promise(function (resolve) { setTimeout(resolve, 250); });
+    });
+  }
+
+  /* Teardown is the one path that cannot be reproduced in a headless browser
+     and the one that has now wedged a phone twice. Each step announces itself,
+     so a freeze can be reported as "the last line was X" rather than as a
+     description of a black screen. */
+  function trace(step) {
+    if (typeof console !== 'undefined' && console.debug) {
+      console.debug('Marker One teardown: ' + step);
+    }
   }
 
   /* ── teardown ───────────────────────────────────────────────
@@ -1483,7 +1528,7 @@
      anything resembling an error. forceContextLoss releases it now. */
 
   function teardown(scene) {
-    if (!scene) { return; }
+    if (!scene) { trace('nothing to tear down'); return; }
 
     // First, before anything can fire. AR.js registers two window resize
     // handlers per session and offers no way to remove them; once its source
@@ -1491,16 +1536,21 @@
     // the scene, so every session leaves two more behind, and every rotation
     // of the phone afterwards fires the lot.
     releaseWindowListeners();
+    trace('window listeners released');
 
     disposeARjs(scene);
     stopCameraTracks();
+    trace('ar.js disposed, camera stopped');
 
     if (scene.parentNode) { scene.parentNode.removeChild(scene); }
     slot.innerHTML = '';
 
     disposeSceneGraph(scene);
+    trace('scene graph disposed');
     disposeRenderer(scene);
+    trace('renderer disposed');
     terminateWorkers();
+    trace('workers terminated');
   }
 
   function disposeARjs(scene) {
@@ -1779,6 +1829,15 @@
   // The manifest is a couple of kilobytes and the picker needs it before any
   // tap, so it is fetched at load — unlike the 3 MB of engine behind it.
   if (buildEl) { buildEl.textContent = BUILD; }
+
+  /* In an immersive session with dom-overlay, a tap on the overlay is
+     delivered to the DOM *and* to the session as a `select`. So pressing Stop
+     also fired the hit test: ar-hit-test created an XR anchor at the very
+     moment the session was being ended, and onPlaceHere started a write into
+     a session that was going away. beforexrselect is the documented way to
+     say "this touch was for the interface", and without it every button in
+     the overlay doubles as a placement. */
+  overlayEl.addEventListener('beforexrselect', function (e) { e.preventDefault(); });
   loadManifest().then(renderPicker);
   probeXR();
   reportSpatial();

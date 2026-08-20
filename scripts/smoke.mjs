@@ -579,6 +579,16 @@ async function testWorld() {
       };
     });
     check('dom-overlay points at the overlay root', overlay.target === 'overlay', overlay.target);
+
+    // With dom-overlay, a tap on the interface is delivered to the DOM and to
+    // the session as a select. Without this, pressing Stop also fired the hit
+    // test — creating an XR anchor at the moment the session was ending.
+    const suppressed = await page.evaluate(() => {
+      const e = new Event('beforexrselect', { bubbles: true, cancelable: true });
+      document.getElementById('exit').dispatchEvent(e);
+      return e.defaultPrevented;
+    });
+    check('a tap on the interface is not also a placement', suppressed);
     check('which holds both the HUD and the nearby panel',
       overlay.holdsHud && overlay.holdsNearby);
     check('and is not inside the stage', overlay.outsideStage);
