@@ -403,6 +403,16 @@ firebase deploy --only firestore:rules,firestore:indexes,storage   # npm run dep
 cp spatial/config.local.example.js spatial/config.local.js         # then fill it in
 ```
 
+Deploying indexes compares the file against what the project already has, and
+offers to delete anything it no longer describes. That is safe to accept
+whenever the queries in `spatial/store.js` no longer have a shape that needs
+it — declining only leaves an orphan that costs a little write overhead and
+gets offered again next time.
+
+Indexes then build asynchronously, so the deploy returns before they are
+usable. Until one finishes, the query it serves fails with a link to create it;
+that is normal, and the fix is to wait rather than to click the link.
+
 `spatial/config.local.js` is gitignored and loaded after the committed
 defaults, so your project settings stay out of version control and pulls stay
 clean. It is optional — absent, the app runs entirely locally, and the
