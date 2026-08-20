@@ -175,6 +175,13 @@
 
     function rangeQuery(range, options) {
       var filters = [
+        // Rules are not filters. The read rule turns on
+        // resource.data.visibility, and Firestore permits a query only if the
+        // rules can prove from the query's own constraints that every document
+        // it could return is readable. Without this equality the entire query
+        // is refused — not filtered down, refused — and the refusal looks
+        // exactly like there being nothing there.
+        fieldFilter('visibility', 'EQUAL', { stringValue: options.visibility || 'public' }),
         fieldFilter('geohash', 'GREATER_THAN_OR_EQUAL', { stringValue: range[0] }),
         fieldFilter('geohash', 'LESS_THAN_OR_EQUAL', { stringValue: range[1] })
       ];

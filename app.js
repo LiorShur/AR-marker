@@ -9,7 +9,7 @@
      job is to answer "am I running the code I just deployed", which during a
      week of deploy-and-walk-outside is a question worth being able to answer
      in one glance rather than by bisecting behaviour. */
-  var BUILD = '11';
+  var BUILD = '12';
 
   var gate       = document.getElementById('gate');
   var stage      = document.getElementById('stage');
@@ -774,12 +774,22 @@
         world.start().catch(function () { /* onWorldState already reported it */ });
         // Fixes keep arriving: first to find north, then to correct the drift
         // that WebXR tracking accumulates without ever mentioning it.
+        var lastPoll = Date.now();
         worldTimer = setInterval(function () {
           if (mode !== 'world' || !world) { return; }
+
           if (world.state() !== 'ready' || world.needsRelocalize()) {
-            world.sample().then(function (state) {
-              if (state === 'ready') { world.refresh(); }
-            }).catch(function () {});
+            world.sample().catch(function () { /* onWorldState reported it */ });
+            return;
+          }
+
+          // Located and standing still. Somebody else may still have left
+          // something here since we last looked.
+          if (Date.now() - lastPoll > 30000) {
+            lastPoll = Date.now();
+            world.refresh().catch(function (err) {
+              setState('locked', 'Could not read placements: ' + (err.message || 'refused'));
+            });
           }
         }, 4000);
       })
@@ -845,7 +855,14 @@
     } else if (next === 'ready') {
       setState('locked', fixLabel(detail.accuracy));
     } else if (next === 'error') {
-      setState('seeking', detail.message || 'Cannot find you');
+      // A failed read is not a failed fix, and the readout should not claim
+      // to have lost you when it has only lost the database.
+      if (/placements/i.test(detail.message || '')) {
+        readError = detail.message;
+        setState('locked', detail.message);
+      } else {
+        setState('seeking', detail.message || 'Cannot find you');
+      }
     }
     if (!nearbyEl.hidden) { renderNearby(); }
   }
@@ -940,6 +957,7 @@
      place next, and how to remove something you got wrong. */
 
   var nearby = [];
+  var readError = null;
   var arrowTimer = null;
 
   function openNearby() {
@@ -964,6 +982,7 @@
 
   function setNearby(list) {
     nearby = list;
+    readError = null;
     listBtn.hidden = mode !== 'world';
     listCount.textContent = String(list.length);
     if (!nearbyEl.hidden) { renderNearby(); }
@@ -980,6 +999,13 @@
         ? 'No compass reading, so the bearing has to come from a walk. ' +
           'Head off in a straight line for twenty metres or so.'
         : 'Finding you. Nothing can be listed until there is a position to list it against.';
+      return;
+    }
+
+    if (readError) {
+      // Three states, not two. "Nothing here" and "I could not find out" are
+      // the same screen otherwise, and one of them is a bug.
+      nearbyEmpty.textContent = 'Could not read placements: ' + readError;
       return;
     }
 
@@ -1426,6 +1452,7 @@
     closeNearby();
     listBtn.hidden = true;
     nearby = [];
+    readError = null;
     store = null;
     clearInterval(worldTimer);
     worldTimer = null;

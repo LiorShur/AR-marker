@@ -177,7 +177,7 @@ whatever the camera's real resolution, so a target filling the frame is about
 200 pixels tall by the time it is matched. Detail finer than ~2% of its width
 is gone.
 
-## Ten things that are load-bearing and not obvious
+## Eleven things that are load-bearing and not obvious
 
 **The camera video is not part of the scene.** AR.js appends a plain `<video>`
 to `<body>` at `z-index: -2` and draws the AR overlay on a transparent WebGL
@@ -192,6 +192,13 @@ embedded scene's canvas to its container. On a tall phone those disagree
 violently — the overlay renders as a stretched ellipse nowhere near the marker.
 `applyFeedSize()` in `app.js` copies the video's box onto the canvas and pins
 `<body>` so AR.js cannot shift it.
+
+**Firestore rules are not filters.** The read rule turns on
+`resource.data.visibility`, so a query that does not itself constrain
+`visibility` is *refused outright* — not narrowed to what is readable, refused
+— and the refusal arrives looking exactly like an empty result. Every query
+carries the equality, and the composite indexes exist because of it. If you
+tighten a read rule, the queries have to be tightened to match on the same day.
 
 **A scene without `embedded` pins the whole document.** Both WebXR modes are
 non-embedded, because an immersive session presents through the compositor

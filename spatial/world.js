@@ -35,6 +35,7 @@
     var relocalizeAfterM = config.relocalizeAfterM || 25;
 
     var samples = [];
+    var fetchedAt = null;        // where the last query was centred
     var frame = null;
     var heading = null;          // the winning baseline
     var compass = options.compass || null;
@@ -159,6 +160,28 @@
       });
 
       reproject();
+      fetchIfNeeded();
+    }
+
+    /* Becoming located is what makes a query possible, so it is also what
+       should trigger one. Nothing did: the app polled for fixes only while
+       *unlocated*, so once a session settled it never asked the store for
+       anything, and a returning visitor saw an empty world. */
+    function fetchIfNeeded() {
+      if (!frame) { return; }
+      var origin = frame.origin;
+
+      // Re-query only when the centre has moved enough for the answer to
+      // differ. Relocalizing every twenty-five metres should not mean
+      // refetching every twenty-five metres.
+      if (fetchedAt && geo.haversine(origin.lat, origin.lon,
+          fetchedAt.lat, fetchedAt.lon) < radiusM / 3) {
+        return;
+      }
+
+      refresh().catch(function (err) {
+        emit('error', { message: 'Could not read placements: ' + (err && err.message) });
+      });
     }
 
     // Session tracking drifts, quietly. Once the device has walked far enough
@@ -175,9 +198,16 @@
       if (!frame) { return Promise.resolve([]); }
       var origin = frame.origin;
 
+      fetchedAt = { lat: origin.lat, lon: origin.lon };
+
       return store.nearby(origin.lat, origin.lon, radiusM).then(function (found) {
         placements = found;
         return reproject();
+      }, function (err) {
+        // Let the next attempt try again rather than assuming this centre is
+        // done with.
+        fetchedAt = null;
+        throw err;
       });
     }
 
@@ -272,6 +302,7 @@
     function reset() {
       if (compass) { compass.stop(); }
       samples = [];
+      fetchedAt = null;
       frame = null;
       heading = null;
       placements = [];

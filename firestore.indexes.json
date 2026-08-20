@@ -1,10 +1,20 @@
 {
-  "//": "A geohash range query is a single-field inequality and needs no composite index. Filtering by scene as well as position does, because Firestore will not combine an equality and a range on different fields without one.",
+  "//": "Firestore rules are not filters: a query is permitted only if the rules can prove, from the query's own constraints, that everything it could return is readable. The read rule turns on `visibility`, so every query carries an equality on it — and an equality plus a range on a different field needs a composite index.",
   "indexes": [
     {
       "collectionGroup": "placements",
       "queryScope": "COLLECTION",
       "fields": [
+        { "fieldPath": "visibility", "order": "ASCENDING" },
+        { "fieldPath": "geohash", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "//": "...and again when the caller also narrows to one scene.",
+      "collectionGroup": "placements",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "visibility", "order": "ASCENDING" },
         { "fieldPath": "scene", "order": "ASCENDING" },
         { "fieldPath": "geohash", "order": "ASCENDING" }
       ]

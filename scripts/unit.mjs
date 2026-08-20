@@ -311,9 +311,14 @@ console.log('\n  placement store');
         return json({ idToken: 'tok-1', refreshToken: 'ref-1', localId: 'anon-1', expiresIn: '3600' });
       }
       if (url.includes(':runQuery')) {
+        // By field and operator, not by position — the query grew a filter
+        // and every index-based assumption about it silently moved.
         const filters = body.structuredQuery.where.compositeFilter.filters;
-        const lo = filters[0].fieldFilter.value.stringValue;
-        const hi = filters[1].fieldFilter.value.stringValue;
+        const bound = (op) => filters.find(
+          (f) => f.fieldFilter.field.fieldPath === 'geohash' && f.fieldFilter.op === op
+        ).fieldFilter.value.stringValue;
+        const lo = bound('GREATER_THAN_OR_EQUAL');
+        const hi = bound('LESS_THAN_OR_EQUAL');
         const hits = placements
           .filter((p) => { const g = geo.geohash(p.lat, p.lon, 10); return g >= lo && g <= hi; })
           .map((p) => ({ document: encode(p) }));
@@ -364,6 +369,15 @@ console.log('\n  placement store');
     (await store.nearby(0, 0, 50)).length === 0);
 
   const queries = s.calls.filter((c) => c.url.includes(':runQuery'));
+
+  // Firestore rules are not filters. The read rule turns on `visibility`, so
+  // a query without an equality on it is refused outright — not narrowed,
+  // refused — and the refusal is indistinguishable from an empty world.
+  check('every query constrains visibility, as the rules require',
+    queries.every((c) => c.body.structuredQuery.where.compositeFilter.filters
+      .some((f) => f.fieldFilter.field.fieldPath === 'visibility' &&
+                   f.fieldFilter.op === 'EQUAL' &&
+                   f.fieldFilter.value.stringValue === 'public')));
   check('authenticates once and reuses the token',
     s.calls.filter((c) => c.url.includes('accounts:signUp')).length === 1);
   check('sends a bearer token on every query',
@@ -525,6 +539,61 @@ console.log('\n  world session');
   check('and is a far better bearing',
     upgrading.frame().accuracy.headingDeg < 10,
     '±' + upgrading.frame().accuracy.headingDeg.toFixed(1) + '°');
+
+  // Becoming located is what makes a query possible, so it must be what
+  // triggers one. It was not: the app polled for fixes only while unlocated,
+  // so a session that settled never asked the store for anything and a
+  // returning visitor found an empty world.
+  const fetches = [];
+  const autofetch = world.create({
+    store: {
+      nearby: (lat, lon, r) => { fetches.push({ lat, lon, r }); return Promise.resolve([]); }
+    },
+    provider: {
+      id: 'gps',
+      locate: () => Promise.resolve({
+        position: { lat: 51.5007, lon: -0.1246, h: 0 },
+        accuracy: { positionM: 8, headingDeg: 90 }
+      })
+    },
+    compass: { start: () => Promise.resolve(true), stop: () => {}, heading: () => 0, accuracyDeg: 25 },
+    config: { radiusM: 300 },
+    pose: () => ({ x: 0, y: 0, z: 0 }),
+    onState: () => {},
+    onPlacements: () => {}
+  });
+  await autofetch.start();
+  await new Promise((r) => setTimeout(r, 10));
+  check('becoming located fetches what is nearby', fetches.length === 1,
+    fetches.length + ' fetches');
+
+  // ...but standing still must not refetch on every fix.
+  await autofetch.sample();
+  await new Promise((r) => setTimeout(r, 10));
+  check('and standing still does not refetch', fetches.length === 1,
+    fetches.length + ' fetches');
+
+  // A read that fails has to be reported, not treated as an empty world.
+  const readStates = [];
+  const unreadable = world.create({
+    store: { nearby: () => Promise.reject(new Error('permission denied')) },
+    provider: {
+      id: 'gps',
+      locate: () => Promise.resolve({
+        position: { lat: 51.5, lon: -0.12, h: 0 },
+        accuracy: { positionM: 8, headingDeg: 90 }
+      })
+    },
+    compass: { start: () => Promise.resolve(true), stop: () => {}, heading: () => 0, accuracyDeg: 25 },
+    pose: () => ({ x: 0, y: 0, z: 0 }),
+    onState: (s, d) => readStates.push({ s, d }),
+    onPlacements: () => {}
+  });
+  await unreadable.start();
+  await new Promise((r) => setTimeout(r, 10));
+  check('a refused read is reported rather than shown as an empty world',
+    readStates.some((r) => r.s === 'error' && /Could not read placements/.test(r.d.message)),
+    readStates.map((r) => r.s).join(' -> '));
 
   const one = rig();
   await one.w.start();
