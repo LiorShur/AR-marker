@@ -20,6 +20,12 @@
   var picker     = document.getElementById('picker');
   var xrBtn      = document.getElementById('xr');
   var worldBtn   = document.getElementById('world');
+  var listBtn    = document.getElementById('list');
+  var listCount  = document.getElementById('list-count');
+  var nearbyEl   = document.getElementById('nearby');
+  var nearbyList = document.getElementById('nearby-list');
+  var nearbyEmpty = document.getElementById('nearby-empty');
+  var nearbyPlace = document.getElementById('nearby-place');
   var sheetLink  = document.getElementById('sheet');
 
   var mode = null;      // 'ar' | 'preview' | null
@@ -706,6 +712,7 @@
      because without both there is nothing to anchor to. */
 
   var world = null;
+  var store = null;
   var worldTimer = null;
   var rendered = {};        // placement id -> element, so models are not reloaded
 
@@ -734,8 +741,14 @@
         scene.addEventListener('ar-hit-test-select', onPlaceHere);
         scene.addEventListener('exit-vr', function () { if (mode === 'world') { stop(); } });
 
+        var appCheck = window.SpatialAppCheck
+          ? window.SpatialAppCheck.create(window.SpatialConfig)
+          : null;
+        store = SpatialStore.createStore(Object.assign({}, window.SpatialConfig, {
+          appCheck: appCheck
+        }));
         world = SpatialWorld.create({
-          store: SpatialStore.createStore(window.SpatialConfig),
+          store: store,
           provider: SpatialLocalize.gpsProvider(),
           config: window.SpatialConfig,
           pose: sessionPose,
@@ -824,6 +837,7 @@
     } else if (next === 'error') {
       setState('seeking', detail.message || 'Cannot find you');
     }
+    if (!nearbyEl.hidden) { renderNearby(); }
   }
 
   function fixLabel(accuracy) {
@@ -865,6 +879,8 @@
       delete rendered[id];
     });
 
+    setNearby(list);
+
     if (world && world.state() === 'ready') {
       var frame = world.frame();
       setState('locked', list.length + ' nearby · ' + fixLabel(frame && frame.accuracy));
@@ -899,6 +915,181 @@
       .catch(function (err) {
         setState('locked', 'Could not save: ' + (err.message || 'refused'));
       });
+  }
+
+  /* ── what is around you ─────────────────────────────────────
+     Placements only appear once you are located and looking at them, which
+     leaves an empty field and a broken app looking identical. This is a
+     list of everything within range with a distance and an arrow that turns
+     as you do, an empty state that says which of the two it is, and the
+     controls that would otherwise force a trip back to the gate: what to
+     place next, and how to remove something you got wrong. */
+
+  var nearby = [];
+  var arrowTimer = null;
+
+  function openNearby() {
+    nearbyEl.hidden = false;
+    listBtn.setAttribute('aria-expanded', 'true');
+    renderNearby();
+    // The arrows are only meaningful if they follow the phone.
+    clearInterval(arrowTimer);
+    arrowTimer = setInterval(updateArrows, 200);
+  }
+
+  function closeNearby() {
+    nearbyEl.hidden = true;
+    listBtn.setAttribute('aria-expanded', 'false');
+    clearInterval(arrowTimer);
+    arrowTimer = null;
+  }
+
+  function toggleNearby() {
+    if (nearbyEl.hidden) { openNearby(); } else { closeNearby(); }
+  }
+
+  function setNearby(list) {
+    nearby = list;
+    listBtn.hidden = mode !== 'world';
+    listCount.textContent = String(list.length);
+    if (!nearbyEl.hidden) { renderNearby(); }
+  }
+
+  function renderNearby() {
+    renderPlaceChooser();
+    nearbyList.innerHTML = '';
+
+    if (!world || world.state() !== 'ready') {
+      // The distinction that matters: not located yet is not the same as
+      // located and alone.
+      nearbyEmpty.textContent = world && world.state() === 'calibrating'
+        ? 'Still working out which way you are facing — walk a few metres in a straight line.'
+        : 'Finding you. Nothing can be listed until there is a position to list it against.';
+      return;
+    }
+
+    if (!nearby.length) {
+      var radius = (window.SpatialConfig && window.SpatialConfig.radiusM) || 300;
+      nearbyEmpty.textContent = 'Nothing placed within ' + radius + ' m. ' +
+        'Point at the ground and tap to leave the first thing here.';
+      return;
+    }
+
+    nearbyEmpty.textContent = '';
+    var mine = store && store.uid();
+
+    nearby.forEach(function (p) {
+      var row = document.createElement('li');
+
+      var dir = document.createElement('span');
+      dir.className = 'nearby__dir';
+      dir.dataset.id = p.id;
+      dir.textContent = '\u25B2';
+      row.appendChild(dir);
+
+      var what = document.createElement('span');
+      what.className = 'nearby__what';
+      var def = manifest && manifest.scenes[p.scene];
+      what.textContent = (def && def.label) || p.scene;
+      row.appendChild(what);
+
+      var far = document.createElement('span');
+      far.className = 'nearby__far';
+      far.dataset.id = p.id;
+      far.textContent = describeDistance(p);
+      row.appendChild(far);
+
+      // Only what you put there. Someone else's placement is not yours to
+      // remove, and the rules would refuse it anyway.
+      if (p.owner && mine && p.owner === mine) {
+        var drop = document.createElement('button');
+        drop.type = 'button';
+        drop.className = 'nearby__drop';
+        drop.textContent = 'Remove';
+        drop.addEventListener('click', function () {
+          drop.disabled = true;
+          drop.textContent = '…';
+          world.remove(p.id).catch(function (err) {
+            drop.disabled = false;
+            drop.textContent = 'Remove';
+            nearbyEmpty.textContent = 'Could not remove that: ' + (err.message || 'refused');
+          });
+        });
+        row.appendChild(drop);
+      }
+
+      nearbyList.appendChild(row);
+    });
+
+    updateArrows();
+  }
+
+  // Switching what you place used to mean leaving the session, going back to
+  // the gate and starting again.
+  function renderPlaceChooser() {
+    if (!manifest) { return; }
+    var ids = Object.keys(manifest.scenes);
+    if (ids.length < 2) { nearbyPlace.innerHTML = ''; return; }
+    if (nearbyPlace.children.length === ids.length) { markChosen(); return; }
+
+    nearbyPlace.innerHTML = '';
+    ids.forEach(function (id) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'chip';
+      b.dataset.value = id;
+      b.textContent = 'Place ' + ((manifest.scenes[id].label || id).toLowerCase());
+      b.addEventListener('click', function () {
+        chosenScene = id;
+        markChosen();
+      });
+      nearbyPlace.appendChild(b);
+    });
+    markChosen();
+  }
+
+  function markChosen() {
+    Array.prototype.forEach.call(nearbyPlace.children, function (c) {
+      c.setAttribute('aria-pressed', String(c.dataset.value === chosenScene));
+    });
+  }
+
+  function describeDistance(p) {
+    var here = sessionPose();
+    var d = Math.hypot(p.local.x - here.x, p.local.z - here.z);
+    return d < 10 ? d.toFixed(1) + ' m' : Math.round(d) + ' m';
+  }
+
+  /* An arrow per row, pointing where the thing actually is relative to where
+     the phone is pointing. Recomputed rather than stored, because both terms
+     change every time the user moves. */
+  function updateArrows() {
+    if (nearbyEl.hidden || !nearby.length) { return; }
+
+    var scene = document.getElementById('scene');
+    if (!scene || !scene.camera) { return; }
+
+    var here = sessionPose();
+    var facing = new AFRAME.THREE.Vector3();
+    scene.camera.getWorldDirection(facing);
+    var yaw = Math.atan2(-facing.x, -facing.z);
+
+    nearby.forEach(function (p) {
+      var dx = p.local.x - here.x;
+      var dz = p.local.z - here.z;
+      var bearing = Math.atan2(dx, -dz);        // 0 is straight ahead in session terms
+      var relative = bearing - yaw;
+
+      var arrow = nearbyEl.querySelector('.nearby__dir[data-id="' + cssEscape(p.id) + '"]');
+      if (arrow) { arrow.style.transform = 'rotate(' + (relative * 180 / Math.PI) + 'deg)'; }
+
+      var far = nearbyEl.querySelector('.nearby__far[data-id="' + cssEscape(p.id) + '"]');
+      if (far) { far.textContent = describeDistance(p); }
+    });
+  }
+
+  function cssEscape(value) {
+    return String(value).replace(/["\\]/g, '\\$&');
   }
 
   /* ── scene picker ───────────────────────────────────────────
@@ -1183,6 +1374,7 @@
   }
 
   function enterStage() {
+    listBtn.hidden = mode !== 'world';
     exitBtn.setAttribute('aria-label', mode === 'preview' ? 'Exit preview' : 'Stop camera');
     gate.hidden = true;
     stage.hidden = false;
@@ -1210,6 +1402,10 @@
 
   function stop() {
     releaseWake();
+    closeNearby();
+    listBtn.hidden = true;
+    nearby = [];
+    store = null;
     clearInterval(worldTimer);
     worldTimer = null;
     if (world) { world.reset(); world = null; }
@@ -1493,6 +1689,8 @@
   startBtn.addEventListener('click', startAR);
   xrBtn.addEventListener('click', startXR);
   worldBtn.addEventListener('click', startWorld);
+  listBtn.addEventListener('click', toggleNearby);
+  document.getElementById('nearby-close').addEventListener('click', closeNearby);
   previewBtn.addEventListener('click', startPreview);
   exitBtn.addEventListener('click', stop);
   shootBtn.addEventListener('click', capture);

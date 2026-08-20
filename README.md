@@ -95,6 +95,7 @@ CI runs the same suite on every push and keeps the screenshots as artefacts.
 | `spatial/localize.js` | Localization providers and the frame transform |
 | `spatial/world.js` | The session controller — fixes, calibration, placements |
 | `spatial/config.js` | Firebase project settings — empty means "stay local" |
+| `spatial/appcheck.js` | App Check tokens over REST, opt-in |
 | `firestore.rules` | Who may write what, assuming the client is a lie |
 | `vendor/` | A-Frame 1.5.0, AR.js 3.4.8 (NFT build), meshopt decoder |
 | `data/` | Hiro pattern, camera calibration, poster and its descriptors |
@@ -336,8 +337,17 @@ device can hold a WebXR session. Then:
    street.
 3. Once located, the HUD shows `±5m · ±6°` — position and heading accuracy,
    both, always. Nearby placements appear where they were left.
-4. Tap the reticle to leave something. What you placed is written with the
-   accuracy it was placed at, so anyone reading it back knows what it is worth.
+4. Tap the reticle to leave something — **as many times as you like**, without
+   leaving the session. What you placed is written with the accuracy it was
+   placed at, so anyone reading it back knows what it is worth.
+5. The count button in the HUD opens **Nearby**: everything within range, with
+   a distance and an arrow that turns as you do, so you can find what you
+   cannot see. It is also where you change what to place next, and remove
+   something you got wrong.
+
+The empty state is deliberate. "Nothing placed within 300 m" and "still working
+out which way you are facing" are different sentences, because standing in a
+field they are otherwise the same experience.
 
 It keeps sampling: to refine the bearing while you walk, and to re-anchor the
 frame once you have moved far enough that WebXR's own drift matters.
@@ -360,8 +370,23 @@ nothing. What protects the data is `firestore.rules`.
 **Anonymous auth is not a security boundary.** Anyone can mint a uid for the
 cost of one HTTP request, so the rules treat every write as hostile: shape,
 ranges and ownership are all checked server-side. What rules cannot do is
-rate-limit, so turn on **App Check** before this is public — it is the only
-control that costs an abuser anything.
+rate-limit — that is what App Check is for.
+
+`spatial/appcheck.js` fetches tokens over REST and attaches them as
+`X-Firebase-AppCheck`. Fill in `projectNumber` (the *number*, not the id),
+`appId` and `recaptchaSiteKey` in your local config, deploy, confirm tokens are
+arriving in the console, and only then switch on enforcement for Firestore.
+Doing it in that order means a misconfiguration is visible before it starts
+refusing writes.
+
+Two things to know before you enable it. It is the only part of this project
+that loads a script from another origin: reCAPTCHA has to run Google's code
+from Google's servers, and there is no offline attestation. And once
+enforcement is on, a client that cannot get a token cannot write at all — which
+is the point, and also why a failure here looks exactly like the database being
+down. A token that cannot be minted is logged and the request goes unattested,
+so the refusal comes from the server with a reason attached rather than from a
+guess made in the client.
 
 No Firebase SDK. The modular SDK wants a bundler and every hosted copy is a CDN
 request, which this project does not make. The REST API needs neither. What

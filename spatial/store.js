@@ -41,6 +41,11 @@
 
     var session = null;          // { idToken, refreshToken, uid, expiresAt }
     var pending = null;
+    // Optional. When enforcement is on in the console, requests without a
+    // valid token are refused outright — which is the entire point, and also
+    // why a failure here has to be reported as itself and not as a network
+    // problem.
+    var appCheck = config.appCheck || null;
 
     function docs() {
       return firestore + '/projects/' + projectId + '/databases/(default)/documents';
@@ -98,9 +103,28 @@
     }
 
     function post(url, body, token) {
-      var headers = { 'Content-Type': 'application/json' };
-      if (token) { headers.Authorization = 'Bearer ' + token; }
+      return attest().then(function (attestation) {
+        var headers = { 'Content-Type': 'application/json' };
+        if (token) { headers.Authorization = 'Bearer ' + token; }
+        if (attestation) { headers['X-Firebase-AppCheck'] = attestation; }
+        return send(url, headers, body);
+      });
+    }
 
+    function attest() {
+      if (!appCheck || !appCheck.enabled) { return Promise.resolve(null); }
+      return appCheck.get().catch(function (err) {
+        // Carry on unattested rather than block. With enforcement off this
+        // changes nothing; with it on the server refuses and says so, which
+        // is a better error than one invented here.
+        if (typeof console !== 'undefined' && console.warn) {
+          console.warn('App Check token unavailable: ' + err.message);
+        }
+        return null;
+      });
+    }
+
+    function send(url, headers, body) {
       return fetchImpl(url, { method: 'POST', headers: headers, body: JSON.stringify(body) })
         .then(function (res) {
           return res.text().then(function (text) {
@@ -244,10 +268,14 @@
     }
 
     function remove(id) {
-      return signIn().then(function (s) {
+      return Promise.all([signIn(), attest()]).then(function (parts) {
+        var s = parts[0];
+        var headers = { Authorization: 'Bearer ' + s.idToken };
+        if (parts[1]) { headers['X-Firebase-AppCheck'] = parts[1]; }
+
         return fetchImpl(docs() + '/' + collection + '/' + encodeURIComponent(id), {
           method: 'DELETE',
-          headers: { Authorization: 'Bearer ' + s.idToken }
+          headers: headers
         }).then(function (res) {
           if (!res.ok) { throw new Error('could not delete: HTTP ' + res.status); }
           return true;

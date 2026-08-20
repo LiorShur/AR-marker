@@ -17,6 +17,7 @@ const geo = require(join(ROOT, 'spatial', 'geo.js'));
 const { createStore } = require(join(ROOT, 'spatial', 'store.js'));
 const local = require(join(ROOT, 'spatial', 'localize.js'));
 const world = require(join(ROOT, 'spatial', 'world.js'));
+const appcheck = require(join(ROOT, 'spatial', 'appcheck.js'));
 
 const results = [];
 const check = (name, ok, detail = '') => {
@@ -557,6 +558,61 @@ console.log('\n  world session');
   });
   await broken.start().catch(() => {});
   check('a refused fix becomes an error state', broken.state() === 'error', broken.state());
+}
+
+/* ── App Check ───────────────────────────────────────────── */
+console.log('\n  app check');
+{
+  const off = appcheck.create({ projectId: 'p', apiKey: 'k' });
+  check('stays off until it is configured', off.enabled === false);
+  check('and says what is missing', /recaptchaSiteKey/.test(off.describe()), off.describe());
+  check('an unconfigured token is null, not an error', (await off.get()) === null);
+
+  // A store with App Check off must send no header at all — an empty one is
+  // not the same as absent and some proxies treat it differently.
+  const bare = [];
+  const plain = createStore({
+    projectId: 'p', apiKey: 'k',
+    fetch: (u, o) => { bare.push(o.headers); return stubbedAuth(); }
+  });
+  await plain.signIn();
+  check('no App Check header when it is off', !('X-Firebase-AppCheck' in bare[0]));
+
+  // ...and with it on, every request carries one, minted once and reused.
+  let minted = 0;
+  const seen = [];
+  const attested = createStore({
+    projectId: 'p', apiKey: 'k',
+    appCheck: { enabled: true, get: () => { minted++; return Promise.resolve('tok-' + minted); } },
+    fetch: (u, o) => { seen.push(o.headers); return stubbedAuth(); }
+  });
+  await attested.signIn();
+  await attested.nearby(51.5, -0.12, 50).catch(() => {});
+  check('every request is attested',
+    seen.length > 1 && seen.every((h) => h['X-Firebase-AppCheck']),
+    seen.length + ' requests');
+
+  // A token that cannot be obtained must not take writing down with it. With
+  // enforcement off nothing changes; with it on the server refuses and says
+  // so, which is a better error than one invented in the client.
+  const degraded = [];
+  const flaky = createStore({
+    projectId: 'p', apiKey: 'k',
+    appCheck: { enabled: true, get: () => Promise.reject(new Error('recaptcha blocked')) },
+    fetch: (u, o) => { degraded.push(o.headers); return stubbedAuth(); }
+  });
+  const survived = await flaky.signIn().then(() => true).catch(() => false);
+  check('a failed attestation degrades rather than throws', survived);
+  check('and simply sends no header', !('X-Firebase-AppCheck' in degraded[0]));
+
+  function stubbedAuth() {
+    return Promise.resolve({
+      ok: true, status: 200,
+      text: async () => JSON.stringify({
+        idToken: 't', refreshToken: 'r', localId: 'anon', expiresIn: '3600'
+      })
+    });
+  }
 }
 
 const failed = results.filter((r) => !r.ok);

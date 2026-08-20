@@ -499,6 +499,7 @@ async function testWorld() {
     await page.waitForSelector('#xr:not([hidden])', { timeout: 10000 }).catch(() => {});
     check('world mode is hidden with no project configured',
       await page.locator('#world').isHidden());
+    check('and the nearby button with it', await page.locator('#list').isHidden());
     await close();
   }
 
@@ -544,6 +545,26 @@ async function testWorld() {
       };
     });
     check('the hit test drives a reticle', /reticle/.test(String(wiring.hitTarget)));
+
+    // The panel is the answer to "am I in an empty field or is this broken".
+    // A headless session cannot walk, so it never localizes — which is
+    // exactly the state whose messaging matters most.
+    check('the nearby button is offered in world mode',
+      await page.locator('#list').isVisible());
+    await page.locator('#list').click();
+    check('the panel opens', await page.locator('#nearby').isVisible());
+
+    const empty = await page.locator('#nearby-empty').textContent();
+    check('an unlocated session says so rather than showing an empty list',
+      /finding you|walk a few metres/i.test(empty), empty.slice(0, 60));
+    check('and shows no list', (await page.locator('#nearby-list li').count()) === 0);
+
+    const chips = await page.locator('#nearby-place .chip').allTextContents();
+    check('what to place next can be changed without leaving', chips.length === 2,
+      chips.join(' / '));
+
+    await page.locator('#nearby-close').click();
+    check('the panel closes', await page.locator('#nearby').isHidden());
     check('the reticle starts hidden', wiring.reticleHidden);
     check('there is a container for placements', wiring.container);
     check('every scene\'s assets are declared', wiring.assets >= 1, wiring.assets + ' asset(s)');

@@ -31,7 +31,24 @@
 
     // How far the device may travel before the local-to-global transform is
     // re-derived. WebXR tracking drifts, slowly and without saying so.
-    relocalizeAfterM: 25
+    relocalizeAfterM: 25,
+
+    /* App Check. Off unless all three are filled in.
+     *
+     * Anonymous auth costs an attacker one request and rules cannot
+     * rate-limit, so this is what makes writing expensive. It is also the one
+     * part of this project that loads a script from another origin —
+     * reCAPTCHA has to run Google's code from Google's servers — so it is
+     * opt-in rather than assumed.
+     *
+     * projectNumber is the *number* from project settings, not the project
+     * id. They are different and the wrong one returns a bare 404.
+     */
+    appCheck: {
+      projectNumber: '',
+      appId: '',                   // 1:123...:web:abc...
+      recaptchaSiteKey: ''
+    }
   };
 
   // Applied by spatial/config.local.js if it exists. Shallow by design: the

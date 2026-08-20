@@ -11,5 +11,15 @@ SpatialConfig.override({
   apiKey: 'AIza...',
 
   radiusM: 300,
-  relocalizeAfterM: 25
+  relocalizeAfterM: 25,
+
+  // Optional, and strongly recommended before the link is public. All three
+  // are required or App Check stays off. projectNumber is the number, not the
+  // id. Then switch on enforcement for Firestore in the console — until you
+  // do, tokens are sent and ignored, which is the safe order to do it in.
+  appCheck: {
+    projectNumber: '',
+    appId: '',
+    recaptchaSiteKey: ''
+  }
 });
