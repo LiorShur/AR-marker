@@ -95,7 +95,7 @@ CI runs the same suite on every push and keeps the screenshots as artefacts.
 | `spatial/localize.js` | Localization providers and the frame transform |
 | `spatial/world.js` | The session controller — fixes, calibration, placements |
 | `spatial/config.js` | Firebase project settings — empty means "stay local" |
-| `spatial/appcheck.js` | App Check tokens over REST, opt-in |
+| `spatial/appcheck.js` | App Check tokens over REST, opt-in, v3 or Enterprise |
 | `firestore.rules` | Who may write what, assuming the client is a lie |
 | `vendor/` | A-Frame 1.5.0, AR.js 3.4.8 (NFT build), meshopt decoder |
 | `data/` | Hiro pattern, camera calibration, poster and its descriptors |
@@ -177,7 +177,7 @@ whatever the camera's real resolution, so a target filling the frame is about
 200 pixels tall by the time it is matched. Detail finer than ~2% of its width
 is gone.
 
-## Six things that are load-bearing and not obvious
+## Seven things that are load-bearing and not obvious
 
 **The camera video is not part of the scene.** AR.js appends a plain `<video>`
 to `<body>` at `z-index: -2` and draws the AR overlay on a transparent WebGL
@@ -192,6 +192,12 @@ embedded scene's canvas to its container. On a tall phone those disagree
 violently — the overlay renders as a stretched ellipse nowhere near the marker.
 `applyFeedSize()` in `app.js` copies the video's box onto the canvas and pins
 `<body>` so AR.js cannot shift it.
+
+**dom-overlay draws one element and nothing else.** During an immersive WebXR
+session the page is not rendered; only the element named by `overlayElement`
+and its descendants are. Anything the user has to see or touch mid-session must
+live inside it, which is why the HUD and the nearby panel share one `#overlay`
+root outside the stage rather than sitting wherever the markup was tidiest.
 
 **Exiting a camera mode has to dispose four separate things.** Removing the
 scene from the page stops the render loop and nothing else. AR.js keeps an
@@ -330,13 +336,15 @@ number.
 device can hold a WebXR session. Then:
 
 1. It finds you — a GPS fix, a few metres of accuracy.
-2. **It asks you to walk.** This is the part nobody expects. One fix is a
-   position; two, far enough apart, are a position *and a bearing*. Until it
-   has both it says `calibrating` and shows how far you have gone, because a
-   phone compass is tens of degrees out and tens of degrees is the wrong
-   street.
-3. Once located, the HUD shows `±5m · ±6°` — position and heading accuracy,
-   both, always. Nearby placements appear where they were left.
+2. **It works out which way you are facing**, which is the hard part. If the
+   compass answers, that is used straight away and labelled `±25° compass` —
+   usable, and not good. Walking twenty metres in a straight line gives a far
+   better bearing from the two positions, and it upgrades itself the moment
+   that is available. With no compass at all it asks you to walk and says how
+   far you have gone.
+3. The HUD shows `±5m · ±6°` — position and heading accuracy, both, always,
+   with the source when it is the compass. Nearby placements appear where they
+   were left.
 4. Tap the reticle to leave something — **as many times as you like**, without
    leaving the session. What you placed is written with the accuracy it was
    placed at, so anyone reading it back knows what it is worth.
@@ -377,7 +385,8 @@ rate-limit — that is what App Check is for.
 
 | Value | Where |
 |---|---|
-| `recaptchaSiteKey` | **google.com/recaptcha/admin** — create a key, type **reCAPTCHA v3**, list your domains. Not a Firebase page. |
+| `recaptchaSiteKey` | The **site key**, called *ID* in the Cloud console. Never the secret — that goes to Firebase. |
+| `provider` | `'v3'` for a classic key from **google.com/recaptcha/admin**; `'enterprise'` for one from the **Google Cloud console**, listed there with an *ID* and a type of *Website / Score*. |
 | `projectNumber` | Firebase → Project settings → General → *Project number*. The number, not the id. |
 | `appId` | Firebase → Project settings → Your apps → the web app → App ID, `1:…:web:…`. Register a web app if you have none. |
 
@@ -391,8 +400,12 @@ visible before it starts refusing writes. Every load logs what the app thinks
 it has — `placements on for <project> — App Check on` or exactly which field is
 missing.
 
-Note this implementation uses reCAPTCHA **v3**, not reCAPTCHA Enterprise; they
-are different products with different exchange endpoints.
+reCAPTCHA v3 and reCAPTCHA Enterprise are two products with one name, two
+scripts and two exchange endpoints. Both are supported; say which you have in
+`provider`, because sending one to the other's endpoint fails without saying
+anything useful. There is no visible widget either way — v3 and Enterprise
+score-based keys are invisible by design, so nothing appearing on screen is not
+a symptom.
 
 Two things to know before you enable it. It is the only part of this project
 that loads a script from another origin: reCAPTCHA has to run Google's code

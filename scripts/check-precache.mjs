@@ -41,8 +41,17 @@ const mismatched = paths
   .filter((p) => p.includes('?v='))
   .filter((p) => !html.includes(p));
 
+// The build stamp exists to answer "am I running what I just deployed", which
+// it cannot do if it is bumped separately from the assets it describes.
+const app = await readFile(join(ROOT, 'app.js'), 'utf8');
+const build = (app.match(/var BUILD = '([^']+)'/) || [])[1];
+const assetVersion = (html.match(/app\.js\?v=([^"']+)/) || [])[1];
+if (build !== assetVersion) {
+  console.error(`build stamp is '${build}' but index.html asks for app.js?v=${assetVersion}`);
+}
+
 for (const p of missing) console.error(`missing: ${p}`);
 for (const p of mismatched) console.error(`precached but not referenced by index.html: ${p}`);
 
-if (missing.length || mismatched.length) { process.exit(1); }
-console.log(`${paths.length} precached assets all present and referenced`);
+if (missing.length || mismatched.length || build !== assetVersion) { process.exit(1); }
+console.log(`${paths.length} precached assets present and referenced, build ${build}`);

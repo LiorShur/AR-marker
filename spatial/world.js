@@ -37,6 +37,7 @@
     var samples = [];
     var frame = null;
     var heading = null;          // the winning baseline
+    var compass = options.compass || null;
     var placements = [];
     var state = 'idle';
     var lastFixLocal = null;
@@ -90,16 +91,41 @@
         }
       }
 
-      if (!best) {
-        emit(samples.length ? 'calibrating' : 'locating', {
-          samples: samples.length,
-          walked: walkedSoFar()
-        });
+      if (best && (!heading || heading.source === 'compass' ||
+                   best.separationM > heading.separationM)) {
+        // A walked baseline always beats the compass, and a longer walk beats
+        // a shorter one. Both are upgrades and both take effect immediately.
+        heading = {
+          source: 'baseline',
+          sessionYawDeg: best.sessionYawDeg,
+          separationM: best.separationM,
+          accuracyDeg: best.accuracyDeg
+        };
+        rebuild();
+        return;
+      }
+      if (heading) { rebuild(); return; }
+
+      // No baseline yet. The compass is a far worse bearing, but it is the
+      // only one available standing still or indoors — where the position
+      // error is tens of metres and a baseline can never resolve at all.
+      // Better to be usable and say how badly than to refuse forever.
+      var bearing = compass && compass.heading();
+      if (bearing !== null && bearing !== undefined && samples.length) {
+        heading = {
+          source: 'compass',
+          sessionYawDeg: bearing,
+          separationM: 0,
+          accuracyDeg: compass.accuracyDeg || 25
+        };
+        rebuild();
         return;
       }
 
-      heading = best;
-      rebuild();
+      emit(samples.length ? 'calibrating' : 'locating', {
+        samples: samples.length,
+        walked: walkedSoFar()
+      });
     }
 
     // The heading comes from the whole walk; the origin comes from the newest
@@ -116,7 +142,11 @@
         headingDeg: heading.sessionYawDeg,
         accuracy: {
           positionM: latest.accuracy.positionM,
-          headingDeg: heading.accuracyDeg
+          headingDeg: heading.accuracyDeg,
+          // Which of the two produced this bearing. A twenty-five degree
+          // compass fix and a two degree walked one are the same shape and
+          // nothing like the same thing.
+          headingFrom: heading.source
         },
         provider: provider.id,
         at: latest.at
@@ -124,6 +154,7 @@
 
       emit('ready', {
         accuracy: frame.accuracy,
+        source: heading.source,
         baselineM: heading.separationM
       });
 
@@ -228,10 +259,18 @@
 
     function start() {
       emit('locating', {});
-      return sample();
+      // The compass is started first so that a bearing is already available
+      // when the first fix lands — otherwise the first sample resolves to
+      // nothing and the user is told to walk when they need not.
+      var ready = compass ? compass.start(function () {
+        if (!heading) { resolveHeading(); }
+      }) : Promise.resolve(false);
+
+      return ready.catch(function () { return false; }).then(sample);
     }
 
     function reset() {
+      if (compass) { compass.stop(); }
       samples = [];
       frame = null;
       heading = null;

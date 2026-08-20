@@ -204,6 +204,14 @@ body{
 
 /* ── AR stage ─────────────────────────────────────── */
 .stage{position:fixed;inset:0;z-index:10}
+
+/* The overlay root. In an immersive WebXR session this is the only part of
+   the page that is drawn at all — dom-overlay renders one element and its
+   descendants, and nothing else exists as far as the compositor is
+   concerned. */
+.overlay{position:fixed;inset:0;z-index:20;pointer-events:none}
+.overlay > *{pointer-events:auto}
+.overlay .hud{pointer-events:none}
 .stage .a-enter-vr,.stage .a-enter-ar,.stage .a-orientation-modal{display:none!important}
 
 .hud{

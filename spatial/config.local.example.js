@@ -18,8 +18,12 @@ SpatialConfig.override({
   // id. Then switch on enforcement for Firestore in the console — until you
   // do, tokens are sent and ignored, which is the safe order to do it in.
   appCheck: {
-    projectNumber: '',
-    appId: '',
-    recaptchaSiteKey: ''
+    // 'v3' = a classic key from google.com/recaptcha/admin.
+    // 'enterprise' = one from the Google Cloud console, shown there with an
+    // "ID" and a type of "Website / Score". The ID is the site key.
+    provider: 'v3',
+    projectNumber: '',      // Firebase project settings — the number, not the id
+    appId: '',              // 1:123...:web:abc...
+    recaptchaSiteKey: ''    // the site key / "ID". Never the secret.
   }
 });

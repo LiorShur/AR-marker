@@ -192,6 +192,80 @@
     return 'Location unavailable: ' + (message || 'refused');
   }
 
+  /* ── the compass ───────────────────────────────────────────
+     A worse bearing than a walked baseline, and the only one available when
+     the user is standing still, indoors, or somewhere GPS is too noisy for a
+     baseline to ever resolve — which indoors it is, because the baseline has
+     to exceed the position error and indoors that error is tens of metres.
+
+     Twenty-five degrees is the honest figure for a phone magnetometer near
+     anything metal or electrical, so that is what it reports. The frame
+     records it, every placement stores it, and the readout shows it, which
+     means a compass fix is usable without being mistaken for a good one. */
+
+  function compass(options) {
+    options = options || {};
+    var root = options.window || (typeof window !== 'undefined' ? window : null);
+
+    var heading = null;
+    var listening = false;
+    var onReading = null;
+
+    function read(event) {
+      var next = null;
+
+      if (typeof event.webkitCompassHeading === 'number' && !isNaN(event.webkitCompassHeading)) {
+        // Already a compass heading, clockwise from north.
+        next = event.webkitCompassHeading;
+      } else if (event.absolute === true && typeof event.alpha === 'number') {
+        // alpha runs anticlockwise from north, so it has to be turned round.
+        next = (360 - event.alpha) % 360;
+      }
+
+      if (next === null || isNaN(next)) { return; }
+      heading = next;
+      if (onReading) { onReading(next); }
+    }
+
+    return {
+      id: 'compass',
+
+      start: function (callback) {
+        if (listening || !root || !root.addEventListener) { return Promise.resolve(false); }
+        onReading = callback || null;
+
+        var begin = function () {
+          listening = true;
+          // deviceorientationabsolute is the one that is actually referenced
+          // to north; plain deviceorientation may be relative to wherever the
+          // device happened to be when it started, which is useless here.
+          root.addEventListener('deviceorientationabsolute', read, true);
+          root.addEventListener('deviceorientation', read, true);
+          return true;
+        };
+
+        var DOE = root.DeviceOrientationEvent;
+        if (DOE && typeof DOE.requestPermission === 'function') {
+          return DOE.requestPermission()
+            .then(function (state) { return state === 'granted' ? begin() : false; })
+            .catch(function () { return false; });
+        }
+        return Promise.resolve(begin());
+      },
+
+      stop: function () {
+        if (!listening || !root) { return; }
+        root.removeEventListener('deviceorientationabsolute', read, true);
+        root.removeEventListener('deviceorientation', read, true);
+        listening = false;
+        onReading = null;
+      },
+
+      heading: function () { return heading; },
+      accuracyDeg: 25
+    };
+  }
+
   /* ── heading from a walked baseline ────────────────────────
      The cheapest real fix for the compass problem, and the one that works in
      open country where there is nothing to look at. Two positions a few
@@ -243,6 +317,7 @@
   return {
     makeFrame: makeFrame,
     gpsProvider: gpsProvider,
+    compass: compass,
     headingFromBaseline: headingFromBaseline
   };
 }));

@@ -4,6 +4,13 @@
 (function () {
   'use strict';
 
+  /* Bumped with the ?v= on every asset in index.html and the cache name in
+     sw.js, and checked against them by scripts/check-precache.mjs. Its only
+     job is to answer "am I running the code I just deployed", which during a
+     week of deploy-and-walk-outside is a question worth being able to answer
+     in one glance rather than by bisecting behaviour. */
+  var BUILD = '9';
+
   var gate       = document.getElementById('gate');
   var stage      = document.getElementById('stage');
   var slot       = document.getElementById('scene-slot');
@@ -26,6 +33,8 @@
   var nearbyList = document.getElementById('nearby-list');
   var nearbyEmpty = document.getElementById('nearby-empty');
   var nearbyPlace = document.getElementById('nearby-place');
+  var overlayEl  = document.getElementById('overlay');
+  var buildEl    = document.getElementById('build');
   var sheetLink  = document.getElementById('sheet');
 
   var mode = null;      // 'ar' | 'preview' | null
@@ -451,7 +460,7 @@
       '  device-orientation-permission-ui="enabled: false"',
       '  ' + MESHOPT,
       '  ' + RENDERER,
-      '  webxr="requiredFeatures: local-floor, hit-test; optionalFeatures: dom-overlay; overlayElement: #hud"',
+      '  webxr="requiredFeatures: local-floor, hit-test; optionalFeatures: dom-overlay; overlayElement: #overlay"',
       '  ar-hit-test="target: #placeable; type: map">',
       buildAssets(m, def),
       buildLights(def),
@@ -486,7 +495,7 @@
       '  device-orientation-permission-ui="enabled: false"',
       '  ' + MESHOPT,
       '  ' + RENDERER,
-      '  webxr="requiredFeatures: local-floor, hit-test; optionalFeatures: dom-overlay; overlayElement: #hud"',
+      '  webxr="requiredFeatures: local-floor, hit-test; optionalFeatures: dom-overlay; overlayElement: #overlay"',
       '  ar-hit-test="target: #reticle; type: map">',
       // Every scene's assets, because any of them may turn up nearby.
       '  <a-assets timeout="30000">' + items.join('\n') + '</a-assets>',
@@ -750,6 +759,7 @@
         world = SpatialWorld.create({
           store: store,
           provider: SpatialLocalize.gpsProvider(),
+          compass: SpatialLocalize.compass(),
           config: window.SpatialConfig,
           pose: sessionPose,
           onState: onWorldState,
@@ -842,7 +852,11 @@
 
   function fixLabel(accuracy) {
     if (!accuracy) { return 'Located'; }
-    return '±' + Math.round(accuracy.positionM) + 'm · ±' + Math.round(accuracy.headingDeg) + '°';
+    // The suffix is the point. A compass bearing is usable and is not a good
+    // one, and the difference has to be visible without being looked up.
+    var from = accuracy.headingFrom === 'compass' ? ' compass' : '';
+    return '±' + Math.round(accuracy.positionM) + 'm · ±' +
+           Math.round(accuracy.headingDeg) + '°' + from;
   }
 
   /* Placements are diffed rather than rebuilt. Re-creating the entities on
@@ -963,7 +977,8 @@
       // The distinction that matters: not located yet is not the same as
       // located and alone.
       nearbyEmpty.textContent = world && world.state() === 'calibrating'
-        ? 'Still working out which way you are facing — walk a few metres in a straight line.'
+        ? 'No compass reading, so the bearing has to come from a walk. ' +
+          'Head off in a straight line for twenty metres or so.'
         : 'Finding you. Nothing can be listed until there is a position to list it against.';
       return;
     }
@@ -975,7 +990,12 @@
       return;
     }
 
-    nearbyEmpty.textContent = '';
+    var frame = world.frame();
+    nearbyEmpty.textContent = frame && frame.accuracy.headingFrom === 'compass'
+      ? 'Bearing is from the compass, so everything here may be twenty degrees ' +
+        'out. Walk twenty metres in a straight line and it will correct itself.'
+      : '';
+
     var mine = store && store.uid();
 
     nearby.forEach(function (p) {
@@ -1374,6 +1394,7 @@
   }
 
   function enterStage() {
+    overlayEl.hidden = false;
     listBtn.hidden = mode !== 'world';
     exitBtn.setAttribute('aria-label', mode === 'preview' ? 'Exit preview' : 'Stop camera');
     gate.hidden = true;
@@ -1424,6 +1445,7 @@
     // happens between the tap and the screen changing.
     mode = null;
     stage.hidden = true;
+    overlayEl.hidden = true;
     gate.hidden = false;
     document.body.classList.remove('is-running');
     idle(startBtn);
@@ -1705,6 +1727,8 @@
   function reportSpatial() {
     if (!window.SpatialConfig || typeof console === 'undefined' || !console.info) { return; }
 
+    console.info('Marker One build ' + BUILD);
+
     if (!window.SpatialConfig.enabled) {
       console.info('Marker One: placements off — no projectId/apiKey in spatial/config.local.js');
       return;
@@ -1754,6 +1778,7 @@
 
   // The manifest is a couple of kilobytes and the picker needs it before any
   // tap, so it is fetched at load — unlike the 3 MB of engine behind it.
+  if (buildEl) { buildEl.textContent = BUILD; }
   loadManifest().then(renderPicker);
   probeXR();
   reportSpatial();

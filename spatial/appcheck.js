@@ -26,7 +26,31 @@
 }(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  var RECAPTCHA = 'https://www.google.com/recaptcha/api.js';
+  /* Two different products with the same name.
+   *
+   * reCAPTCHA v3 ("classic") keys come from google.com/recaptcha/admin, have a
+   * site key and a secret, and exchange at :exchangeRecaptchaV3Token.
+   *
+   * reCAPTCHA Enterprise keys come from the Google Cloud console, are listed
+   * with an "ID" and a type of "Website / Score", load a different script, and
+   * exchange at :exchangeRecaptchaEnterpriseToken.
+   *
+   * Sending one to the other's endpoint fails in a way that says nothing
+   * useful, so the provider is declared rather than guessed.
+   */
+  var SCRIPTS = {
+    v3: 'https://www.google.com/recaptcha/api.js',
+    enterprise: 'https://www.google.com/recaptcha/enterprise.js'
+  };
+  var EXCHANGE_PATH = {
+    v3: ':exchangeRecaptchaV3Token',
+    enterprise: ':exchangeRecaptchaEnterpriseToken'
+  };
+  var TOKEN_FIELD = {
+    v3: 'recaptcha_v3_token',
+    enterprise: 'recaptcha_enterprise_token'
+  };
+
   var EXCHANGE = 'https://firebaseappcheck.googleapis.com/v1';
 
   // Renew a little early. A token that expires between being fetched and being
@@ -42,6 +66,7 @@
     var project = settings.projectNumber || (config && config.projectId);
     var apiKey = config && config.apiKey;
 
+    var kind = settings.provider === 'enterprise' ? 'enterprise' : 'v3';
     var enabled = !!(siteKey && appId && project && apiKey);
     var fetchImpl = (config && config.fetch) ||
       (typeof fetch !== 'undefined' ? fetch.bind(null) : null);
@@ -54,14 +79,16 @@
       if (recaptcha) { return recaptcha; }
 
       recaptcha = new Promise(function (resolve, reject) {
-        if (root.grecaptcha && root.grecaptcha.execute) { return resolve(root.grecaptcha); }
+        var existing = api();
+        if (existing && existing.execute) { return resolve(existing); }
 
         var script = document.createElement('script');
-        script.src = RECAPTCHA + '?render=' + encodeURIComponent(siteKey);
+        script.src = SCRIPTS[kind] + '?render=' + encodeURIComponent(siteKey);
         script.async = true;
         script.onload = function () {
-          if (!root.grecaptcha) { return reject(new Error('reCAPTCHA loaded but did not register')); }
-          root.grecaptcha.ready(function () { resolve(root.grecaptcha); });
+          var g = api();
+          if (!g) { return reject(new Error('reCAPTCHA loaded but did not register')); }
+          g.ready(function () { resolve(g); });
         };
         script.onerror = function () {
           reject(new Error('reCAPTCHA could not be loaded — App Check needs network access to google.com'));
@@ -72,6 +99,14 @@
       return recaptcha;
     }
 
+    // Enterprise hangs its API off grecaptcha.enterprise; classic is
+    // grecaptcha itself. Reading the wrong one gives undefined and a stack
+    // trace three frames from anything relevant.
+    function api() {
+      if (!root.grecaptcha) { return null; }
+      return kind === 'enterprise' ? root.grecaptcha.enterprise : root.grecaptcha;
+    }
+
     function mint() {
       return loadRecaptcha()
         .then(function (g) { return g.execute(siteKey, { action: 'placement' }); })
@@ -79,11 +114,11 @@
           return fetchImpl(
             EXCHANGE + '/projects/' + encodeURIComponent(project) +
             '/apps/' + encodeURIComponent(appId) +
-            ':exchangeRecaptchaV3Token?key=' + encodeURIComponent(apiKey),
+            EXCHANGE_PATH[kind] + '?key=' + encodeURIComponent(apiKey),
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ recaptcha_v3_token: recaptchaToken })
+              body: JSON.stringify(body(recaptchaToken))
             }
           );
         })
@@ -92,8 +127,9 @@
             var data = text ? JSON.parse(text) : null;
             if (!res.ok) {
               var detail = (data && data.error && data.error.message) || ('HTTP ' + res.status);
-              throw new Error('App Check exchange refused: ' + detail +
-                ' — check the project number, app id and reCAPTCHA site key.');
+              throw new Error('App Check exchange refused (' + kind + '): ' + detail +
+                ' — check the project number, the app id, the site key, and that ' +
+                'appCheck.provider matches the kind of key you actually made.');
             }
             return data;
           });
@@ -107,6 +143,12 @@
           };
           return token.value;
         });
+    }
+
+    function body(token) {
+      var out = {};
+      out[TOKEN_FIELD[kind]] = token;
+      return out;
     }
 
     function get() {
@@ -132,7 +174,7 @@
       // For anyone wondering why writes started failing the day enforcement
       // was switched on.
       describe: function () {
-        if (enabled) { return 'App Check on, reCAPTCHA v3'; }
+        if (enabled) { return 'App Check on, reCAPTCHA ' + kind; }
         var missing = [];
         if (!siteKey) { missing.push('recaptchaSiteKey'); }
         if (!appId) { missing.push('appId'); }

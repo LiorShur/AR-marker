@@ -45,6 +45,11 @@
      * id. They are different and the wrong one returns a bare 404.
      */
     appCheck: {
+      // 'v3' for a classic key from google.com/recaptcha/admin;
+      // 'enterprise' for one from the Google Cloud console, which lists it
+      // with an "ID" and a type of "Website / Score". Two products, two
+      // scripts, two exchange endpoints, one name.
+      provider: 'v3',
       projectNumber: '',
       appId: '',                   // 1:123...:web:abc...
       recaptchaSiteKey: ''

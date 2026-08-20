@@ -465,6 +465,67 @@ console.log('\n  world session');
     return { w, states, written, get rendered() { return rendered; } };
   }
 
+  // Indoors, or standing still, a baseline can never resolve — the position
+  // error is tens of metres and the baseline has to beat it. The compass is a
+  // far worse bearing and the only one available, so it is used and labelled.
+  const stationary = rig({ walk: [0, 0] });
+  const withCompass = world.create({
+    store: { nearby: () => Promise.resolve([]) },
+    provider: {
+      id: 'gps',
+      locate: () => Promise.resolve({
+        position: { lat: 51.5007, lon: -0.1246, h: 0 },
+        accuracy: { positionM: 30, headingDeg: 90 }
+      })
+    },
+    compass: {
+      start: () => Promise.resolve(true),
+      stop: () => {},
+      heading: () => 90,
+      accuracyDeg: 25
+    },
+    pose: () => ({ x: 0, y: 0, z: 0 }),
+    onState: () => {},
+    onPlacements: () => {}
+  });
+  await withCompass.start();
+  check('a compass gets a stationary session going', withCompass.state() === 'ready',
+    withCompass.state());
+  check('and the bearing is labelled as the compass',
+    withCompass.frame().accuracy.headingFrom === 'compass' &&
+    withCompass.frame().accuracy.headingDeg === 25,
+    JSON.stringify(withCompass.frame().accuracy));
+
+  // ...and a walk, once it happens, must take over from it.
+  let walked = 0;
+  const upgrading = world.create({
+    store: { nearby: () => Promise.resolve([]) },
+    provider: {
+      id: 'gps',
+      locate: () => {
+        const m = walked;
+        walked += 40;
+        return Promise.resolve({
+          position: { lat: 51.5007 + (m / 6371008.8) * 180 / Math.PI, lon: -0.1246, h: 0 },
+          accuracy: { positionM: 3, headingDeg: 25 }
+        });
+      }
+    },
+    compass: { start: () => Promise.resolve(true), stop: () => {}, heading: () => 137, accuracyDeg: 25 },
+    pose: () => ({ x: 0, y: 0, z: -walked }),
+    onState: () => {},
+    onPlacements: () => {}
+  });
+  await upgrading.start();
+  const first = upgrading.frame().accuracy.headingFrom;
+  await upgrading.sample();
+  check('a walked baseline overrides the compass once it exists',
+    first === 'compass' && upgrading.frame().accuracy.headingFrom === 'baseline',
+    first + ' -> ' + upgrading.frame().accuracy.headingFrom);
+  check('and is a far better bearing',
+    upgrading.frame().accuracy.headingDeg < 10,
+    '±' + upgrading.frame().accuracy.headingDeg.toFixed(1) + '°');
+
   const one = rig();
   await one.w.start();
   check('one fix is not enough to know which way north is',

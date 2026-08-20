@@ -117,6 +117,11 @@ async function testGate() {
   check('gate paints before the vendor bundle',
     await page.locator('.title').isVisible());
 
+  // Without this there is no way to tell a deployed fix from a cached one
+  // except by bisecting behaviour on a phone in a field.
+  const build = await page.locator('#build').textContent();
+  check('the build stamp is on the page', /^\d+$/.test(build.trim()), 'build ' + build);
+
   const count = await page.locator('#dial-count').textContent();
   check('all three capability checks pass', count === '3/3', count);
 
@@ -559,6 +564,25 @@ async function testWorld() {
     // The panel is the answer to "am I in an empty field or is this broken".
     // A headless session cannot walk, so it never localizes — which is
     // exactly the state whose messaging matters most.
+    // dom-overlay draws one element and its descendants and nothing else, so
+    // anything the user must see mid-session has to live inside it. With it
+    // pointed at the HUD, the nearby panel did not exist during a session.
+    const overlay = await page.evaluate(() => {
+      const scene = document.getElementById('scene');
+      const xr = scene.getAttribute('webxr');
+      const root = document.getElementById('overlay');
+      return {
+        target: xr && xr.overlayElement && xr.overlayElement.id,
+        holdsHud: !!root.querySelector('#hud'),
+        holdsNearby: !!root.querySelector('#nearby'),
+        outsideStage: !document.getElementById('stage').contains(root)
+      };
+    });
+    check('dom-overlay points at the overlay root', overlay.target === 'overlay', overlay.target);
+    check('which holds both the HUD and the nearby panel',
+      overlay.holdsHud && overlay.holdsNearby);
+    check('and is not inside the stage', overlay.outsideStage);
+
     check('the nearby button is offered in world mode',
       await page.locator('#list').isVisible());
     await page.locator('#list').click();
@@ -834,7 +858,7 @@ async function testXR() {
         scale: placeable.object3D.scale.toArray(),
         visible: placeable.object3D.visible,
         layers: placeable.children.length,
-        overlay: !!document.getElementById('hud')
+        overlay: !!document.getElementById('overlay')
       };
     });
 

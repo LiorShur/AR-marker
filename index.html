@@ -23,7 +23,7 @@
 <link rel="prefetch" href="vendor/aframe.min.js" as="script">
 <link rel="prefetch" href="vendor/aframe-ar-nft.js" as="script">
 
-<link rel="stylesheet" href="app.css?v=8">
+<link rel="stylesheet" href="app.css?v=9">
 </head>
 <body>
 
@@ -106,6 +106,7 @@
   </noscript>
 
   <footer class="foot">
+    <p><span class="foot__k">Build</span> <span id="build">—</span>. If a fix does not seem to have arrived, this number is the first thing to check; append <code>?reset</code> to the URL to clear a stale service worker.</p>
     <p><span class="foot__k">Marker</span> Hiro, the ARToolKit standard. Print it, or open it on a second screen and point the phone at that.</p>
     <p><span class="foot__k">Works on</span> Android Chrome and iOS Safari, over HTTPS only. Camera access is asked for once and never leaves the device — nothing is uploaded, there is no backend.</p>
     <p><span class="foot__k">No marker</span> Preview mode renders the same scene with mouse or touch orbit, no camera involved. It is the object, not the tracking.</p>
@@ -118,6 +119,13 @@
 <!-- ─────────────────────────  AR  ───────────────────────── -->
 <div id="stage" class="stage" hidden>
   <div id="scene-slot"></div>
+</div>
+
+<!-- The overlay is a sibling of the stage, not a child of it, and is what
+     WebXR's dom-overlay is pointed at: during an immersive session the page is
+     not drawn except for this one element and its descendants. Everything the
+     user needs to see or touch mid-session has to live in here. -->
+<div id="overlay" class="overlay" hidden>
   <div class="hud" id="hud">
     <button id="exit" class="hud__exit" aria-label="Stop camera">Stop</button>
     <div id="state" class="hud__state" data-state="seeking" role="status" aria-live="polite">
@@ -131,7 +139,8 @@
 
   <!-- What is around you, whether or not you are looking at it. Without this
        an empty field and a broken app look exactly the same. -->
-  <aside id="nearby" class="nearby" hidden aria-live="polite">
+  
+<aside id="nearby" class="nearby" hidden aria-live="polite">
     <div class="nearby__head">
       <span class="nearby__title">Nearby</span>
       <button id="nearby-close" class="nearby__close" aria-label="Close">Close</button>
@@ -140,18 +149,19 @@
     <p id="nearby-empty" class="nearby__empty"></p>
     <ul id="nearby-list" class="nearby__list"></ul>
   </aside>
+
   <div id="flash" class="flash" hidden></div>
 </div>
 
-<script src="spatial/config.js?v=8"></script>
+<script src="spatial/config.js?v=9"></script>
 <!-- Optional and gitignored: your own project settings. data-optional keeps
      the on-screen error trap quiet when it is simply not there. -->
 <script src="spatial/config.local.js" data-optional onerror="void 0"></script>
-<script src="spatial/geo.js?v=8"></script>
-<script src="spatial/store.js?v=8"></script>
-<script src="spatial/localize.js?v=8"></script>
-<script src="spatial/appcheck.js?v=8"></script>
-<script src="spatial/world.js?v=8"></script>
-<script src="app.js?v=8"></script>
+<script src="spatial/geo.js?v=9"></script>
+<script src="spatial/store.js?v=9"></script>
+<script src="spatial/localize.js?v=9"></script>
+<script src="spatial/appcheck.js?v=9"></script>
+<script src="spatial/world.js?v=9"></script>
+<script src="app.js?v=9"></script>
 </body>
 </html>
