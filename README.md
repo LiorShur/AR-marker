@@ -373,11 +373,26 @@ ranges and ownership are all checked server-side. What rules cannot do is
 rate-limit — that is what App Check is for.
 
 `spatial/appcheck.js` fetches tokens over REST and attaches them as
-`X-Firebase-AppCheck`. Fill in `projectNumber` (the *number*, not the id),
-`appId` and `recaptchaSiteKey` in your local config, deploy, confirm tokens are
-arriving in the console, and only then switch on enforcement for Firestore.
-Doing it in that order means a misconfiguration is visible before it starts
-refusing writes.
+`X-Firebase-AppCheck`. The three values come from two different consoles:
+
+| Value | Where |
+|---|---|
+| `recaptchaSiteKey` | **google.com/recaptcha/admin** — create a key, type **reCAPTCHA v3**, list your domains. Not a Firebase page. |
+| `projectNumber` | Firebase → Project settings → General → *Project number*. The number, not the id. |
+| `appId` | Firebase → Project settings → Your apps → the web app → App ID, `1:…:web:…`. Register a web app if you have none. |
+
+The reCAPTCHA **secret** goes into Firebase → App Check → your web app →
+reCAPTCHA v3. The **site key** goes in your local config. Swapping them is the
+usual mistake.
+
+Then deploy, confirm tokens are arriving in the App Check console, and only
+then switch on enforcement for Firestore. In that order a misconfiguration is
+visible before it starts refusing writes. Every load logs what the app thinks
+it has — `placements on for <project> — App Check on` or exactly which field is
+missing.
+
+Note this implementation uses reCAPTCHA **v3**, not reCAPTCHA Enterprise; they
+are different products with different exchange endpoints.
 
 Two things to know before you enable it. It is the only part of this project
 that loads a script from another origin: reCAPTCHA has to run Google's code

@@ -519,6 +519,16 @@ async function testWorld() {
 
   await page.goto(ORIGIN + '/', { waitUntil: 'load' });
 
+  // Setting App Check up spans two consoles and four fields; the failure mode
+  // of getting one wrong is silence. The app says what it thinks it has.
+  const notes = [];
+  page.on('console', (m) => { if (m.type() === 'info') { notes.push(m.text()); } });
+  await page.reload({ waitUntil: 'load' });
+  check('the app reports its own spatial configuration',
+    notes.some((n) => /placements on for test-project/.test(n)), notes.join(' | ').slice(0, 90));
+  check('and names App Check as off until it is filled in',
+    notes.some((n) => /App Check off — missing/.test(n)));
+
   check('an optional local config is applied when present',
     await page.evaluate(() => window.SpatialConfig.enabled === true &&
       window.SpatialConfig.projectId === 'test-project'));

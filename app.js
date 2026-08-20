@@ -1699,6 +1699,25 @@
     if (e.key === 'Escape' && mode) { stop(); }
   });
 
+  /* Setting App Check up is a five-step trip through two consoles, and the
+     failure mode of getting one field wrong is silence. Say plainly, once, on
+     every load, what the app thinks it has. */
+  function reportSpatial() {
+    if (!window.SpatialConfig || typeof console === 'undefined' || !console.info) { return; }
+
+    if (!window.SpatialConfig.enabled) {
+      console.info('Marker One: placements off — no projectId/apiKey in spatial/config.local.js');
+      return;
+    }
+
+    var appCheck = window.SpatialAppCheck
+      ? window.SpatialAppCheck.create(window.SpatialConfig)
+      : null;
+
+    console.info('Marker One: placements on for ' + window.SpatialConfig.projectId +
+      ' — ' + (appCheck ? appCheck.describe() : 'App Check module not loaded'));
+  }
+
   /* ── install prompt ─────────────────────────────────────── */
   var deferred = null;
   window.addEventListener('beforeinstallprompt', function (e) {
@@ -1737,6 +1756,7 @@
   // tap, so it is fetched at load — unlike the 3 MB of engine behind it.
   loadManifest().then(renderPicker);
   probeXR();
+  reportSpatial();
 
   // ?preview on the URL jumps straight in, for a link that needs no tap.
   if (location.search.indexOf('preview') !== -1 && !previewBtn.disabled) {
