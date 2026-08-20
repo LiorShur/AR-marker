@@ -177,7 +177,7 @@ whatever the camera's real resolution, so a target filling the frame is about
 200 pixels tall by the time it is matched. Detail finer than ~2% of its width
 is gone.
 
-## Nine things that are load-bearing and not obvious
+## Ten things that are load-bearing and not obvious
 
 **The camera video is not part of the scene.** AR.js appends a plain `<video>`
 to `<body>` at `z-index: -2` and draws the AR overlay on a transparent WebGL
@@ -192,6 +192,14 @@ embedded scene's canvas to its container. On a tall phone those disagree
 violently — the overlay renders as a stretched ellipse nowhere near the marker.
 `applyFeedSize()` in `app.js` copies the video's box onto the canvas and pins
 `<body>` so AR.js cannot shift it.
+
+**A scene without `embedded` pins the whole document.** Both WebXR modes are
+non-embedded, because an immersive session presents through the compositor
+rather than through a canvas on the page — and that makes A-Frame put
+`a-fullscreen` on `<html>`, which is `position: fixed` with `body { overflow:
+hidden }`. A-Frame removes it when the scene detaches, but teardown pulls the
+scene out from under that, so it stayed. The gate then rendered perfectly and
+nothing on it could be reached. `restorePageChrome()` gives the document back.
 
 **A tap on the overlay is also an XR `select`.** With dom-overlay active, a
 touch on the interface reaches the DOM *and* the session. Pressing Stop
@@ -274,8 +282,15 @@ browser view (Instagram, LinkedIn and similar). Test in Safari proper.
 **Nothing appears and there's no error.** Confirm you're pointing at the *Hiro*
 marker specifically — an arbitrary black-bordered square won't match.
 
-**A fix didn't deploy.** Append `?reset` to the URL. It unregisters the service
-worker, deletes every cache and reloads clean.
+**A fix didn't deploy.** Check the build number in the footer against the one
+you just shipped. If it is behind, append `?reset` to the URL — it unregisters
+the service worker, deletes every cache and reloads clean.
+
+**Something goes wrong on a phone with no console attached.** Append `?trace`.
+The teardown prints itself on the screen and a heartbeat counts alongside it:
+if the steps appear and the count keeps going, the main thread is alive and the
+problem is what the page looks like; if they stop, it is not. That distinction
+is most of the diagnosis.
 
 ## Deploying
 

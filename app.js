@@ -9,7 +9,7 @@
      job is to answer "am I running the code I just deployed", which during a
      week of deploy-and-walk-outside is a question worth being able to answer
      in one glance rather than by bisecting behaviour. */
-  var BUILD = '10';
+  var BUILD = '11';
 
   var gate       = document.getElementById('gate');
   var stage      = document.getElementById('stage');
@@ -1499,14 +1499,53 @@
     });
   }
 
+  /* ?trace puts the teardown on the screen and starts a heartbeat.
+     If the steps appear and the heartbeat keeps counting, the main thread is
+     alive and the problem is what the page looks like. If they stop, it is
+     not. That distinction took two rounds of guessing to establish and should
+     not need a laptop and a USB cable to answer. */
+  var traceEl = null;
+  var heartbeat = null;
+
+  function startTrace() {
+    if (params.get('trace') === null) { return; }
+
+    traceEl = document.createElement('pre');
+    traceEl.id = 'trace';
+    document.body.appendChild(traceEl);
+    showTrace('trace on — build ' + BUILD);
+
+    var beats = 0;
+    heartbeat = setInterval(function () {
+      var head = traceEl.firstChild;
+      var text = 'heartbeat ' + (++beats);
+      if (head && head.dataset && head.dataset.beat) { head.textContent = text; }
+      else {
+        var line = document.createElement('div');
+        line.dataset.beat = '1';
+        line.textContent = text;
+        traceEl.insertBefore(line, traceEl.firstChild);
+      }
+    }, 500);
+  }
+
+  function showTrace(step) {
+    if (!traceEl) { return; }
+    var line = document.createElement('div');
+    line.textContent = step;
+    traceEl.appendChild(line);
+  }
+
   /* Teardown is the one path that cannot be reproduced in a headless browser
      and the one that has now wedged a phone twice. Each step announces itself,
      so a freeze can be reported as "the last line was X" rather than as a
      description of a black screen. */
   function trace(step) {
-    if (typeof console !== 'undefined' && console.debug) {
-      console.debug('Marker One teardown: ' + step);
-    }
+    var line = 'Marker One teardown: ' + step;
+    // Not console.debug: Chrome files that under Verbose and hides it by
+    // default, which makes a diagnostic nobody can read.
+    if (typeof console !== 'undefined' && console.log) { console.log(line); }
+    if (traceEl) { showTrace(step); }
   }
 
   /* ── teardown ───────────────────────────────────────────────
@@ -1547,6 +1586,9 @@
 
     disposeSceneGraph(scene);
     trace('scene graph disposed');
+
+    restorePageChrome();
+    trace('page chrome restored');
     disposeRenderer(scene);
     trace('renderer disposed');
     terminateWorkers();
@@ -1573,6 +1615,35 @@
       }
       if (video.parentNode) { video.parentNode.removeChild(video); }
     });
+  }
+
+  /* Give the document back.
+     A scene without `embedded` — which is both WebXR modes, because an
+     immersive session presents through the compositor rather than through a
+     canvas on the page — makes A-Frame put `a-fullscreen` on <html>. That
+     rule is `position: fixed` with `body { overflow: hidden }`: the whole
+     document becomes a pinned box. A-Frame removes it when the scene is
+     detached, but teardown pulls the scene out from under that, so it stayed.
+     The gate then renders perfectly and nothing on it can be reached, which
+     is what "the browser is stuck" turned out to mean.
+
+     AR.js separately writes width, height and margins onto <body>, which the
+     stylesheet overrides while running and which should not outlive it. */
+  function restorePageChrome() {
+    try {
+      var html = document.documentElement;
+      html.classList.remove('a-fullscreen');
+
+      ['position', 'overflow', 'height', 'width', 'top', 'left', 'right', 'bottom',
+       'margin', 'marginLeft', 'marginTop', 'padding'].forEach(function (property) {
+        html.style.removeProperty(hyphenate(property));
+        document.body.style.removeProperty(hyphenate(property));
+      });
+    } catch (e) { /* best effort */ }
+  }
+
+  function hyphenate(property) {
+    return property.replace(/[A-Z]/g, function (c) { return '-' + c.toLowerCase(); });
   }
 
   function disposeSceneGraph(scene) {
@@ -1829,6 +1900,7 @@
   // The manifest is a couple of kilobytes and the picker needs it before any
   // tap, so it is fetched at load — unlike the 3 MB of engine behind it.
   if (buildEl) { buildEl.textContent = BUILD; }
+  startTrace();
 
   /* In an immersive session with dom-overlay, a tap on the overlay is
      delivered to the DOM *and* to the session as a `select`. So pressing Stop

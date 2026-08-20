@@ -903,6 +903,34 @@ async function testXR() {
 
     const torn = await page.evaluate(() => document.getElementById('scene') === null);
     check('the refused session leaves nothing behind', torn);
+
+    // The two WebXR scenes are the only ones without `embedded`, so A-Frame
+    // pins <html> with a-fullscreen: position fixed, body overflow hidden.
+    // Teardown removes the scene before A-Frame can undo that, and the gate
+    // is then perfectly rendered and completely unreachable.
+    const pinned = await page.evaluate(() => {
+      document.documentElement.classList.add('a-fullscreen');
+      document.documentElement.style.overflow = 'hidden';
+      document.body.style.height = '640px';
+      return true;
+    });
+    await page.locator('#xr').click();
+    await page.waitForFunction(() => !document.getElementById('gate').hidden,
+      null, { timeout: 45000 }).catch(() => {});
+    await page.waitForTimeout(1200);
+
+    const chrome = await page.evaluate(() => ({
+      full: document.documentElement.classList.contains('a-fullscreen'),
+      htmlOverflow: document.documentElement.style.overflow,
+      bodyHeight: document.body.style.height,
+      scrollable: document.scrollingElement
+        ? getComputedStyle(document.documentElement).position !== 'fixed' : true
+    }));
+    check('teardown un-pins the document', pinned && chrome.full === false);
+    check('and clears the inline styles left on it',
+      !chrome.htmlOverflow && !chrome.bodyHeight,
+      `overflow='${chrome.htmlOverflow}' height='${chrome.bodyHeight}'`);
+    check('so the page is not left fixed in place', chrome.scrollable);
     await close();
   }
 }

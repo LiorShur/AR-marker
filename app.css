@@ -297,6 +297,21 @@ body{
   *{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}
 }
 
+/* ?trace — the teardown, on the screen, for a device with no console */
+#trace{
+  position:fixed;left:0;right:0;top:0;z-index:9998;
+  margin:0;padding:calc(var(--step)*1.25);
+  max-height:45vh;overflow:auto;
+  background:rgba(11,10,20,.92);
+  border-bottom:1px solid var(--locked);
+  color:var(--locked);
+  font-family:var(--mono);font-size:11px;line-height:1.45;
+  white-space:pre-wrap;word-break:break-word;
+  pointer-events:none;
+}
+#trace div{opacity:.85}
+#trace div[data-beat]{color:var(--mist);opacity:1}
+
 /* on-screen crash report — see the inline trap in index.html */
 #crash{
   position:fixed;left:0;right:0;bottom:0;z-index:9999;
