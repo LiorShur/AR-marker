@@ -212,6 +212,14 @@ body{
 .overlay{position:fixed;inset:0;z-index:20;pointer-events:none}
 .overlay > *{pointer-events:auto}
 .overlay .hud{pointer-events:none}
+
+/* Chrome draws its own "swipe down to exit full screen" pill along the bottom
+   of an immersive session, over the top of the page, and there is no way to
+   move it or ask how tall it is. env(safe-area-inset-bottom) reports zero in
+   that state — there is no notch or navigation bar to describe — so the HUD
+   sat flush at the bottom and underneath it. The only fix available to the
+   page is to get out of the way. */
+.overlay.is-immersive{--hud-lift:84px}
 .stage .a-enter-vr,.stage .a-enter-ar,.stage .a-orientation-modal{display:none!important}
 
 .hud{
@@ -224,7 +232,8 @@ body{
   justify-content:space-between;
   gap:calc(var(--step)*2);
   padding:calc(var(--step)*2) calc(var(--step)*2.5);
-  padding-bottom:max(calc(var(--step)*2), env(safe-area-inset-bottom));
+  padding-bottom:calc(
+    max(calc(var(--step)*2), env(safe-area-inset-bottom)) + var(--hud-lift, 0px));
   background:linear-gradient(0deg,rgba(11,10,20,.88),transparent);
   pointer-events:none;
 }
@@ -408,7 +417,9 @@ body.is-running{
   max-height:62vh;
   overflow-y:auto;
   padding:calc(var(--step)*2) calc(var(--step)*2.5);
-  padding-bottom:max(calc(var(--step)*9), calc(env(safe-area-inset-bottom) + var(--step)*9));
+  padding-bottom:calc(
+    max(calc(var(--step)*9), calc(env(safe-area-inset-bottom) + var(--step)*9))
+    + var(--hud-lift, 0px));
   background:rgba(11,10,20,.94);
   backdrop-filter:blur(12px);
   border-top:1px solid var(--line);

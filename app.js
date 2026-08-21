@@ -9,7 +9,7 @@
      job is to answer "am I running the code I just deployed", which during a
      week of deploy-and-walk-outside is a question worth being able to answer
      in one glance rather than by bisecting behaviour. */
-  var BUILD = '18';
+  var BUILD = '19';
 
   var gate       = document.getElementById('gate');
   var stage      = document.getElementById('stage');
@@ -754,6 +754,7 @@
         slot.innerHTML = xrScene(manifest, pickScene(manifest, target, chosenScene));
 
         var scene = document.getElementById('scene');
+        watchImmersive(scene);
         scene.addEventListener('ar-hit-test-achieved', function () {
           setState('seeking', 'Tap to place');
         });
@@ -810,6 +811,7 @@
         slot.innerHTML = worldScene(manifest);
 
         var scene = document.getElementById('scene');
+        watchImmersive(scene);
         scene.addEventListener('ar-hit-test-select', onPlaceHere);
         // The reticle is on a real surface whenever it is visible, which is a
         // steadier read on the floor than waiting for someone to tap.
@@ -903,6 +905,17 @@
     return 'Location was refused. Allow it for this site, then reload. ' +
            'On Android, check the device location toggle too — the site permission ' +
            'alone is not enough.';
+  }
+
+  /* Only while the browser is actually presenting. The pill does not exist
+     before the session starts or after it ends, and neither should the gap. */
+  function watchImmersive(scene) {
+    scene.addEventListener('enter-vr', function () {
+      overlayEl.classList.add('is-immersive');
+    });
+    scene.addEventListener('exit-vr', function () {
+      overlayEl.classList.remove('is-immersive');
+    });
   }
 
   /* The floor, as actually seen rather than as guessed.
@@ -1706,6 +1719,7 @@
 
   function enterStage() {
     overlayEl.hidden = false;
+    overlayEl.classList.remove('is-immersive');
     listBtn.hidden = mode !== 'world';
     exitBtn.setAttribute('aria-label', mode === 'preview' ? 'Exit preview' : 'Stop camera');
     gate.hidden = true;
@@ -1759,6 +1773,7 @@
     mode = null;
     stage.hidden = true;
     overlayEl.hidden = true;
+    overlayEl.classList.remove('is-immersive');
     gate.hidden = false;
     document.body.classList.remove('is-running');
     idle(startBtn);

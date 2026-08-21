@@ -177,7 +177,7 @@ whatever the camera's real resolution, so a target filling the frame is about
 200 pixels tall by the time it is matched. Detail finer than ~2% of its width
 is gone.
 
-## Eighteen things that are load-bearing and not obvious
+## Nineteen things that are load-bearing and not obvious
 
 **The camera video is not part of the scene.** AR.js appends a plain `<video>`
 to `<body>` at `z-index: -2` and draws the AR overlay on a transparent WebGL
@@ -269,6 +269,15 @@ compositor holding a session with nothing to draw, which is what a frozen page
 after leaving AR actually is. `endSession()` waits for the event, with a three
 second ceiling so a session that will not end cannot take the gate down with
 it.
+
+**The browser draws its own bar over an immersive session.** Chrome puts a
+"swipe down to exit full screen" pill along the bottom, over the page, and
+tells the page nothing about it — `env(safe-area-inset-bottom)` reports zero,
+because there is no notch or navigation bar to describe. The HUD therefore sat
+underneath it. The pill cannot be moved or measured, so the overlay gains an
+`is-immersive` class for as long as the session is presenting and lifts itself
+out of the way; `--hud-lift` is the one number to change if a device needs
+more.
 
 **dom-overlay draws one element and nothing else.** During an immersive WebXR
 session the page is not rendered; only the element named by `overlayElement`

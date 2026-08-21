@@ -643,6 +643,25 @@ async function testWorld() {
       overlay.holdsHud && overlay.holdsNearby);
     check('and is not inside the stage', overlay.outsideStage);
 
+    /* Chrome draws a "swipe down to exit full screen" pill along the bottom
+       of an immersive session, over the page, and reports nothing about it —
+       env(safe-area-inset-bottom) is zero there, so the HUD sat underneath
+       it. The page cannot move the pill, only itself. */
+    const clearance = await page.evaluate(() => {
+      const overlay = document.getElementById('overlay');
+      const before = getComputedStyle(document.querySelector('.hud')).paddingBottom;
+      overlay.classList.add('is-immersive');
+      const after = getComputedStyle(document.querySelector('.hud')).paddingBottom;
+      const panel = getComputedStyle(document.getElementById('nearby')).paddingBottom;
+      overlay.classList.remove('is-immersive');
+      return { before: parseFloat(before), after: parseFloat(after), panel: parseFloat(panel) };
+    });
+    check('the HUD lifts clear of the browser pill in a session',
+      clearance.after - clearance.before > 60,
+      `${clearance.before}px to ${clearance.after}px`);
+    check('and the nearby panel lifts with it', clearance.panel > clearance.after - 20,
+      clearance.panel + 'px');
+
     check('the nearby button is offered in world mode',
       await page.locator('#list').isVisible());
     await page.locator('#list').click();
