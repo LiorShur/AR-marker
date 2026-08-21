@@ -238,6 +238,50 @@ namespace MarkerOne.Conformance
                     still.NeedsRelocalize(new Vec3(0, 0, -100)), "");
             }
 
+            // A geospatial provider knows the bearing outright, so the walk is
+            // unnecessary — one fix and the session is ready, to a degree.
+            {
+                var session = new WorldSession(new FakeStore())
+                {
+                    CompassHeadingDeg = 90,
+                    CompassSpreadDeg = 25
+                };
+
+                await session.AddFixAsync(new Fix
+                {
+                    Position = North(0),
+                    PositionAccuracyM = 0.8,
+                    Provider = "geospatial",
+                    SessionYawDeg = 17,
+                    SessionYawAccuracyDeg = 1.2
+                }, new Vec3(0, 0, 0));
+
+                check("a direct bearing needs no walk at all",
+                    session.State == SessionState.Ready, session.State.ToString());
+                check("and beats the compass sitting beside it",
+                    session.Frame.Fix.HeadingFrom == "direct" &&
+                    Math.Abs(session.Frame.Fix.HeadingAccuracyDeg - 1.2) < 1e-9,
+                    session.Frame.Fix.ToString());
+
+                // ...but a good walk still wins if it is genuinely better.
+                for (int i = 1; i <= 3; i++)
+                {
+                    await session.AddFixAsync(new Fix
+                    {
+                        Position = North(i * 60),
+                        PositionAccuracyM = 0.5,
+                        Provider = "geospatial",
+                        SessionYawDeg = 17,
+                        SessionYawAccuracyDeg = 1.2
+                    }, new Vec3(0, 0, -i * 60));
+                }
+                check("a long walk on good fixes beats even that",
+                    session.Frame.Fix.HeadingFrom == "baseline" &&
+                    session.Frame.Fix.HeadingAccuracyDeg < 1.2,
+                    "±" + session.Frame.Fix.HeadingAccuracyDeg.ToString("F2") + "° via " +
+                    session.Frame.Fix.HeadingFrom);
+            }
+
             // A read that fails is not an empty world.
             {
                 var store = new FakeStore

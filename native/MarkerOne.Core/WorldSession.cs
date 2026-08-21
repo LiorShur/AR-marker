@@ -112,42 +112,65 @@ namespace MarkerOne.Core
             await ResolveHeadingAsync(fix, cancel).ConfigureAwait(false);
         }
 
+        /// <summary>
+        /// Three sources, and the best bearing wins.
+        ///
+        /// Direct is what a geospatial provider reports outright, about a
+        /// degree. A walked baseline is atan(noise / separation), so anywhere
+        /// from tenths of a degree with good fixes to twenty with poor ones.
+        /// The compass is the floor of about twenty-five, and it exists so that
+        /// standing still indoors is usable rather than impossible.
+        ///
+        /// Comparing them by their own accuracy figure rather than by rank is
+        /// what lets a long walk outdoors beat a mediocre geospatial fix, and
+        /// what stopped a wide baseline between two bad fixes beating a short
+        /// one between good ones.
+        /// </summary>
         private async Task ResolveHeadingAsync(Fix fix, CancellationToken cancel)
         {
-            BaselineHeading best = BestBaseline();
+            BaselineHeading candidate = null;
+            string source = null;
 
-            if (best != null &&
-                (_heading == null || _headingSource == "compass" ||
-                 best.AccuracyDeg < _heading.AccuracyDeg))
+            if (fix?.SessionYawDeg != null)
             {
-                // A walked baseline always beats the compass, and a better
-                // bearing beats a worse one. Both are upgrades.
-                _heading = best;
-                _headingSource = "baseline";
-                await RebuildAsync(fix, cancel).ConfigureAwait(false);
-                return;
+                candidate = new BaselineHeading
+                {
+                    HeadingDeg = fix.SessionYawDeg.Value,
+                    SessionYawDeg = fix.SessionYawDeg.Value,
+                    SeparationM = 0,
+                    AccuracyDeg = fix.SessionYawAccuracyDeg
+                };
+                source = "direct";
             }
 
-            if (_heading != null)
+            BaselineHeading walked = BestBaseline();
+            if (walked != null && (candidate == null || walked.AccuracyDeg < candidate.AccuracyDeg))
             {
-                await RebuildAsync(fix, cancel).ConfigureAwait(false);
-                return;
+                candidate = walked;
+                source = "baseline";
             }
 
-            // No baseline yet. The compass is a far worse bearing but the only
-            // one available standing still or indoors, where the position error
-            // is tens of metres and a baseline can never resolve at all. Better
-            // to be usable and say how badly.
-            if (CompassHeadingDeg.HasValue)
+            if (candidate == null && CompassHeadingDeg.HasValue)
             {
-                _heading = new BaselineHeading
+                candidate = new BaselineHeading
                 {
                     HeadingDeg = CompassHeadingDeg.Value,
                     SessionYawDeg = CompassHeadingDeg.Value,
                     SeparationM = 0,
                     AccuracyDeg = CompassSpreadDeg
                 };
-                _headingSource = "compass";
+                source = "compass";
+            }
+
+            if (candidate != null &&
+                (_heading == null || candidate.AccuracyDeg < _heading.AccuracyDeg))
+            {
+                _heading = candidate;
+                _headingSource = source;
+            }
+
+            if (_heading != null)
+            {
                 await RebuildAsync(fix, cancel).ConfigureAwait(false);
                 return;
             }

@@ -13,6 +13,19 @@ namespace MarkerOne.Core
         public string Provider = "unknown";
         public string HeadingFrom = "unknown";
 
+        /// <summary>The world heading of the session's forward axis, when the
+        /// provider can report one directly.
+        ///
+        /// A walked baseline derives this from two positions and a journey. The
+        /// Geospatial API simply knows it — EunRotation carries the device's
+        /// orientation in the world to about a degree — and the difference
+        /// against the session's own camera yaw is the offset, from one
+        /// observation rather than a walk. Where this is available the whole
+        /// "walk twenty metres to find north" ritual is unnecessary.
+        /// </summary>
+        public double? SessionYawDeg;
+        public double SessionYawAccuracyDeg = 180;
+
         /// <summary>Not decoration. A GPS fix and a visual fix are the same
         /// shape and nothing like the same thing, and everything downstream —
         /// what gets written, what the interface admits to — depends on being

@@ -65,21 +65,13 @@ the two implementations cannot drift apart quietly.
 
 ## Setting up the Unity project
 
-Not scaffolded here on purpose: Unity writes its own project layout, and a
-half-made one is harder to work with than none. In the editor:
+**[SETUP.md](SETUP.md)** — step by step, including the several things that fail
+in ways that look like something else.
 
-1. **Unity 6 LTS**, 3D (URP) template.
-2. Package Manager → **AR Foundation**, **Google ARCore XR Plugin**,
-   **Apple ARKit XR Plugin**.
-3. **ARCore Extensions** — from the `arcore-unity-extensions` repository, added
-   by git URL. This is what carries the Geospatial API.
-4. Copy `MarkerOne.Core/*.cs` into `Assets/MarkerOne/Core/` with an assembly
-   definition, or reference the built DLL. The conformance project stays
-   outside Unity and keeps running under `dotnet`.
-5. **Google Cloud**: enable the *ARCore API*, and use keyless authorization —
-   the recommended route, and it avoids shipping a key in the binary.
-6. Player settings: minimum **Android 7.0 / API 24**, **iOS 12**, and camera
-   and location usage descriptions on both.
+`native/unity/MarkerOne/` holds the components to copy in: the fix source, the
+floor probe, the rig that joins them to the core, and two assembly definitions.
+The Core one sets `noEngineReferences`, so the compiler refuses an accidental
+`using UnityEngine` in the half that is meant to stay testable.
 
 ## What carries over from the web app
 
@@ -122,6 +114,18 @@ floor the hit test actually touched, placements made early rewritten as the
 frame settles, and a read that fails reported as a failure rather than as an
 empty world.
 
+## Heading, on this side
+
+The web version has to ask the user to walk twenty metres, because a
+magnetometer is tens of degrees out and two positions are the only other way to
+get a bearing. The Geospatial API simply reports one — `EunRotation` carries the
+device's orientation in the world to about a degree — so `Fix.SessionYawDeg`
+carries it directly and the walk is unnecessary.
+
+The three sources are compared by their own accuracy figure rather than by
+rank, so a long walk on good fixes can still beat a mediocre geospatial
+bearing, and usually does: ±0.24° against ±1.2° in the suite.
+
 ## What porting found
 
 Two implementations of the same thing disagree in useful ways.
@@ -137,10 +141,11 @@ follows. Fixed in both; the JS suite now pins it.
 
 ## Still to do
 
-- MonoBehaviours: `AREarthManager` for the Geospatial pose, `ARAnchorManager`
-  for placement, and the content compiler that turns a manifest scene into a
-  prefab hierarchy.
-- A `content.json` reader — the format is unchanged, so this is deserialization
-  rather than design.
-- The rural fallback for where VPS coverage runs out. The walked baseline is
-  already ported and already better than a magnetometer.
+- A `content.json` reader, so scenes are data on this side too. The format is
+  unchanged, so it is deserialization rather than design.
+- An interface: the state readout, the nearby list, the name field. The web
+  version's are worth copying — particularly the three empty states, since
+  "nothing here" and "I could not find out" being the same screen was a bug
+  twice.
+- Anchors. `ARAnchorManager` would hold a placed object against local drift
+  better than re-deriving its position from the frame every refresh does.

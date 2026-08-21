@@ -1,0 +1,19 @@
+{
+  "name": "MarkerOne.Unity",
+  "rootNamespace": "MarkerOne.Unity",
+  "references": [
+    "MarkerOne.Core",
+    "Unity.XR.ARFoundation",
+    "Unity.XR.CoreUtils",
+    "Google.XR.ARCoreExtensions"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}
