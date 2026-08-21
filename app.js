@@ -9,7 +9,7 @@
      job is to answer "am I running the code I just deployed", which during a
      week of deploy-and-walk-outside is a question worth being able to answer
      in one glance rather than by bisecting behaviour. */
-  var BUILD = '15';
+  var BUILD = '16';
 
   var gate       = document.getElementById('gate');
   var stage      = document.getElementById('stage');
@@ -285,11 +285,14 @@
       }, kids);
     },
 
-    model: function (l, m) {
+    model: function (l, m, opts) {
       if (!m.assets || !m.assets[l.asset]) { return ''; }
       var scale = num(l.scale, 1);
       return el({
-        id: 'shard',
+        // Named only when there is one of it. In world mode the same scene is
+        // built once per placement, and a dozen elements sharing an id is a
+        // dozen ways for getElementById to return the wrong one.
+        id: (opts && opts.anonymous) ? null : 'shard',
         position: xyz(l.position || [0, 0, 0]),
         scale: scale + ' ' + scale + ' ' + scale,
         'gltf-model': '#asset-' + l.asset,
@@ -302,10 +305,10 @@
     entity: function (l) { return el(l.attributes || {}); }
   };
 
-  function buildScene(m, def) {
+  function buildScene(m, def, opts) {
     return (def.layers || []).map(function (l) {
       var make = LAYERS[l.type];
-      return make ? make(l, m) : '';
+      return make ? make(l, m, opts) : '';
     }).join('\n');
   }
 
@@ -955,6 +958,7 @@
         el = document.createElement('a-entity');
         el.innerHTML = placementMarkup(p, def);
         host.appendChild(el);
+        appendLabel(el, p);
         rendered[p.id] = el;
       }
 
@@ -984,7 +988,7 @@
 
     return [
       '<a-entity scale="' + scale + ' ' + scale + ' ' + scale + '">',
-      buildScene(manifest, def),
+      buildScene(manifest, def, { anonymous: true }),
       '</a-entity>',
 
       // A thin column with a ring around it. Legible at forty metres, out of
@@ -997,7 +1001,6 @@
       '    geometry="primitive: ring; radiusInner: 0.22; radiusOuter: 0.30; segmentsTheta: 32"',
       '    material="color: ' + colour + '; shader: flat; opacity: 0.85; transparent: true; side: double"',
       '    animation="property: rotation; to: -90 360 0; loop: true; dur: 8000; easing: linear"></a-entity>',
-      labelMarkup(p),
       '</a-entity>'
     ].join('\n');
   }
@@ -1007,13 +1010,25 @@
     return (halo && halo.color) || '#6BE3E8';
   }
 
-  /* Drawn to a canvas rather than set as text.
-     A-Frame's text component fetches its font from a CDN, and this project
-     does not make requests it did not ship. A canvas needs no font file,
-     no asset, and no network. */
-  function labelMarkup(p) {
+  /* The caption.
+     A-Frame parses component data on ";" and ":", and a data URL is built out
+     of both. "src: data:image/png;base64,..." shredded the material into
+     nonsense, left `shader` undefined, and the throw took the placement's
+     content down with it — which is why a locator appeared with nothing
+     beside it. Passing an object to setAttribute does not help: A-Frame
+     stringifies it and re-parses on the way through, so the URL never reaches
+     the material intact by any route.
+
+     So the texture never goes near the material component. A-Frame supplies
+     the shader and the transparency; the map is assigned straight onto the
+     three.js material once the mesh exists.
+
+     Drawn to a canvas rather than set as text, because A-Frame's text
+     component fetches its font from a CDN and this project does not make
+     requests it did not ship. */
+  function appendLabel(host, p) {
     var caption = describePlacement(p);
-    if (!caption) { return ''; }
+    if (!caption) { return; }
 
     var canvas = document.createElement('canvas');
     canvas.width = 512;
@@ -1033,10 +1048,28 @@
     ctx.textBaseline = 'middle';
     ctx.fillText(caption, canvas.width / 2, canvas.height / 2 + 2);
 
-    return '<a-entity billboard position="0 2.75 0"' +
-      ' geometry="primitive: plane; width: 1.6; height: 0.3"' +
-      ' material="src: ' + canvas.toDataURL('image/png') +
-      '; shader: flat; transparent: true; alphaTest: 0.02; side: double"></a-entity>';
+    var label = document.createElement('a-entity');
+    label.setAttribute('billboard', '');
+    label.setAttribute('position', '0 2.75 0');
+    label.setAttribute('geometry', 'primitive: plane; width: 1.6; height: 0.3');
+    label.setAttribute('material', 'shader: flat; transparent: true; side: double; opacity: 0.95');
+
+    label.addEventListener('loaded', function () {
+      var mesh = label.getObject3D('mesh');
+      if (!mesh || !mesh.material) { return; }
+
+      var texture = new AFRAME.THREE.CanvasTexture(canvas);
+      // Without this the label is washed out: A-Frame renders in sRGB and a
+      // canvas texture defaults to linear.
+      if (AFRAME.THREE.SRGBColorSpace) { texture.colorSpace = AFRAME.THREE.SRGBColorSpace; }
+      texture.needsUpdate = true;
+
+      mesh.material.map = texture;
+      mesh.material.needsUpdate = true;
+    });
+
+    var locator = host.querySelector('[locator]');
+    (locator || host).appendChild(label);
   }
 
   function roundedRect(ctx, x, y, w, h, r) {

@@ -731,6 +731,58 @@ async function testWorld() {
   check('a walked baseline makes it ready', ran.afterTwo === 'ready', ran.afterTwo);
   check('a placement to the north lands ahead of the walker',
     ran.count === 1 && Math.abs(ran.z + 60) < 1, `z=${ran.z && ran.z.toFixed(1)}`);
+
+  /* A data URL is built from the two characters A-Frame's component parser
+     splits on, and A-Frame stringifies an object back through that same
+     parser — so there is no way to hand it a data URL as a texture. It came
+     out as `shader: undefined`, threw, and took the placement's content down
+     with it, which presented as a locator standing next to nothing.
+
+     The label therefore assigns the map onto the three.js material directly.
+     This checks both halves: that the old way really does break, and that the
+     new way really does produce a texture. */
+  const label = await page.evaluate(async () => {
+    const host = document.getElementById('placements');
+    const canvas = document.createElement('canvas');
+    canvas.width = 8;
+    canvas.height = 8;
+    const url = canvas.toDataURL('image/png');
+
+    // The parser directly, rather than an entity built to fail: attaching one
+    // throws asynchronously, and an expected error racing an "and nothing
+    // threw" assertion is a flake waiting to happen.
+    const shredded = AFRAME.utils.styleParser.parse('src: ' + url + '; shader: flat');
+
+    const ours = document.createElement('a-entity');
+    ours.setAttribute('geometry', 'primitive: plane; width: 1; height: 1');
+    ours.setAttribute('material', 'shader: flat; transparent: true');
+    host.appendChild(ours);
+
+    await new Promise((resolve) => {
+      if (ours.hasLoaded) { return resolve(); }
+      ours.addEventListener('loaded', resolve, { once: true });
+      setTimeout(resolve, 3000);
+    });
+
+    const mesh = ours.getObject3D('mesh');
+    if (mesh && mesh.material) {
+      mesh.material.map = new AFRAME.THREE.CanvasTexture(canvas);
+      mesh.material.needsUpdate = true;
+    }
+
+    return {
+      stringShader: shredded.shader,
+      ourShader: (ours.getAttribute('material') || {}).shader,
+      hasMap: !!(mesh && mesh.material && mesh.material.map)
+    };
+  });
+
+  check('a data URL in a component string loses the shader',
+    label.stringShader !== 'flat', 'shader parsed as ' + String(label.stringShader));
+  check('the label keeps its shader by staying out of the parser',
+    label.ourShader === 'flat', String(label.ourShader));
+  check('and gets its texture straight from the canvas', label.hasMap);
+
   check('world mode throws nothing', errors.length === 0, errors.join('; '));
 
   await page.screenshot({ path: join(SHOTS, '9-world.png') });

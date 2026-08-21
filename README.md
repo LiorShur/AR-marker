@@ -177,7 +177,7 @@ whatever the camera's real resolution, so a target filling the frame is about
 200 pixels tall by the time it is matched. Detail finer than ~2% of its width
 is gone.
 
-## Fifteen things that are load-bearing and not obvious
+## Sixteen things that are load-bearing and not obvious
 
 **The camera video is not part of the scene.** AR.js appends a plain `<video>`
 to `<body>` at `z-index: -2` and draws the AR overlay on a transparent WebGL
@@ -202,6 +202,14 @@ the load *after* the one that fetched it. Navigations are network-first now
 with the cache behind them, and assets are matched exactly; `ignoreSearch`
 survives only for navigations, where `?reset` and `?trace` still have to find
 the shell.
+
+**A data URL cannot be handed to a component.** A-Frame parses component data
+on `;` and `:`, and a data URL is built from both — `src: data:image/png;base64,…`
+shreds into nonsense, `shader` comes out `undefined`, and the throw takes the
+entity's siblings with it. Passing an object to `setAttribute` does not help:
+A-Frame stringifies it back through the same parser. Labels therefore let
+A-Frame supply the shader and assign the canvas texture straight onto the
+three.js material once the mesh exists.
 
 **Room scale makes distant placements invisible.** Content is one unit per
 target width, scaled to room size — about thirty centimetres. At forty metres,
