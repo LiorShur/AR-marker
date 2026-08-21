@@ -1,11 +1,11 @@
 /* Precache everything. All assets are same-origin and vendored,
    so the app runs with the network off once installed.
 
-   Updating: bump CACHE here and the ?v= on the two links in index.html,
-   together. install() calls skipWaiting and activate() calls claim, so a
+   Updating: bump CACHE here, BUILD in app.js, and the ?v= on every asset in
+   index.html, together — scripts/check-precache.mjs enforces that they agree. install() calls skipWaiting and activate() calls claim, so a
    new worker takes over on the next load rather than the one after —
    provided the host serves this file with no-cache (see firebase.json). */
-var CACHE = 'marker-one-v15';
+var CACHE = 'marker-one-v16';
 
 // Precached at install. The natural-feature descriptors are deliberately not
 // in here: they are 1.4 MB for a target most visitors will never print, and
@@ -17,19 +17,19 @@ var ASSETS = [
   'index.html',
   'marker.html',
   'poster.html',
-  'app.css?v=13',
-  'app.js?v=13',
+  'app.css?v=14',
+  'app.js?v=14',
   'manifest.webmanifest',
   'content.json',
   'vendor/aframe.min.js',
   'vendor/aframe-ar-nft.js',
   'vendor/meshopt_decoder.js',
-  'spatial/config.js?v=13',
-  'spatial/geo.js?v=13',
-  'spatial/store.js?v=13',
-  'spatial/localize.js?v=13',
-  'spatial/appcheck.js?v=13',
-  'spatial/world.js?v=13',
+  'spatial/config.js?v=14',
+  'spatial/geo.js?v=14',
+  'spatial/store.js?v=14',
+  'spatial/localize.js?v=14',
+  'spatial/appcheck.js?v=14',
+  'spatial/world.js?v=14',
   'assets/rotary-phone.glb',  // meshopt-compressed, and the whole point of the scene
   'data/patt.hiro',
   'data/camera_para.dat',
@@ -61,38 +61,64 @@ self.addEventListener('fetch', function (e) {
   var url = new URL(req.url);
   if (url.origin !== self.location.origin) { return; }
 
-  e.respondWith(
-    // ignoreSearch matters: index.html asks for "app.js?v=4" and "?reset"
-    // hangs a query off the document URL. Without it every versioned
-    // request misses the cache and the app is only offline-capable in
-    // theory.
-    caches.match(req, { ignoreSearch: true }).then(function (hit) {
-      if (hit) {
-        if (req.mode === 'navigate' && !url.search) { e.waitUntil(revalidate(req)); }
-        return hit;
-      }
-      return fetch(req).then(function (res) {
-        // First use of an on-demand asset — the NFT descriptors, the poster —
-        // puts it in the cache so the next run works offline too.
-        if (res && res.ok && res.type === 'basic') {
-          var copy = res.clone();
-          e.waitUntil(caches.open(CACHE).then(function (c) { return c.put(req, copy); }));
-        }
-        return res;
-      }).catch(function () {
-        // Offline and unrecognised: a navigation still gets the shell,
-        // anything else is genuinely unavailable.
-        if (req.mode === 'navigate') { return caches.match('index.html'); }
-        throw new Error('offline and uncached: ' + url.pathname);
-      });
-    })
-  );
+  e.respondWith(req.mode === 'navigate' ? navigation(req) : asset(req, e));
 });
 
-// Keep the shell from pinning itself forever if a deploy lands while the
-// old worker is still the active one.
-function revalidate(req) {
-  return fetch(req).then(function (res) {
-    if (res && res.ok) { return caches.open(CACHE).then(function (c) { return c.put(req, res); }); }
-  }).catch(function () { /* offline is the normal case here */ });
+/* Navigations go to the network first.
+ *
+ * They used to come from the cache, which meant a deploy was invisible until
+ * the load after the one that fetched it — and while chasing a bug through
+ * six builds in a day, "am I even running the new code" became a question
+ * asked more often than any question about the bug. Correctness beats a
+ * hundred milliseconds here: the document is small, and the cache is still
+ * behind it the moment the network is not there.
+ */
+function navigation(req) {
+  return Promise.race([
+    fetch(req).then(function (res) {
+      if (res && res.ok) {
+        var copy = res.clone();
+        caches.open(CACHE).then(function (c) { c.put(req, copy); });
+      }
+      return res;
+    }),
+    // Not a failure mode worth waiting out on a slow connection.
+    new Promise(function (resolve, reject) {
+      setTimeout(function () { reject(new Error('slow')); }, 3000);
+    })
+  ]).catch(function () {
+    // ignoreSearch here and only here: "?reset" and "?trace" hang a query off
+    // the document URL and must still find the shell.
+    return caches.match(req, { ignoreSearch: true }).then(function (hit) {
+      return hit || caches.match('index.html');
+    });
+  });
 }
+
+/* Everything else is cache-first, and matched exactly.
+ *
+ * Exactly is the point. This used to match with ignoreSearch, which made
+ * "app.js?v=13" find the cached "app.js?v=12" — quietly defeating the whole
+ * versioning scheme it was there to support, and serving the previous build's
+ * code to the current build's markup.
+ */
+function asset(req, e) {
+  return caches.match(req).then(function (hit) {
+    if (hit) { return hit; }
+
+    return fetch(req).then(function (res) {
+      // First use of an on-demand asset — the NFT descriptors, the poster —
+      // puts it in the cache so the next run works offline too.
+      if (res && res.ok && res.type === 'basic') {
+        var copy = res.clone();
+        e.waitUntil(caches.open(CACHE).then(function (c) { return c.put(req, copy); }));
+      }
+      return res;
+    }).catch(function () {
+      throw new Error('offline and uncached: ' + url(req).pathname);
+    });
+  });
+}
+
+function url(req) { return new URL(req.url); }
+

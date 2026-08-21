@@ -383,6 +383,31 @@ async function testOffline() {
 
   await page.screenshot({ path: join(SHOTS, '4-offline.png') });
   await context.setOffline(false);
+
+  /* A deploy has to be visible on the next load, not the one after.
+     Navigations used to come from the cache, and assets were matched with
+     ignoreSearch — so a bumped ?v= found the previous build's file and the
+     whole versioning scheme did nothing. Editing the served file and
+     reloading is the only honest test of that. */
+  const { readFile, writeFile } = await import('node:fs/promises');
+  const indexPath = join(ROOT, 'index.html');
+  const original = await readFile(indexPath, 'utf8');
+
+  try {
+    // The title, because nothing in app.js rewrites it — the build element
+    // is overwritten on load, which makes it useless as a marker for which
+    // *document* arrived.
+    await writeFile(indexPath, original.replace(
+      /<title>[^<]*<\/title>/, '<title>redeployed</title>'));
+    await page.goto(ORIGIN + '/', { waitUntil: 'load' });
+    const title = await page.title();
+    check('a redeploy is visible on the very next load', title === 'redeployed',
+      title === 'redeployed' ? 'fresh document' : 'served the cached one: ' + title);
+  } finally {
+    await writeFile(indexPath, original);
+    await page.goto(ORIGIN + '/', { waitUntil: 'load' });
+  }
+
   await close();
 }
 

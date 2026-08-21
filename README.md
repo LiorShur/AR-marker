@@ -177,7 +177,7 @@ whatever the camera's real resolution, so a target filling the frame is about
 200 pixels tall by the time it is matched. Detail finer than ~2% of its width
 is gone.
 
-## Thirteen things that are load-bearing and not obvious
+## Fourteen things that are load-bearing and not obvious
 
 **The camera video is not part of the scene.** AR.js appends a plain `<video>`
 to `<body>` at `z-index: -2` and draws the AR overlay on a transparent WebGL
@@ -192,6 +192,16 @@ embedded scene's canvas to its container. On a tall phone those disagree
 violently — the overlay renders as a stretched ellipse nowhere near the marker.
 `applyFeedSize()` in `app.js` copies the video's box onto the canvas and pins
 `<body>` so AR.js cannot shift it.
+
+**`ignoreSearch` defeats the versioning it was added to support.** The service
+worker matched every request with `ignoreSearch: true`, so a request for
+`app.js?v=14` found the cached `app.js?v=13` — the previous build's code served
+to the current build's markup, and a `?v=` bump doing precisely nothing.
+Navigations were cache-first on top of that, so a deploy was invisible until
+the load *after* the one that fetched it. Navigations are network-first now
+with the cache behind them, and assets are matched exactly; `ignoreSearch`
+survives only for navigations, where `?reset` and `?trace` still have to find
+the shell.
 
 **Room scale makes distant placements invisible.** Content is one unit per
 target width, scaled to room size — about thirty centimetres. At forty metres,
@@ -304,8 +314,10 @@ browser view (Instagram, LinkedIn and similar). Test in Safari proper.
 **Nothing appears and there's no error.** Confirm you're pointing at the *Hiro*
 marker specifically — an arbitrary black-bordered square won't match.
 
-**A fix didn't deploy.** Check the build number in the footer against the one
-you just shipped. If it is behind, append `?reset` to the URL — it unregisters
+**A fix didn't deploy.** Ask the server, not the browser:
+`curl -s https://your-site.web.app/app.js | grep "var BUILD"`. That answers
+whether the deploy carried the code, with no cache of any kind in the way. Then
+check the build number in the footer against it. If it is behind, append `?reset` to the URL — it unregisters
 the service worker, deletes every cache and reloads clean.
 
 **Something goes wrong on a phone with no console attached.** Append `?trace`.
