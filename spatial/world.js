@@ -87,9 +87,12 @@
       });
     }
 
-    // The widest-separated pair wins. Walking in a circle leaves the first and
-    // last samples close together, and a short baseline is a bad bearing —
-    // at five metres apart, two metres of noise is twenty degrees.
+    /* The pair giving the best bearing wins — smallest atan(noise/separation),
+       not the widest separation. Those are not the same thing: a hundred-metre
+       walk between two fixes that each admit to thirty metres is a twenty
+       degree bearing, while a forty-metre walk between two claiming three is
+       four. Taking the wider one throws away the better answer, which is what
+       this did until the native port was tested with mixed accuracies. */
     function resolveHeading() {
       var best = null;
 
@@ -97,14 +100,14 @@
         for (var j = i + 1; j < samples.length; j++) {
           var candidate = localize.headingFromBaseline(samples[i], samples[j]);
           if (!candidate || candidate.sessionYawDeg === null) { continue; }
-          if (!best || candidate.separationM > best.separationM) { best = candidate; }
+          if (!best || candidate.accuracyDeg < best.accuracyDeg) { best = candidate; }
         }
       }
 
       if (best && (!heading || heading.source === 'compass' ||
-                   best.separationM > heading.separationM)) {
-        // A walked baseline always beats the compass, and a longer walk beats
-        // a shorter one. Both are upgrades and both take effect immediately.
+                   best.accuracyDeg < heading.accuracyDeg)) {
+        // A walked baseline always beats the compass, and a better bearing
+        // beats a worse one. Both are upgrades and take effect immediately.
         heading = {
           source: 'baseline',
           sessionYawDeg: best.sessionYawDeg,
@@ -144,90 +147,17 @@
     // The heading comes from the whole walk; the origin comes from the newest
     // fix, because position drifts and the freshest observation is the least
     // wrong one.
-    /* Every sample is a statement about where the session's origin is.
-       Only one was being used — the latest fix — so every metre of error in
-       that single reading moved everything placed, and the next visit read a
-       different single reading. Objects "shifting a few metres between
-       sessions" is precisely that, twice.
-
-       Each sample says: the device was at global position P when it was at
-       local position L. Given the session's yaw, that pins the origin at
-       P - R⁻¹L. Averaging those estimates, weighted by how good each fix
-       claimed to be, is correct whether the user stood still or walked. */
-    function estimateOrigin() {
-      var latest = samples[samples.length - 1];
-      if (samples.length === 1) { return latest.position; }
-
-      var reference = samples[0].position;
-      var yaw = geo.headingToYaw(heading.sessionYawDeg);
-      var cos = Math.cos(yaw);
-      var sin = Math.sin(yaw);
-
-      var sumX = 0;
-      var sumY = 0;
-      var sumZ = 0;
-      var sumWeight = 0;
-
-      samples.forEach(function (s) {
-        var here = geo.enuToThree(
-          geo.toEnu(s.position.lat, s.position.lon, s.position.h || 0, reference));
-
-        // R⁻¹ applied to the local offset: where the origin sits relative to
-        // where the device was standing.
-        var backX = s.local.x * cos + s.local.z * sin;
-        var backZ = -s.local.x * sin + s.local.z * cos;
-
-        // A fix that admits to fifty metres should not weigh the same as one
-        // claiming three.
-        var sigma = Math.max(1, s.accuracy.positionM || 30);
-        var weight = 1 / (sigma * sigma);
-
-        sumX += (here.x - backX) * weight;
-        sumY += (here.y - s.local.y) * weight;
-        sumZ += (here.z - backZ) * weight;
-        sumWeight += weight;
-      });
-
-      var enu = geo.threeToEnu({
-        x: sumX / sumWeight,
-        y: sumY / sumWeight,
-        z: sumZ / sumWeight
-      });
-
-      return geo.fromEnu(enu.e, enu.n, enu.u, reference);
-    }
-
-    /* What averaging actually bought.
-       The textbook answer is sigma over root n, and it is wrong here: GPS
-       error is strongly correlated minute to minute — the same satellites,
-       the same atmosphere, the same reflections off the same wall — so the
-       samples are nothing like independent. The floor at half the best single
-       fix is a deliberate refusal to claim the improvement the arithmetic
-       offers. */
-    function originAccuracy() {
-      var best = Infinity;
-      var sumWeight = 0;
-
-      samples.forEach(function (s) {
-        var sigma = Math.max(1, s.accuracy.positionM || 30);
-        best = Math.min(best, sigma);
-        sumWeight += 1 / (sigma * sigma);
-      });
-
-      return Math.max(best * 0.5, 1 / Math.sqrt(sumWeight));
-    }
-
     function rebuild() {
       var latest = samples[samples.length - 1];
       lastFixLocal = latest.local;
 
       frame = localize.makeFrame({
-        position: estimateOrigin(),
+        position: localize.estimateOrigin(samples, heading.sessionYawDeg),
         // In makeFrame this is the world heading of the session's forward
         // axis, not the device's — which is exactly what a baseline measures.
         headingDeg: heading.sessionYawDeg,
         accuracy: {
-          positionM: originAccuracy(),
+          positionM: localize.originAccuracy(samples),
           headingDeg: heading.accuracyDeg,
           // Which of the two produced this bearing. A twenty-five degree
           // compass fix and a two degree walked one are the same shape and

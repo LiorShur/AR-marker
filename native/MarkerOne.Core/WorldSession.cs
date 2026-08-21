@@ -1,0 +1,404 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace MarkerOne.Core
+{
+    public enum SessionState { Idle, Locating, Calibrating, Ready, Error }
+
+    /// <summary>A placement expressed in the session's own frame, ready to be
+    /// instantiated. Local coordinates are derived, never stored: the frame
+    /// changes every time it re-localizes and the placements do not.</summary>
+    public sealed class PlacedItem
+    {
+        public string Id;
+        public string Scene;
+        public double Scale;
+        public double DistanceM;
+        public string Owner;
+        public string Label;
+        public string CreatedAt;
+        public Vec3 Local;
+        public double YawRad;
+    }
+
+    /// <summary>
+    /// Placements in a live session.
+    ///
+    /// Deliberately knows nothing about Unity, AR Foundation or ARCore. It takes
+    /// fixes in and produces placements out; the platform layer supplies the
+    /// device pose and instantiates what comes back. That separation is what
+    /// makes any of this testable — an AR session cannot run on a build agent,
+    /// but all of the logic that goes wrong can.
+    ///
+    /// The states read as a sentence: locating until there is a position,
+    /// calibrating until there is a bearing, and only then ready. The middle
+    /// step is the one nobody expects and the one that decides whether content
+    /// lands in the right place.
+    /// </summary>
+    public sealed class WorldSession
+    {
+        private const int MaxSamples = 24;
+
+        private readonly IPlacementStore _store;
+        private readonly Func<double> _floor;
+        private readonly List<BaselineSample> _samples = new();
+        private readonly List<Placement> _placements = new();
+
+        // Placements made in this session, remembered by the local point they
+        // were dropped at. That point is exact; the mapping to the globe was
+        // not.
+        private readonly List<(string Id, Vec3 Local, double YawRad, GeoPoint At)> _mine = new();
+
+        private BaselineHeading _heading;
+        private string _headingSource = "none";
+        private GeoPoint? _fetchedAt;
+        private Vec3? _lastFixLocal;
+
+        public double RadiusM { get; set; } = 300;
+        public double RelocalizeAfterM { get; set; } = 25;
+
+        public SessionState State { get; private set; } = SessionState.Idle;
+        public LocalizationFrame Frame { get; private set; }
+        public int Fixes => _samples.Count;
+        public string LastError { get; private set; }
+
+        public event Action<SessionState, string> StateChanged;
+        public event Action<IReadOnlyList<PlacedItem>> PlacementsChanged;
+
+        /// <summary>Compass heading and the measured spread of its readings.
+        /// Averaging fixes noise and does nothing about bias, so the spread is
+        /// floored well above what the arithmetic gives — a magnetometer beside
+        /// a steel door reads twenty degrees wrong very consistently.</summary>
+        public double? CompassHeadingDeg { get; set; }
+        public double CompassSpreadDeg { get; set; } = 25;
+
+        public WorldSession(IPlacementStore store, Func<double> floor = null)
+        {
+            _store = store ?? throw new ArgumentNullException(nameof(store));
+            // local-floor is the device's estimate of where the ground is,
+            // recomputed each session and landing somewhere different each
+            // time. A surface the hit test has actually touched does not move.
+            _floor = floor ?? (() => 0);
+        }
+
+        private double Floor()
+        {
+            double y = _floor();
+            return double.IsNaN(y) || double.IsInfinity(y) ? 0 : y;
+        }
+
+        // ── fixes ────────────────────────────────────────────────
+
+        /// <summary>One fix, paired with where the session thought the device
+        /// was at that moment. A position on the globe is only half of a
+        /// bearing.</summary>
+        public async Task AddFixAsync(Fix fix, Vec3 localPose, CancellationToken cancel = default)
+        {
+            if (fix == null) { throw new ArgumentNullException(nameof(fix)); }
+
+            _samples.Add(new BaselineSample
+            {
+                Position = fix.Position,
+                AccuracyM = fix.PositionAccuracyM <= 0 ? 30 : fix.PositionAccuracyM,
+                Local = localPose,
+                AtMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            });
+
+            if (_samples.Count > MaxSamples) { _samples.RemoveAt(0); }
+
+            await ResolveHeadingAsync(fix, cancel).ConfigureAwait(false);
+        }
+
+        private async Task ResolveHeadingAsync(Fix fix, CancellationToken cancel)
+        {
+            BaselineHeading best = BestBaseline();
+
+            if (best != null &&
+                (_heading == null || _headingSource == "compass" ||
+                 best.AccuracyDeg < _heading.AccuracyDeg))
+            {
+                // A walked baseline always beats the compass, and a better
+                // bearing beats a worse one. Both are upgrades.
+                _heading = best;
+                _headingSource = "baseline";
+                await RebuildAsync(fix, cancel).ConfigureAwait(false);
+                return;
+            }
+
+            if (_heading != null)
+            {
+                await RebuildAsync(fix, cancel).ConfigureAwait(false);
+                return;
+            }
+
+            // No baseline yet. The compass is a far worse bearing but the only
+            // one available standing still or indoors, where the position error
+            // is tens of metres and a baseline can never resolve at all. Better
+            // to be usable and say how badly.
+            if (CompassHeadingDeg.HasValue)
+            {
+                _heading = new BaselineHeading
+                {
+                    HeadingDeg = CompassHeadingDeg.Value,
+                    SessionYawDeg = CompassHeadingDeg.Value,
+                    SeparationM = 0,
+                    AccuracyDeg = CompassSpreadDeg
+                };
+                _headingSource = "compass";
+                await RebuildAsync(fix, cancel).ConfigureAwait(false);
+                return;
+            }
+
+            Emit(_samples.Count > 0 ? SessionState.Calibrating : SessionState.Locating, null);
+        }
+
+        /// <summary>The pair giving the best bearing wins — smallest
+        /// atan(noise / separation), not widest separation.
+        ///
+        /// Those are not the same thing, and assuming they were is a bug this
+        /// port inherited from the web version and only showed up under a test
+        /// with mixed accuracies. A hundred-metre walk between two fixes that
+        /// each admit to thirty metres is a twenty degree bearing; a forty
+        /// metre walk between two claiming three is four. Taking the wider one
+        /// throws away the better answer.</summary>
+        private BaselineHeading BestBaseline()
+        {
+            BaselineHeading best = null;
+
+            for (int i = 0; i < _samples.Count; i++)
+            {
+                for (int j = i + 1; j < _samples.Count; j++)
+                {
+                    BaselineHeading candidate = Baseline.FromWalk(_samples[i], _samples[j]);
+                    if (candidate?.SessionYawDeg == null) { continue; }
+                    if (best == null || candidate.AccuracyDeg < best.AccuracyDeg) { best = candidate; }
+                }
+            }
+
+            return best;
+        }
+
+        private async Task RebuildAsync(Fix latest, CancellationToken cancel)
+        {
+            _lastFixLocal = _samples[_samples.Count - 1].Local;
+
+            GeoPoint? origin = OriginEstimator.Estimate(_samples, _heading.SessionYawDeg ?? 0);
+            if (origin == null) { return; }
+
+            Frame = new LocalizationFrame(new Fix
+            {
+                Position = origin.Value,
+                // The world heading of the session's forward axis, not the
+                // device's — which is exactly what a baseline measures.
+                HeadingDeg = _heading.SessionYawDeg ?? 0,
+                PositionAccuracyM = OriginEstimator.Accuracy(_samples),
+                HeadingAccuracyDeg = _heading.AccuracyDeg,
+                Provider = latest?.Provider ?? "unknown",
+                HeadingFrom = _headingSource
+            }, SessionPose.Origin);
+
+            Emit(SessionState.Ready, null);
+            Reproject();
+
+            await CorrectMineAsync(cancel).ConfigureAwait(false);
+            await FetchIfNeededAsync(cancel).ConfigureAwait(false);
+        }
+
+        /// <summary>Session tracking drifts, quietly. Once the device has walked
+        /// far enough for that to matter, the next fix re-anchors the frame.
+        /// </summary>
+        public bool NeedsRelocalize(Vec3 here)
+        {
+            if (Frame == null || !_lastFixLocal.HasValue) { return true; }
+            double dx = here.X - _lastFixLocal.Value.X;
+            double dz = here.Z - _lastFixLocal.Value.Z;
+            return Math.Sqrt(dx * dx + dz * dz) > RelocalizeAfterM;
+        }
+
+        // ── content ──────────────────────────────────────────────
+
+        public async Task RefreshAsync(CancellationToken cancel = default)
+        {
+            if (Frame == null) { return; }
+
+            GeoPoint origin = Frame.Origin;
+            _fetchedAt = origin;
+
+            try
+            {
+                IReadOnlyList<Placement> found =
+                    await _store.NearbyAsync(origin.Lat, origin.Lon, RadiusM, cancel).ConfigureAwait(false);
+
+                _placements.Clear();
+                _placements.AddRange(found);
+                Reproject();
+            }
+            catch (Exception e)
+            {
+                // Let the next attempt try again rather than assuming this
+                // centre is done with. A read that fails is not an empty world.
+                _fetchedAt = null;
+                Emit(SessionState.Error, "Could not read placements: " + e.Message);
+                throw;
+            }
+        }
+
+        /// <summary>Becoming located is what makes a query possible, so it is
+        /// also what triggers one — and only again when the centre has moved
+        /// enough for the answer to differ.</summary>
+        private async Task FetchIfNeededAsync(CancellationToken cancel)
+        {
+            if (Frame == null) { return; }
+
+            if (_fetchedAt.HasValue &&
+                Geodesy.Haversine(Frame.Origin, _fetchedAt.Value) < RadiusM / 3)
+            {
+                return;
+            }
+
+            try { await RefreshAsync(cancel).ConfigureAwait(false); }
+            catch { /* already reported */ }
+        }
+
+        public IReadOnlyList<PlacedItem> Reproject()
+        {
+            if (Frame == null) { return Array.Empty<PlacedItem>(); }
+
+            double floor = Floor();
+            var items = _placements.Select(p =>
+            {
+                Vec3 local = Frame.ToLocal(p.Position);
+
+                // Vertical position comes from the floor of the current
+                // session, not from the globe. Horizontally a few metres of GPS
+                // error is a few metres sideways; vertically it is the
+                // difference between being there and being underground.
+                local = new Vec3(local.X, p.GroundOffset + floor, local.Z);
+
+                return new PlacedItem
+                {
+                    Id = p.Id,
+                    Scene = p.Scene,
+                    Scale = p.Scale,
+                    DistanceM = p.DistanceM,
+                    Owner = p.Owner,
+                    Label = p.Label,
+                    CreatedAt = p.CreatedAt,
+                    Local = local,
+                    YawRad = Frame.HeadingToLocalYaw(Geodesy.HeadingFromQuaternion(p.Orientation))
+                };
+            }).ToList();
+
+            PlacementsChanged?.Invoke(items);
+            return items;
+        }
+
+        // ── placing ──────────────────────────────────────────────
+
+        public async Task<Placement> PlaceAsync(string scene, Vec3 localPoint, double localYawRad,
+            string label = "", CancellationToken cancel = default)
+        {
+            if (Frame == null) { throw new InvalidOperationException("not localized yet"); }
+
+            GeoPoint position = Frame.ToGlobal(localPoint);
+            double headingDeg = Frame.LocalYawToHeading(localYawRad);
+
+            var placement = new Placement
+            {
+                Scene = scene,
+                Position = position,
+                Orientation = Geodesy.HeadingToQuaternion(headingDeg),
+                GroundOffset = localPoint.Y - Floor(),
+                Label = label ?? "",
+                Scale = 1,
+                Fix = new FixQuality
+                {
+                    Provider = Frame.Fix.Provider,
+                    PositionM = Frame.Fix.PositionAccuracyM,
+                    HeadingDeg = Frame.Fix.HeadingAccuracyDeg
+                }
+            };
+
+            Placement saved = await _store.PlaceAsync(placement, cancel).ConfigureAwait(false);
+            saved.DistanceM = 0;
+            _placements.Add(saved);
+
+            // Keep the local point. When the frame improves this is what lets
+            // the saved coordinates improve with it rather than keeping the
+            // error they were written with.
+            _mine.Add((saved.Id, localPoint, localYawRad, position));
+
+            Reproject();
+            return saved;
+        }
+
+        /// <summary>Re-derive what this session placed, now that the mapping is
+        /// better. Placing on arrival used to bake the first fix's error into
+        /// the record permanently: the object drifted as the frame converged
+        /// and settled at whatever the wrong coordinates meant.</summary>
+        private async Task CorrectMineAsync(CancellationToken cancel)
+        {
+            if (Frame == null || _mine.Count == 0) { return; }
+
+            for (int i = 0; i < _mine.Count; i++)
+            {
+                (string id, Vec3 local, double yawRad, GeoPoint at) = _mine[i];
+
+                GeoPoint position = Frame.ToGlobal(local);
+                // Below this it is not worth a write, and the estimate wobbles
+                // by this much anyway.
+                if (Geodesy.Haversine(position, at) < 0.5) { continue; }
+
+                _mine[i] = (id, local, yawRad, position);
+                double headingDeg = Frame.LocalYawToHeading(yawRad);
+                double offset = local.Y - Floor();
+
+                try
+                {
+                    await _store.MoveAsync(id, position, headingDeg, offset, cancel).ConfigureAwait(false);
+
+                    Placement stored = _placements.FirstOrDefault(p => p.Id == id);
+                    if (stored != null)
+                    {
+                        stored.Position = position;
+                        stored.GroundOffset = offset;
+                    }
+                }
+                catch { /* it will be tried again on the next fix */ }
+            }
+
+            Reproject();
+        }
+
+        public async Task RemoveAsync(string id, CancellationToken cancel = default)
+        {
+            await _store.RemoveAsync(id, cancel).ConfigureAwait(false);
+            _placements.RemoveAll(p => p.Id == id);
+            _mine.RemoveAll(m => m.Id == id);
+            Reproject();
+        }
+
+        public void Reset()
+        {
+            _samples.Clear();
+            _placements.Clear();
+            _mine.Clear();
+            _heading = null;
+            _headingSource = "none";
+            _fetchedAt = null;
+            _lastFixLocal = null;
+            Frame = null;
+            Emit(SessionState.Idle, null);
+        }
+
+        private void Emit(SessionState next, string detail)
+        {
+            State = next;
+            LastError = next == SessionState.Error ? detail : null;
+            StateChanged?.Invoke(next, detail);
+        }
+    }
+}

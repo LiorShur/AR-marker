@@ -55,7 +55,8 @@ node scripts/make-vectors.mjs                                  # regenerate
 dotnet run --project native/MarkerOne.Conformance -- native/vectors/core.json
 ```
 
-1411 vectors, all matching. Reintroducing either historical sign error fails
+1524 assertions, all matching — 1443 generated vectors plus the JSON reader,
+the store against a stub Firestore, and the session controller. Reintroducing either historical sign error fails
 456 and 69 of them respectively — the check has been confirmed capable of
 failing, which is the only reason to believe it when it passes.
 
@@ -94,15 +95,52 @@ Placements made by the web app are readable by the native app and the reverse,
 because both speak the same global frame and the same documents. That was the
 point of storing GeoPose rather than a local transform.
 
+## The store
+
+`FirestorePlacementStore` speaks the same two REST endpoints as the web app, so
+both read and write the same documents. REST rather than the Firebase Unity
+SDK on purpose: the SDK is a large per-platform native dependency, and this
+needs an HTTP client and nothing else. If realtime listeners or push are wanted
+later, that is the moment to take it on — not before.
+
+`Json` is hand-written for the same reason. `System.Text.Json` is not in
+netstandard2.1, and the package would put a dependency into a library whose
+whole point is not having one. It is checked against `System.Text.Json` in the
+conformance run, because a parser nobody checks is one that silently mangles a
+coordinate.
+
+## The session
+
+`WorldSession` is the C# equivalent of `spatial/world.js` and knows nothing
+about Unity: fixes in, placements out. The platform layer supplies the device
+pose and instantiates what comes back. That separation is why it can be tested
+on a build agent at all.
+
+It carries everything the web version learned the hard way — the origin
+estimated from every fix rather than the latest, height measured against a
+floor the hit test actually touched, placements made early rewritten as the
+frame settles, and a read that fails reported as a failure rather than as an
+empty world.
+
+## What porting found
+
+Two implementations of the same thing disagree in useful ways.
+
+`BestBaseline` picked the **widest** separation, in both languages. That is not
+the same as the best bearing: the error is `atan(noise / separation)` and both
+terms matter, so a hundred-metre walk between two fixes that each admit to
+thirty metres gives twenty degrees, while a forty-metre walk between two
+claiming three gives four. It had been taking the wider one and throwing the
+better answer away. It only surfaced under a test with mixed accuracies —
+indoors, then stepping outside — which is exactly the sequence a real session
+follows. Fixed in both; the JS suite now pins it.
+
 ## Still to do
 
-- `PlacementStore` in C# — the same Firestore REST calls, or the Firebase Unity
-  SDK if the dependency is acceptable.
-- The session controller: fixes in, frame out, placements projected — the C#
-  equivalent of `spatial/world.js`, including the origin estimator that
-  averages every fix rather than trusting the latest.
-- MonoBehaviours: `ARAnchorManager` for placement, `AREarthManager` for the
-  Geospatial pose, and the content compiler that turns a manifest scene into
-  a prefab hierarchy.
-- A rural fallback path for where VPS coverage runs out, using the walked
-  baseline that is already ported.
+- MonoBehaviours: `AREarthManager` for the Geospatial pose, `ARAnchorManager`
+  for placement, and the content compiler that turns a manifest scene into a
+  prefab hierarchy.
+- A `content.json` reader — the format is unchanged, so this is deserialization
+  rather than design.
+- The rural fallback for where VPS coverage runs out. The walked baseline is
+  already ported and already better than a magnetometer.

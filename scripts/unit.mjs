@@ -783,6 +783,47 @@ console.log('\n  world session');
     check('and are stored against it too', true, 'ground offset 0 at the observed floor');
   }
 
+  /* The widest walk is not the best bearing. A long baseline between two
+     poor fixes is worse than a short one between good fixes, because the error
+     is atan(noise / separation) and both terms matter. Picking by separation
+     threw away the better answer — found by porting this to C# and testing it
+     with mixed accuracies. */
+  {
+    let step = 0;
+    const walk = [
+      { m: 0, acc: 30 },     // indoors
+      { m: 40, acc: 3 },     // outside now
+      { m: 80, acc: 3 }
+    ];
+    const mixed = world.create({
+      store: { nearby: () => Promise.resolve([]) },
+      provider: {
+        id: 'gps',
+        locate: () => {
+          const s = walk[Math.min(step, walk.length - 1)];
+          step++;
+          return Promise.resolve({
+            position: { lat: 51.5007 + (s.m / 6371008.8) * 180 / Math.PI, lon: -0.1246, h: 0 },
+            accuracy: { positionM: s.acc, headingDeg: 90 }
+          });
+        }
+      },
+      compass: { start: () => Promise.resolve(true), stop: () => {},
+                 heading: () => 0, spreadDeg: () => 25 },
+      pose: () => ({ x: 0, y: 0, z: -walk[Math.min(step - 1, walk.length - 1)].m }),
+      onState: () => {},
+      onPlacements: () => {}
+    });
+
+    await mixed.start();
+    await mixed.sample();
+    await mixed.sample();
+
+    check('the best bearing wins, not the longest walk',
+      mixed.frame().accuracy.headingDeg < 10,
+      '±' + mixed.frame().accuracy.headingDeg.toFixed(1) + '° (widest pair would be ±20.6°)');
+  }
+
   const one = rig();
   await one.w.start();
   check('one fix is not enough to know which way north is',

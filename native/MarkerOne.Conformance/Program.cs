@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using MarkerOne.Core;
+using MarkerOne.Conformance;
 
 /// <summary>
 /// The port, checked against the implementation it was ported from.
@@ -24,7 +25,9 @@ internal static class Program
     private static int _passed;
     private static readonly List<string> Failures = new();
 
-    private static int Main(string[] args)
+    private static int Main(string[] args) => MainAsync(args).GetAwaiter().GetResult();
+
+    private static async System.Threading.Tasks.Task<int> MainAsync(string[] args)
     {
         string path = args.Length > 0
             ? args[0]
@@ -50,6 +53,17 @@ internal static class Program
         Section("query bounds", () => Bounds(root.GetProperty("bounds")));
         Section("localization frame", () => Frame(root.GetProperty("frame")));
         Section("walked baseline", () => Walk(root.GetProperty("baseline")));
+        Section("origin estimate", () => Origin(root.GetProperty("origin")));
+
+        Console.WriteLine("\n  json reader");
+        JsonTests.Run(Check);
+        Console.WriteLine($"    checked against System.Text.Json");
+
+        Console.WriteLine("\n  placement store");
+        await StoreTests.Run(Check);
+
+        Console.WriteLine("\n  world session");
+        await SessionTests.Run(Check);
 
         Console.WriteLine();
         foreach (string failure in Failures) { Console.WriteLine("  ✗ " + failure); }
@@ -278,6 +292,44 @@ internal static class Program
         }
     }
 
+    private static void Origin(JsonElement cases)
+    {
+        foreach (JsonElement c in cases.EnumerateArray())
+        {
+            string name = c.GetProperty("name").GetString();
+            double yaw = c.GetProperty("sessionYawDeg").GetDouble();
+
+            var samples = new List<BaselineSample>();
+            foreach (JsonElement s in c.GetProperty("samples").EnumerateArray())
+            {
+                JsonElement local = s.GetProperty("local");
+                samples.Add(new BaselineSample
+                {
+                    Position = Point(s.GetProperty("position")),
+                    AccuracyM = s.GetProperty("accuracy").GetProperty("positionM").GetDouble(),
+                    Local = new Vec3(
+                        local.GetProperty("x").GetDouble(),
+                        local.GetProperty("y").GetDouble(),
+                        local.GetProperty("z").GetDouble())
+                });
+            }
+
+            GeoPoint? got = OriginEstimator.Estimate(samples, yaw);
+            JsonElement want = c.GetProperty("origin");
+
+            if (got == null) { Fail($"{name}: no estimate"); continue; }
+
+            // Sub-millimetre. A weighted mean that differs at all differs
+            // because the weighting differs, and that would move everything.
+            Near($"{name} lat", got.Value.Lat, want.GetProperty("lat").GetDouble(), 1e-9);
+            Near($"{name} lon", got.Value.Lon, want.GetProperty("lon").GetDouble(), 1e-9);
+            Near($"{name} height", got.Value.Height, want.GetProperty("h").GetDouble(), 1e-6);
+
+            Near($"{name} accuracy", OriginEstimator.Accuracy(samples),
+                c.GetProperty("accuracyM").GetDouble(), 1e-9);
+        }
+    }
+
     // ── plumbing ─────────────────────────────────────────────
 
     private static GeoPoint Point(JsonElement e) => new GeoPoint(
@@ -328,4 +380,10 @@ internal static class Program
     }
 
     private static void Fail(string message) => Failures.Add(message);
+
+    private static void Check(string what, bool ok, string detail)
+    {
+        if (ok) { _passed++; Console.WriteLine($"    ✓ {what}" + (detail.Length > 0 ? "  — " + detail : "")); }
+        else { Fail(what + (string.IsNullOrEmpty(detail) ? "" : ": " + detail)); }
+    }
 }

@@ -192,6 +192,85 @@
     return 'Location unavailable: ' + (message || 'refused');
   }
 
+  /* ── the origin, from every fix ─────────────────────────────
+     Pure, and lifted out of the session controller so it can be checked
+     directly — and so the native port can be checked against it.
+
+     Every sample is a statement about where the session's origin is. Using
+     only the latest means a session inherits that one reading's error whole,
+     and the next visit inherits a different one; placements shifting several
+     metres between sessions is exactly that, twice.
+
+     Each sample says: the device was at global position P when it was at
+     local position L. Given the session's yaw, that pins the origin at
+     P - R⁻¹L. Averaging those estimates, weighted by how good each fix
+     claimed to be, is correct whether the user stood still or walked. */
+
+  function estimateOrigin(samples, sessionYawDeg) {
+    if (!samples || !samples.length) { return null; }
+    var latest = samples[samples.length - 1];
+    if (samples.length === 1) { return latest.position; }
+
+    var reference = samples[0].position;
+    var yaw = geo.headingToYaw(sessionYawDeg);
+    var cos = Math.cos(yaw);
+    var sin = Math.sin(yaw);
+
+    var sumX = 0;
+    var sumY = 0;
+    var sumZ = 0;
+    var sumWeight = 0;
+
+    samples.forEach(function (s) {
+      var here = geo.enuToThree(
+        geo.toEnu(s.position.lat, s.position.lon, s.position.h || 0, reference));
+
+      // R⁻¹ applied to the local offset: where the origin sits relative to
+      // where the device was standing.
+      var backX = s.local.x * cos + s.local.z * sin;
+      var backZ = -s.local.x * sin + s.local.z * cos;
+
+      // A fix that admits to fifty metres should not weigh the same as one
+      // claiming three.
+      var sigma = Math.max(1, s.accuracy.positionM || 30);
+      var weight = 1 / (sigma * sigma);
+
+      sumX += (here.x - backX) * weight;
+      sumY += (here.y - (s.local.y || 0)) * weight;
+      sumZ += (here.z - backZ) * weight;
+      sumWeight += weight;
+    });
+
+    var enu = geo.threeToEnu({
+      x: sumX / sumWeight,
+      y: sumY / sumWeight,
+      z: sumZ / sumWeight
+    });
+
+    return geo.fromEnu(enu.e, enu.n, enu.u, reference);
+  }
+
+  /* What averaging actually bought.
+     The textbook answer is sigma over root n, and it is wrong here: GPS error
+     is strongly correlated minute to minute — the same satellites, the same
+     atmosphere, the same reflections off the same wall — so the samples are
+     nothing like independent. The floor at half the best single fix is a
+     deliberate refusal to claim the improvement the arithmetic offers. */
+  function originAccuracy(samples) {
+    if (!samples || !samples.length) { return 30; }
+
+    var best = Infinity;
+    var sumWeight = 0;
+
+    samples.forEach(function (s) {
+      var sigma = Math.max(1, s.accuracy.positionM || 30);
+      best = Math.min(best, sigma);
+      sumWeight += 1 / (sigma * sigma);
+    });
+
+    return Math.max(best * 0.5, 1 / Math.sqrt(sumWeight));
+  }
+
   /* ── the compass ───────────────────────────────────────────
      A worse bearing than a walked baseline, and the only one available when
      the user is standing still, indoors, or somewhere GPS is too noisy for a
@@ -358,6 +437,8 @@
 
   return {
     makeFrame: makeFrame,
+    estimateOrigin: estimateOrigin,
+    originAccuracy: originAccuracy,
     gpsProvider: gpsProvider,
     compass: compass,
     headingFromBaseline: headingFromBaseline

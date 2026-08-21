@@ -69,7 +69,8 @@ const vectors = {
   geohash: [],
   bounds: [],
   frame: [],
-  baseline: []
+  baseline: [],
+  origin: []
 };
 
 /* ── ENU about each origin, at a spread of offsets ────────── */
@@ -213,6 +214,56 @@ for (const walk of WALKS) {
       separationM: round(result.separationM),
       accuracyDeg: round(result.accuracyDeg)
     }
+  });
+}
+
+/* ── the origin, estimated from every fix ─────────────────── */
+const ORIGIN_CASES = [
+  { name: 'a single fix is used as it stands', yaw: 0, n: 1, spread: 8, sigma: 6 },
+  { name: 'standing still, fixes wobbling', yaw: 0, n: 6, spread: 8, sigma: 6 },
+  { name: 'walking, tracked', yaw: 0, n: 6, spread: 8, sigma: 5, walk: 12 },
+  { name: 'session yawed east', yaw: 90, n: 6, spread: 10, sigma: 5, walk: 10 },
+  { name: 'session yawed south west', yaw: 214, n: 8, spread: 12, sigma: 7, walk: 8 },
+  { name: 'wildly different accuracies', yaw: 33, n: 6, spread: 20, sigma: 3, vary: true },
+  { name: 'southern hemisphere', yaw: 120, n: 5, spread: 9, sigma: 5, walk: 6,
+    base: { lat: -33.8568, lon: 151.2153 } },
+  { name: 'high latitude', yaw: 300, n: 5, spread: 9, sigma: 5, walk: 6,
+    base: { lat: 78.2232, lon: 15.6267 } }
+];
+
+for (const c of ORIGIN_CASES) {
+  const base = c.base || { lat: 51.5007, lon: -0.1246 };
+  const samples = [];
+
+  for (let i = 0; i < c.n; i++) {
+    const dn = between(-c.spread, c.spread) + (c.walk ? i * c.walk : 0);
+    const de = between(-c.spread, c.spread);
+    samples.push({
+      position: {
+        lat: base.lat + (dn / 6371008.8) * 180 / Math.PI,
+        lon: base.lon + (de / (6371008.8 * Math.cos(base.lat * Math.PI / 180))) * 180 / Math.PI,
+        h: between(-5, 5)
+      },
+      accuracy: { positionM: c.vary ? Math.max(1, c.sigma * (1 + i * 3)) : c.sigma },
+      local: {
+        x: between(-3, 3),
+        y: between(-1, 1),
+        z: c.walk ? -i * c.walk : between(-3, 3)
+      }
+    });
+  }
+
+  const estimated = localize.estimateOrigin(samples, c.yaw);
+  vectors.origin.push({
+    name: c.name,
+    sessionYawDeg: c.yaw,
+    samples: samples.map((s) => ({
+      position: mapValues(s.position, round),
+      accuracy: s.accuracy,
+      local: mapValues(s.local, round)
+    })),
+    origin: mapValues(estimated, round),
+    accuracyM: round(localize.originAccuracy(samples))
   });
 }
 
