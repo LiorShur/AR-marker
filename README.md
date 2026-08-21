@@ -389,6 +389,33 @@ recorded on every placement rather than inferred, because a placement made by
 GPS and one made by a visual fix are the same shape and nothing like the same
 thing.
 
+### Every fix is evidence about the origin
+
+A session used to be anchored on the single latest fix, so it inherited that
+one reading's error whole — and the next visit inherited a different one.
+Placements shifting several metres between sessions is exactly that, twice
+over.
+
+Each sample says: the device was at global position P when it was at local
+position L. Given the session's yaw, that pins the origin at `P - R⁻¹L`.
+Averaging those estimates, weighted by the accuracy each fix claimed, is
+correct whether the user stood still or walked, and converges quickly — in the
+suite, from 7.2 m of error on one fix to 0.2 m on six.
+
+The accuracy reported for that average is deliberately pessimistic. The
+textbook answer is sigma over root n, and it is wrong here: GPS error is
+strongly correlated minute to minute — the same satellites, the same
+atmosphere, the same reflections off the same wall — so the samples are
+nothing like independent. It is floored at half the best single fix rather
+than claiming what the arithmetic offers.
+
+Compass readings are averaged the same way, as unit vectors, because
+arithmetic means are wrong on a circle: 359 and 1 average to 180, pointing
+exactly backwards. The spread of those readings is reported as the heading
+accuracy — but floored well above what the arithmetic gives, because spread
+measures *precision*. A magnetometer beside a steel door reads twenty degrees
+wrong very consistently. Averaging fixes noise and does nothing about bias.
+
 ### Heading is the hard part
 
 Position is not what ruins geolocated AR. Five metres of position error on

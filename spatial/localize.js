@@ -207,9 +207,14 @@
     options = options || {};
     var root = options.window || (typeof window !== 'undefined' ? window : null);
 
-    var heading = null;
     var listening = false;
     var onReading = null;
+
+    // Headings are averaged as unit vectors. Arithmetic means are wrong on a
+    // circle — 359 and 1 average to 180, pointing exactly backwards.
+    var sumSin = 0;
+    var sumCos = 0;
+    var count = 0;
 
     function read(event) {
       var next = null;
@@ -223,8 +228,26 @@
       }
 
       if (next === null || isNaN(next)) { return; }
-      heading = next;
-      if (onReading) { onReading(next); }
+
+      var radians = next * Math.PI / 180;
+      sumSin += Math.sin(radians);
+      sumCos += Math.cos(radians);
+      count++;
+
+      // Decay rather than accumulate forever, so the average can still follow
+      // the user genuinely turning round.
+      if (count > 240) {
+        sumSin *= 0.5;
+        sumCos *= 0.5;
+        count = Math.round(count * 0.5);
+      }
+
+      if (onReading) { onReading(mean()); }
+    }
+
+    function mean() {
+      if (!count) { return null; }
+      return (Math.atan2(sumSin, sumCos) * 180 / Math.PI + 360) % 360;
     }
 
     return {
@@ -261,8 +284,27 @@
         onReading = null;
       },
 
-      heading: function () { return heading; },
-      accuracyDeg: 25
+      heading: mean,
+      readings: function () { return count; },
+
+      /* How much the readings disagree with each other — the circular
+         standard deviation of what has been seen.
+
+         Note what this is not. It measures precision, not accuracy: a
+         magnetometer sitting next to a steel door reads twenty degrees wrong
+         very consistently, and averaging a thousand of those gives a tight
+         spread around the wrong answer. So the figure is floored well above
+         what the arithmetic alone would report. Averaging fixes noise; it
+         does nothing whatever about bias. */
+      spreadDeg: function () {
+        if (count < 8) { return 30; }
+
+        var r = Math.hypot(sumSin, sumCos) / count;
+        if (r >= 0.999999) { return 12; }
+
+        var sd = Math.sqrt(-2 * Math.log(Math.max(r, 1e-6))) * 180 / Math.PI;
+        return Math.max(12, Math.min(60, sd));
+      }
     };
   }
 

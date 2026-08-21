@@ -5,7 +5,7 @@
    index.html, together — scripts/check-precache.mjs enforces that they agree. install() calls skipWaiting and activate() calls claim, so a
    new worker takes over on the next load rather than the one after —
    provided the host serves this file with no-cache (see firebase.json). */
-var CACHE = 'marker-one-v18';
+var CACHE = 'marker-one-v19';
 
 // Precached at install. The natural-feature descriptors are deliberately not
 // in here: they are 1.4 MB for a target most visitors will never print, and
@@ -17,19 +17,19 @@ var ASSETS = [
   'index.html',
   'marker.html',
   'poster.html',
-  'app.css?v=16',
-  'app.js?v=16',
+  'app.css?v=17',
+  'app.js?v=17',
   'manifest.webmanifest',
   'content.json',
   'vendor/aframe.min.js',
   'vendor/aframe-ar-nft.js',
   'vendor/meshopt_decoder.js',
-  'spatial/config.js?v=16',
-  'spatial/geo.js?v=16',
-  'spatial/store.js?v=16',
-  'spatial/localize.js?v=16',
-  'spatial/appcheck.js?v=16',
-  'spatial/world.js?v=16',
+  'spatial/config.js?v=17',
+  'spatial/geo.js?v=17',
+  'spatial/store.js?v=17',
+  'spatial/localize.js?v=17',
+  'spatial/appcheck.js?v=17',
+  'spatial/world.js?v=17',
   'assets/rotary-phone.glb',  // meshopt-compressed, and the whole point of the scene
   'data/patt.hiro',
   'data/camera_para.dat',

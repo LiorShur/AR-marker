@@ -601,6 +601,96 @@ console.log('\n  world session');
     readStates.some((r) => r.s === 'error' && /Could not read placements/.test(r.d.message)),
     readStates.map((r) => r.s).join(' -> '));
 
+  /* The origin used to be the single latest fix, so a session inherited that
+     one reading's error whole — and the next visit inherited a different one.
+     That is what "objects shift a few metres between sessions" is. Every
+     sample constrains the origin; using all of them should land closer to the
+     truth than the last one does. */
+  {
+    const TRUE = { lat: 51.5007, lon: -0.1246 };
+    const metresNorth = (m) => TRUE.lat + (m / 6371008.8) * 180 / Math.PI;
+    const metresEast = (m) => TRUE.lon +
+      (m / (6371008.8 * Math.cos(TRUE.lat * Math.PI / 180))) * 180 / Math.PI;
+
+    // A deterministic wobble, so the test does not depend on luck.
+    const wobble = [[6, -4], [-5, 7], [3, 5], [-7, -3], [4, -6], [-2, 2]];
+    let step = 0;
+
+    const estimator = world.create({
+      store: { nearby: () => Promise.resolve([]) },
+      provider: {
+        id: 'gps',
+        locate: () => {
+          const [dn, de] = wobble[step % wobble.length];
+          step++;
+          return Promise.resolve({
+            position: { lat: metresNorth(dn), lon: metresEast(de), h: 0 },
+            accuracy: { positionM: 8, headingDeg: 90 }
+          });
+        }
+      },
+      compass: { start: () => Promise.resolve(true), stop: () => {},
+                 heading: () => 0, spreadDeg: () => 15 },
+      pose: () => ({ x: 0, y: 0, z: 0 }),
+      onState: () => {},
+      onPlacements: () => {}
+    });
+
+    await estimator.start();
+    const afterOne = estimator.frame().origin;
+    const firstError = geo.haversine(TRUE.lat, TRUE.lon, afterOne.lat, afterOne.lon);
+
+    for (let i = 0; i < 5; i++) { await estimator.sample(); }
+    const averaged = estimator.frame().origin;
+    const finalError = geo.haversine(TRUE.lat, TRUE.lon, averaged.lat, averaged.lon);
+
+    check('averaging the fixes lands closer to the truth than the last one does',
+      finalError < firstError,
+      `${firstError.toFixed(1)}m from one fix, ${finalError.toFixed(1)}m from six`);
+    check('and it converges rather than wandering', finalError < 3,
+      finalError.toFixed(2) + 'm');
+  }
+
+  /* Standing still, the estimate must also be stable — a frame that jumps
+     every four seconds moves everything already placed. */
+  {
+    let n = 0;
+    const jitter = [[2, 1], [-3, 2], [1, -2], [-1, -1], [3, 3]];
+    const steady = world.create({
+      store: { nearby: () => Promise.resolve([]) },
+      provider: {
+        id: 'gps',
+        locate: () => {
+          const [dn, de] = jitter[n % jitter.length];
+          n++;
+          return Promise.resolve({
+            position: {
+              lat: 51.5007 + (dn / 6371008.8) * 180 / Math.PI,
+              lon: -0.1246 + (de / (6371008.8 * Math.cos(51.5007 * Math.PI / 180))) * 180 / Math.PI,
+              h: 0
+            },
+            accuracy: { positionM: 6, headingDeg: 90 }
+          });
+        }
+      },
+      compass: { start: () => Promise.resolve(true), stop: () => {},
+                 heading: () => 0, spreadDeg: () => 15 },
+      pose: () => ({ x: 0, y: 0, z: 0 }),
+      onState: () => {},
+      onPlacements: () => {}
+    });
+
+    await steady.start();
+    await steady.sample();
+    const early = steady.frame().origin;
+    for (let i = 0; i < 6; i++) { await steady.sample(); }
+    const later = steady.frame().origin;
+
+    check('the origin settles instead of chasing each new fix',
+      geo.haversine(early.lat, early.lon, later.lat, later.lon) < 2,
+      geo.haversine(early.lat, early.lon, later.lat, later.lon).toFixed(2) + 'm of movement');
+  }
+
   const one = rig();
   await one.w.start();
   check('one fix is not enough to know which way north is',
@@ -678,8 +768,13 @@ console.log('\n  world session');
     near(wrote.geopose.position.lat, north(50), 1e-5),
     `${wrote.geopose.position.lat.toFixed(6)} vs ${north(50).toFixed(6)}`);
   check('the placement records how it was localized',
-    wrote.fix.provider === 'test' && wrote.fix.positionM === 3 && wrote.fix.headingDeg > 0,
+    wrote.fix.provider === 'test' && wrote.fix.positionM > 0 && wrote.fix.headingDeg > 0,
     JSON.stringify(wrote.fix));
+  // Averaging two three-metre fixes should claim better than three metres and
+  // nowhere near the root-n answer, because GPS error is not independent.
+  check('and an accuracy that reflects the averaging, honestly',
+    wrote.fix.positionM < 3 && wrote.fix.positionM >= 1.5,
+    '±' + wrote.fix.positionM.toFixed(2) + 'm from two ±3m fixes');
   check('a new placement appears without a round trip',
     withContent.rendered.length === 2);
 

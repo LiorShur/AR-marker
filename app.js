@@ -9,7 +9,7 @@
      job is to answer "am I running the code I just deployed", which during a
      week of deploy-and-walk-outside is a question worth being able to answer
      in one glance rather than by bisecting behaviour. */
-  var BUILD = '16';
+  var BUILD = '17';
 
   var gate       = document.getElementById('gate');
   var stage      = document.getElementById('stage');
@@ -930,6 +930,32 @@
     if (!nearbyEl.hidden) { renderNearby(); }
   }
 
+  /* What the numbers mean for the thing the user actually notices: whether
+     something is where they left it. Position error and heading error compound
+     differently — the first is a constant offset, the second grows with how
+     far away the object is — and quoting them separately hides that. */
+  function describeFix(frame) {
+    if (!frame) { return ''; }
+
+    var accuracy = frame.accuracy;
+    var atTwenty = accuracy.positionM + 20 * Math.tan(accuracy.headingDeg * Math.PI / 180);
+    var lines = ['Located from ' + (accuracy.fixes || 1) + ' fix' +
+                 ((accuracy.fixes || 1) === 1 ? '' : 'es') +
+                 '. Something twenty metres away should sit within about ' +
+                 Math.round(atTwenty) + ' m of where it was left.'];
+
+    if (accuracy.headingFrom === 'compass') {
+      lines.push('That is mostly the compass. Walking twenty metres in a ' +
+                 'straight line replaces it with a far better bearing.');
+    }
+    if ((accuracy.fixes || 1) < 4) {
+      lines.push('It improves as more fixes arrive — standing still for half ' +
+                 'a minute is worth doing before placing anything.');
+    }
+
+    return lines.join(' ');
+  }
+
   function fixLabel(accuracy) {
     if (!accuracy) { return 'Located'; }
     // The suffix is the point. A compass bearing is usable and is not a good
@@ -1201,11 +1227,7 @@
       return;
     }
 
-    var frame = world.frame();
-    nearbyEmpty.textContent = frame && frame.accuracy.headingFrom === 'compass'
-      ? 'Bearing is from the compass, so everything here may be twenty degrees ' +
-        'out. Walk twenty metres in a straight line and it will correct itself.'
-      : '';
+    nearbyEmpty.textContent = describeFix(world.frame());
 
     var mine = store && store.uid();
     dropAllBtn.hidden = !nearby.some(function (p) { return p.owner && p.owner === mine; });

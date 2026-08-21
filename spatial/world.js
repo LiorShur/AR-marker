@@ -113,11 +113,14 @@
       // Better to be usable and say how badly than to refuse forever.
       var bearing = compass && compass.heading();
       if (bearing !== null && bearing !== undefined && samples.length) {
+        // Refreshed on every sample rather than taken once: the average of a
+        // hundred readings is a great deal better than the first one, and the
+        // spread of them is a real measurement where 25 was a guess.
         heading = {
           source: 'compass',
           sessionYawDeg: bearing,
           separationM: 0,
-          accuracyDeg: compass.accuracyDeg || 25
+          accuracyDeg: compass.spreadDeg ? compass.spreadDeg() : 25
         };
         rebuild();
         return;
@@ -132,26 +135,102 @@
     // The heading comes from the whole walk; the origin comes from the newest
     // fix, because position drifts and the freshest observation is the least
     // wrong one.
+    /* Every sample is a statement about where the session's origin is.
+       Only one was being used — the latest fix — so every metre of error in
+       that single reading moved everything placed, and the next visit read a
+       different single reading. Objects "shifting a few metres between
+       sessions" is precisely that, twice.
+
+       Each sample says: the device was at global position P when it was at
+       local position L. Given the session's yaw, that pins the origin at
+       P - R⁻¹L. Averaging those estimates, weighted by how good each fix
+       claimed to be, is correct whether the user stood still or walked. */
+    function estimateOrigin() {
+      var latest = samples[samples.length - 1];
+      if (samples.length === 1) { return latest.position; }
+
+      var reference = samples[0].position;
+      var yaw = geo.headingToYaw(heading.sessionYawDeg);
+      var cos = Math.cos(yaw);
+      var sin = Math.sin(yaw);
+
+      var sumX = 0;
+      var sumY = 0;
+      var sumZ = 0;
+      var sumWeight = 0;
+
+      samples.forEach(function (s) {
+        var here = geo.enuToThree(
+          geo.toEnu(s.position.lat, s.position.lon, s.position.h || 0, reference));
+
+        // R⁻¹ applied to the local offset: where the origin sits relative to
+        // where the device was standing.
+        var backX = s.local.x * cos + s.local.z * sin;
+        var backZ = -s.local.x * sin + s.local.z * cos;
+
+        // A fix that admits to fifty metres should not weigh the same as one
+        // claiming three.
+        var sigma = Math.max(1, s.accuracy.positionM || 30);
+        var weight = 1 / (sigma * sigma);
+
+        sumX += (here.x - backX) * weight;
+        sumY += (here.y - s.local.y) * weight;
+        sumZ += (here.z - backZ) * weight;
+        sumWeight += weight;
+      });
+
+      var enu = geo.threeToEnu({
+        x: sumX / sumWeight,
+        y: sumY / sumWeight,
+        z: sumZ / sumWeight
+      });
+
+      return geo.fromEnu(enu.e, enu.n, enu.u, reference);
+    }
+
+    /* What averaging actually bought.
+       The textbook answer is sigma over root n, and it is wrong here: GPS
+       error is strongly correlated minute to minute — the same satellites,
+       the same atmosphere, the same reflections off the same wall — so the
+       samples are nothing like independent. The floor at half the best single
+       fix is a deliberate refusal to claim the improvement the arithmetic
+       offers. */
+    function originAccuracy() {
+      var best = Infinity;
+      var sumWeight = 0;
+
+      samples.forEach(function (s) {
+        var sigma = Math.max(1, s.accuracy.positionM || 30);
+        best = Math.min(best, sigma);
+        sumWeight += 1 / (sigma * sigma);
+      });
+
+      return Math.max(best * 0.5, 1 / Math.sqrt(sumWeight));
+    }
+
     function rebuild() {
       var latest = samples[samples.length - 1];
       lastFixLocal = latest.local;
 
       frame = localize.makeFrame({
-        position: latest.position,
+        position: estimateOrigin(),
         // In makeFrame this is the world heading of the session's forward
         // axis, not the device's — which is exactly what a baseline measures.
         headingDeg: heading.sessionYawDeg,
         accuracy: {
-          positionM: latest.accuracy.positionM,
+          positionM: originAccuracy(),
           headingDeg: heading.accuracyDeg,
           // Which of the two produced this bearing. A twenty-five degree
           // compass fix and a two degree walked one are the same shape and
           // nothing like the same thing.
-          headingFrom: heading.source
+          headingFrom: heading.source,
+          fixes: samples.length
         },
         provider: provider.id,
         at: latest.at
-      }, { position: latest.local, yawDeg: 0 });
+        // The origin is now the estimate itself, so the device's local offset
+        // is already accounted for and must not be applied twice.
+      }, { position: { x: 0, y: 0, z: 0 }, yawDeg: 0 });
 
       emit('ready', {
         accuracy: frame.accuracy,
