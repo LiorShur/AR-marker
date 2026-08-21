@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- netstandard2.1 is what Unity 2021+ compiles against. Nothing here may
+         reference UnityEngine: this is the part that can be tested without an
+         editor, and the moment it depends on one it cannot be. -->
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>MarkerOne.Core</AssemblyName>
+    <RootNamespace>MarkerOne.Core</RootNamespace>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+</Project>

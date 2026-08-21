@@ -7,3 +7,7 @@ screenshots/
 
 # Local Firebase settings — see spatial/config.local.example.js
 spatial/config.local.js
+
+# .NET build output
+native/**/bin/
+native/**/obj/
