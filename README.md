@@ -177,7 +177,7 @@ whatever the camera's real resolution, so a target filling the frame is about
 200 pixels tall by the time it is matched. Detail finer than ~2% of its width
 is gone.
 
-## Eleven things that are load-bearing and not obvious
+## Thirteen things that are load-bearing and not obvious
 
 **The camera video is not part of the scene.** AR.js appends a plain `<video>`
 to `<body>` at `z-index: -2` and draws the AR overlay on a transparent WebGL
@@ -192,6 +192,21 @@ embedded scene's canvas to its container. On a tall phone those disagree
 violently — the overlay renders as a stretched ellipse nowhere near the marker.
 `applyFeedSize()` in `app.js` copies the video's box onto the canvas and pins
 `<body>` so AR.js cannot shift it.
+
+**Room scale makes distant placements invisible.** Content is one unit per
+target width, scaled to room size — about thirty centimetres. At forty metres,
+which is well inside both the query radius and GPS error, that subtends under
+half a degree: a few pixels. The count said four nearby and the screen showed
+an empty room, and both were right. Every placement therefore also carries a
+locator that holds a constant angular size at any distance and fades out once
+you are close enough to see the thing itself.
+
+**Vertical position must not come from GPS.** Altitude is the least reliable
+number a receiver reports — two or three times worse than the horizontal fix,
+and often simply absent. Reading a placement's height back from it puts things
+underground or in the air, and either is invisible. Placements store a
+`groundOffset` in metres above the floor of the session they were made in, and
+that is what is used on the way back.
 
 **Firestore rules are not filters.** The read rule turns on
 `resource.data.visibility`, so a query that does not itself constrain
@@ -386,8 +401,14 @@ device can hold a WebXR session. Then:
    placed at, so anyone reading it back knows what it is worth.
 5. The count button in the HUD opens **Nearby**: everything within range, with
    a distance and an arrow that turns as you do, so you can find what you
-   cannot see. It is also where you change what to place next, and remove
-   something you got wrong.
+   cannot see. It is also where you set the name that goes on things you
+   leave, change what to place next, and remove one or all of your own.
+
+Everything placed is public: anyone who opens the link sees everything within
+range of them, and each placement is captioned with the name its author typed
+and the time it was left. That name is a courtesy and not an identity —
+nothing verifies it, and an anonymous uid is a device rather than a person. Real
+sign-in is a separate decision.
 
 The empty state is deliberate. "Nothing placed within 300 m" and "still working
 out which way you are facing" are different sentences, because standing in a

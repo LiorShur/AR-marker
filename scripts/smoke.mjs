@@ -122,6 +122,20 @@ async function testGate() {
   const build = await page.locator('#build').textContent();
   check('the build stamp is on the page', /^\d+$/.test(build.trim()), 'build ' + build);
 
+  // An installed app has no address bar, so a URL-only diagnostic flag cannot
+  // be turned on in the place it is most needed.
+  const traceSticks = await page.evaluate(async () => {
+    localStorage.removeItem('marker-one:trace');
+    return true;
+  });
+  await page.goto(ORIGIN + '/?trace', { waitUntil: 'load' });
+  const persisted = await page.evaluate(() => localStorage.getItem('marker-one:trace'));
+  check('?trace survives into an installed app', traceSticks && persisted === '1');
+  await page.goto(ORIGIN + '/?trace=off', { waitUntil: 'load' });
+  check('and can be turned back off',
+    !(await page.evaluate(() => localStorage.getItem('marker-one:trace'))));
+  await page.goto(ORIGIN + '/', { waitUntil: 'load' });
+
   const count = await page.locator('#dial-count').textContent();
   check('all three capability checks pass', count === '3/3', count);
 
@@ -602,6 +616,16 @@ async function testWorld() {
     check('an unlocated session says so rather than showing an empty list',
       /finding you|walk a few metres/i.test(empty), empty.slice(0, 60));
     check('and shows no list', (await page.locator('#nearby-list li').count()) === 0);
+
+    check('a name can be set for things you leave',
+      await page.locator('#nearby-name').isVisible());
+    await page.locator('#nearby-name').fill('Lior');
+    await page.locator('#nearby-name').dispatchEvent('change');
+    const stored = await page.evaluate(() => localStorage.getItem('marker-one:name'));
+    check('and it is remembered', stored === 'Lior', String(stored));
+
+    check('remove-all is hidden when nothing here is yours',
+      await page.locator('#nearby-drop-all').isHidden());
 
     const chips = await page.locator('#nearby-place .chip').allTextContents();
     check('what to place next can be changed without leaving', chips.length === 2,

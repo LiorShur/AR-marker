@@ -218,6 +218,12 @@
 
       var out = placements.map(function (p) {
         var local = frame.toLocal(p.geopose.position);
+
+        // Vertical position comes from the floor of the current session, not
+        // from the globe. Horizontally a few metres of GPS error is a few
+        // metres sideways; vertically it is the difference between an object
+        // being there and being twenty metres underground.
+        if (typeof p.groundOffset === 'number') { local.y = p.groundOffset; }
         var worldHeading = geo.headingFromQuaternion(p.geopose.quaternion);
         return {
           id: p.id,
@@ -227,7 +233,9 @@
           owner: p.owner,
           fix: p.fix,
           local: local,
-          yawRad: frame.headingToLocalYaw(worldHeading)
+          yawRad: frame.headingToLocalYaw(worldHeading),
+          label: p.label || '',
+          createdAt: p.createdAt || ''
         };
       });
 
@@ -237,7 +245,7 @@
 
     /* ── placing ─────────────────────────────────────────────── */
 
-    function place(scene, localPoint, localYawRad) {
+    function place(scene, localPoint, localYawRad, label) {
       if (!frame) { return Promise.reject(new Error('not localized yet')); }
 
       var position = frame.toGlobal(localPoint);
@@ -245,6 +253,8 @@
 
       return store.place({
         scene: scene,
+        groundOffset: localPoint.y || 0,
+        label: label || '',
         geopose: {
           position: position,
           quaternion: geo.headingToQuaternion(headingDeg)

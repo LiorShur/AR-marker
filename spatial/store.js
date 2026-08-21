@@ -244,6 +244,16 @@
         geohash: geo.geohash(Number(pos.lat), Number(pos.lon), 10),
         scene: String(p.scene || ''),
         scale: Number(p.scale === undefined ? 1 : p.scale),
+        // Height above the floor of the session it was placed in, in metres.
+        // Stored separately from the ellipsoidal height because GPS altitude
+        // is the least reliable number a receiver reports — two or three
+        // times worse than the horizontal fix, and sometimes simply absent.
+        // Reading vertical position back from it puts things underground or
+        // in the air, which is invisible either way.
+        groundOffset: Number(p.groundOffset || 0),
+        // What to call whoever left it. Not verified — an anonymous uid is a
+        // device, not a person — so it is a courtesy, not an identity.
+        label: String(p.label || '').slice(0, 40),
         // How the pose was obtained, and how well. Stored rather than inferred
         // because a placement made by GPS and one made by a visual fix are the
         // same shape and nothing like the same thing.
@@ -266,6 +276,7 @@
       if (!r.scene) { bad.push('scene is required'); }
       if (r.scene.length > 64) { bad.push('scene name too long'); }
       if (!isFinite(r.scale) || r.scale <= 0 || r.scale > 1000) { bad.push('scale'); }
+      if (!isFinite(r.groundOffset) || Math.abs(r.groundOffset) > 100) { bad.push('ground offset'); }
 
       var q = r.geopose.quaternion;
       var len = Math.hypot(q.x, q.y, q.z, q.w);

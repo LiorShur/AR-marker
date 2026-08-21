@@ -9,7 +9,7 @@
      job is to answer "am I running the code I just deployed", which during a
      week of deploy-and-walk-outside is a question worth being able to answer
      in one glance rather than by bisecting behaviour. */
-  var BUILD = '12';
+  var BUILD = '13';
 
   var gate       = document.getElementById('gate');
   var stage      = document.getElementById('stage');
@@ -33,6 +33,8 @@
   var nearbyList = document.getElementById('nearby-list');
   var nearbyEmpty = document.getElementById('nearby-empty');
   var nearbyPlace = document.getElementById('nearby-place');
+  var nameInput  = document.getElementById('nearby-name');
+  var dropAllBtn = document.getElementById('nearby-drop-all');
   var overlayEl  = document.getElementById('overlay');
   var buildEl    = document.getElementById('build');
   var sheetLink  = document.getElementById('sheet');
@@ -649,7 +651,65 @@
         o.rotation.set(-th, ph, 0);
       }
     });
+
+    /* A placement is one unit per target width scaled to room size — call it
+       thirty centimetres. At forty metres, which is well within the query
+       radius and well within GPS error, that subtends under half a degree:
+       a few pixels, indistinguishable from nothing. The count in the HUD said
+       four nearby and the screen showed an empty room, and both were right.
+
+       So each placement also gets a locator that holds a roughly constant
+       angular size however far away it is. Near to, it shrinks out of the way
+       and the object itself is what you see. */
+    AFRAME.registerComponent('locator', {
+      schema: {
+        near: { default: 6 },        // within this, the object speaks for itself
+        target: { default: 14 }      // apparent size is pinned to this distance
+      },
+
+      init: function () {
+        this.world = new AFRAME.THREE.Vector3();
+        this.eye = new AFRAME.THREE.Vector3();
+      },
+
+      tick: function () {
+        var camera = this.el.sceneEl.camera;
+        if (!camera) { return; }
+
+        this.el.object3D.getWorldPosition(this.world);
+        camera.getWorldPosition(this.eye);
+        var distance = this.eye.distanceTo(this.world);
+
+        var scale = distance <= this.data.near ? 1 : distance / this.data.near;
+        this.el.object3D.scale.set(scale, scale, scale);
+        // Fade the marker out once you are close enough to see the thing
+        // itself, so it stops being furniture in front of the content.
+        this.el.object3D.visible = distance > 2.5;
+      }
+    });
+
+    /* Labels have to face the reader. Yaw only — a label that pitches to meet
+       the camera reads as falling over. */
+    AFRAME.registerComponent('billboard', {
+      tick: function () {
+        var camera = this.el.sceneEl.camera;
+        if (!camera) { return; }
+        camera.getWorldPosition(BILLBOARD_EYE);
+        this.el.object3D.getWorldPosition(BILLBOARD_AT);
+        this.el.object3D.rotation.set(
+          0,
+          Math.atan2(BILLBOARD_EYE.x - BILLBOARD_AT.x, BILLBOARD_EYE.z - BILLBOARD_AT.z),
+          0
+        );
+      }
+    });
+
+    BILLBOARD_EYE = new AFRAME.THREE.Vector3();
+    BILLBOARD_AT = new AFRAME.THREE.Vector3();
   }
+
+  var BILLBOARD_EYE = null;
+  var BILLBOARD_AT = null;
 
   function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
 
@@ -891,11 +951,9 @@
       if (!el) {
         var def = manifest.scenes[p.scene];
         if (!def) { return; }
-        var scale = num(def.roomScale, 0.3) * num(p.scale, 1);
 
         el = document.createElement('a-entity');
-        el.setAttribute('scale', scale + ' ' + scale + ' ' + scale);
-        el.innerHTML = buildScene(manifest, def);
+        el.innerHTML = placementMarkup(p, def);
         host.appendChild(el);
         rendered[p.id] = el;
       }
@@ -916,6 +974,97 @@
       var frame = world.frame();
       setState('locked', list.length + ' nearby · ' + fixLabel(frame && frame.accuracy));
     }
+  }
+
+  /* Three parts: the content itself at room scale, a locator that stays
+     visible from any distance, and a label saying who left it and when. */
+  function placementMarkup(p, def) {
+    var scale = num(def.roomScale, 0.3) * num(p.scale, 1);
+    var colour = beaconColour(def);
+
+    return [
+      '<a-entity scale="' + scale + ' ' + scale + ' ' + scale + '">',
+      buildScene(manifest, def),
+      '</a-entity>',
+
+      // A thin column with a ring around it. Legible at forty metres, out of
+      // the way at two.
+      '<a-entity locator>',
+      '  <a-entity position="0 1.1 0"',
+      '    geometry="primitive: cylinder; radius: 0.02; height: 2.2; segmentsRadial: 8"',
+      '    material="color: ' + colour + '; shader: flat; opacity: 0.5; transparent: true"></a-entity>',
+      '  <a-entity position="0 2.2 0" rotation="-90 0 0"',
+      '    geometry="primitive: ring; radiusInner: 0.22; radiusOuter: 0.30; segmentsTheta: 32"',
+      '    material="color: ' + colour + '; shader: flat; opacity: 0.85; transparent: true; side: double"',
+      '    animation="property: rotation; to: -90 360 0; loop: true; dur: 8000; easing: linear"></a-entity>',
+      labelMarkup(p),
+      '</a-entity>'
+    ].join('\n');
+  }
+
+  function beaconColour(def) {
+    var halo = (def.layers || []).filter(function (l) { return l.color; })[0];
+    return (halo && halo.color) || '#6BE3E8';
+  }
+
+  /* Drawn to a canvas rather than set as text.
+     A-Frame's text component fetches its font from a CDN, and this project
+     does not make requests it did not ship. A canvas needs no font file,
+     no asset, and no network. */
+  function labelMarkup(p) {
+    var caption = describePlacement(p);
+    if (!caption) { return ''; }
+
+    var canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 96;
+    var ctx = canvas.getContext('2d');
+
+    ctx.fillStyle = 'rgba(11,10,20,0.82)';
+    roundedRect(ctx, 2, 2, canvas.width - 4, canvas.height - 4, 16);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(107,227,232,0.55)';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    ctx.fillStyle = '#C9C6E4';
+    ctx.font = '600 34px ui-monospace, "DejaVu Sans Mono", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(caption, canvas.width / 2, canvas.height / 2 + 2);
+
+    return '<a-entity billboard position="0 2.75 0"' +
+      ' geometry="primitive: plane; width: 1.6; height: 0.3"' +
+      ' material="src: ' + canvas.toDataURL('image/png') +
+      '; shader: flat; transparent: true; alphaTest: 0.02; side: double"></a-entity>';
+  }
+
+  function roundedRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  function describePlacement(p) {
+    var who = (p.label || '').trim();
+    var when = shortDate(p.createdAt);
+    if (who && when) { return who + '  ·  ' + when; }
+    return who || when || '';
+  }
+
+  function shortDate(iso) {
+    if (!iso) { return ''; }
+    var at = new Date(iso);
+    if (isNaN(at.getTime())) { return ''; }
+    return at.getDate() + ' ' +
+      ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][at.getMonth()] + ' ' +
+      String(at.getHours()).padStart(2, '0') + ':' +
+      String(at.getMinutes()).padStart(2, '0');
   }
 
   function onPlaceHere(e) {
@@ -941,7 +1090,7 @@
 
     setState('locked', 'Placing…');
     world.place(chosenScene || pickTarget(manifest, chosenTarget).scene,
-      { x: at.x, y: at.y, z: at.z }, yaw)
+      { x: at.x, y: at.y, z: at.z }, yaw, displayName())
       .then(function () { flash(); })
       .catch(function (err) {
         setState('locked', 'Could not save: ' + (err.message || 'refused'));
@@ -989,6 +1138,7 @@
   }
 
   function renderNearby() {
+    renderIdentity();
     renderPlaceChooser();
     nearbyList.innerHTML = '';
 
@@ -1001,6 +1151,8 @@
         : 'Finding you. Nothing can be listed until there is a position to list it against.';
       return;
     }
+
+    dropAllBtn.hidden = true;
 
     if (readError) {
       // Three states, not two. "Nothing here" and "I could not find out" are
@@ -1023,6 +1175,7 @@
       : '';
 
     var mine = store && store.uid();
+    dropAllBtn.hidden = !nearby.some(function (p) { return p.owner && p.owner === mine; });
 
     nearby.forEach(function (p) {
       var row = document.createElement('li');
@@ -1072,6 +1225,42 @@
 
   // Switching what you place used to mean leaving the session, going back to
   // the gate and starting again.
+  /* A name to put on things you leave.
+     Not an identity — nothing verifies it, and an anonymous uid is a device
+     rather than a person. Real sign-in is a separate decision; until then a
+     name typed once is the difference between "someone" and "Lior". */
+  function displayName() {
+    try { return localStorage.getItem('marker-one:name') || ''; } catch (e) { return ''; }
+  }
+
+  function setDisplayName(value) {
+    try { localStorage.setItem('marker-one:name', String(value || '').slice(0, 40)); }
+    catch (e) { /* private browsing; the name simply will not stick */ }
+  }
+
+  function renderIdentity() {
+    if (nameInput.value !== displayName()) { nameInput.value = displayName(); }
+  }
+
+  /* Everything you left, within range. Not everything in the database —
+     the rules only allow you to delete your own, and nothing here can see
+     past the query radius. */
+  function removeAllMine() {
+    var mine = nearby.filter(function (p) { return p.owner && p.owner === (store && store.uid()); });
+    if (!mine.length) { return; }
+
+    dropAllBtn.disabled = true;
+    dropAllBtn.textContent = 'Removing ' + mine.length + '…';
+
+    Promise.all(mine.map(function (p) {
+      return world.remove(p.id).catch(function () { return null; });
+    })).then(function () {
+      dropAllBtn.disabled = false;
+      dropAllBtn.textContent = 'Remove all mine';
+      renderNearby();
+    });
+  }
+
   function renderPlaceChooser() {
     if (!manifest) { return; }
     var ids = Object.keys(manifest.scenes);
@@ -1535,7 +1724,17 @@
   var heartbeat = null;
 
   function startTrace() {
-    if (params.get('trace') === null) { return; }
+    // An installed app has no address bar, so a flag that only lives in the
+    // URL cannot be set there at all. Setting it once in a browser tab turns
+    // it on for the installed copy too, and ?trace=off turns it back off.
+    if (params.get('trace') !== null) {
+      try { localStorage.setItem('marker-one:trace', params.get('trace') === 'off' ? '' : '1'); }
+      catch (e) { /* nothing to do */ }
+    }
+
+    var on = false;
+    try { on = !!localStorage.getItem('marker-one:trace'); } catch (e) { on = params.get('trace') !== null; }
+    if (!on) { return; }
 
     traceEl = document.createElement('pre');
     traceEl.id = 'trace';
@@ -1660,6 +1859,14 @@
     try {
       var html = document.documentElement;
       html.classList.remove('a-fullscreen');
+
+      // A-Frame may have taken the document fullscreen as well as into XR.
+      // In a tab, leaving the session usually leaves fullscreen with it; in an
+      // installed app there is no browser chrome to come back to and it can
+      // simply stay.
+      if (document.fullscreenElement && document.exitFullscreen) {
+        document.exitFullscreen().catch(function () { /* nothing to exit */ });
+      }
 
       ['position', 'overflow', 'height', 'width', 'top', 'left', 'right', 'bottom',
        'margin', 'marginLeft', 'marginTop', 'padding'].forEach(function (property) {
@@ -1861,6 +2068,8 @@
   worldBtn.addEventListener('click', startWorld);
   listBtn.addEventListener('click', toggleNearby);
   document.getElementById('nearby-close').addEventListener('click', closeNearby);
+  nameInput.addEventListener('change', function () { setDisplayName(nameInput.value); });
+  dropAllBtn.addEventListener('click', removeAllMine);
   previewBtn.addEventListener('click', startPreview);
   exitBtn.addEventListener('click', stop);
   shootBtn.addEventListener('click', capture);

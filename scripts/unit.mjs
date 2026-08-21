@@ -398,6 +398,12 @@ console.log('\n  placement store');
   });
   const write = s2.calls.find((c) => c.url.endsWith('/placements'));
   check('a placement carries its own geohash', !!write.body.fields.geohash.stringValue);
+  // GPS altitude is the least reliable number a receiver reports. Reading a
+  // placement's height back from it puts things underground or in the air,
+  // and either is invisible.
+  check('height is recorded against the session floor, not the globe',
+    'groundOffset' in write.body.fields);
+  check('and a name to go with it', 'label' in write.body.fields);
   check('the server stamps the owner, not the caller',
     write.body.fields.owner.stringValue === 'anon-1');
   check('an absent orientation defaults to identity',
@@ -636,6 +642,24 @@ console.log('\n  world session');
 
   const seen = withContent.rendered;
   check('placements arrive in session coordinates', seen.length === 1);
+  check('the label and date travel with them',
+    'label' in seen[0] && 'createdAt' in seen[0]);
+
+  // A stored ground offset must win over whatever the globe says the height
+  // is, or one bad altitude reading buries everything.
+  const buried = rig({
+    placements: [
+      { id: 'b', scene: 'rotary-phone', scale: 1, distance: 5, groundOffset: 0.5,
+        geopose: { position: { lat: north(30), lon: ORIGIN.lon, h: -40 },
+                   quaternion: { x: 0, y: 0, z: 0, w: 1 } } }
+    ]
+  });
+  await buried.w.start();
+  await buried.w.sample();
+  await buried.w.refresh();
+  check('a bad altitude cannot bury a placement',
+    Math.abs(buried.rendered[0].local.y - 0.5) < 0.001,
+    'y=' + buried.rendered[0].local.y);
   // The last fix was 30m north; the placement is at 80m north, so 50m ahead.
   check('a placement to the north is ahead of the walker',
     near(seen[0].local.z, -80, 1) && near(seen[0].local.x, 0, 1),
@@ -645,8 +669,11 @@ console.log('\n  world session');
     (seen[0].yawRad * 180 / Math.PI).toFixed(1) + '°');
 
   // Placing goes the other way, and records how it was localized.
-  await withContent.w.place('beacon', { x: 0, y: 0, z: -50 }, 0);
+  await withContent.w.place('beacon', { x: 0, y: 1.4, z: -50 }, 0, 'Lior');
   const wrote = withContent.written[0];
+  check('the height above the floor is what is stored', wrote.groundOffset === 1.4,
+    String(wrote.groundOffset));
+  check('the name is carried through', wrote.label === 'Lior');
   check('placing converts session coordinates back to the globe',
     near(wrote.geopose.position.lat, north(50), 1e-5),
     `${wrote.geopose.position.lat.toFixed(6)} vs ${north(50).toFixed(6)}`);

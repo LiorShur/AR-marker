@@ -48,8 +48,8 @@ service cloud.firestore {
 
   function isWellFormed(data) {
     return data.keys().hasOnly([
-             'geopose', 'geohash', 'scene', 'scale', 'fix',
-             'visibility', 'owner', 'createdAt'
+             'geopose', 'geohash', 'scene', 'scale', 'fix', 'groundOffset',
+             'label', 'visibility', 'owner', 'createdAt'
            ])
            && data.keys().hasAll(['geopose', 'geohash', 'scene', 'scale', 'visibility', 'owner'])
            && isGeoPose(data.geopose)
@@ -59,7 +59,14 @@ service cloud.firestore {
            && data.scene.size() > 0 && data.scene.size() <= 64
            && data.scale is number
            && data.scale > 0 && data.scale <= 1000
-           && data.visibility in ['public', 'private'];
+           && data.visibility in ['public', 'private']
+           && data.groundOffset is number
+           && data.groundOffset >= -100 && data.groundOffset <= 100
+           // A display name is a courtesy, not an identity — nothing verifies
+           // it — so the only thing worth enforcing is that it cannot be used
+           // as free storage.
+           && data.label is string
+           && data.label.size() <= 40;
   }
 
   function isGeoPose(pose) {
