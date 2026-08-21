@@ -177,7 +177,7 @@ whatever the camera's real resolution, so a target filling the frame is about
 200 pixels tall by the time it is matched. Detail finer than ~2% of its width
 is gone.
 
-## Sixteen things that are load-bearing and not obvious
+## Eighteen things that are load-bearing and not obvious
 
 **The camera video is not part of the scene.** AR.js appends a plain `<video>`
 to `<body>` at `z-index: -2` and draws the AR overlay on a transparent WebGL
@@ -218,6 +218,21 @@ half a degree: a few pixels. The count said four nearby and the screen showed
 an empty room, and both were right. Every placement therefore also carries a
 locator that holds a constant angular size at any distance and fades out once
 you are close enough to see the thing itself.
+
+**The floor is a per-session guess.** `local-floor` is the device's estimate of
+where the ground is, recomputed from scratch each visit, and it can land a
+metre or more from last time — which is a metre of vertical drift on everything
+already placed. Every hit test lands on a real surface, so the lowest of those
+is the datum instead: it means the same thing from one session to the next in a
+way the platform's guess does not.
+
+**A placement made before the frame settles keeps that error for good.** The
+local point something was dropped at is exact; the mapping from local to global
+was not. Placing on arrival wrote the first fix's error into the record
+permanently — the object then appeared to slide as the estimate converged and
+came to rest at whatever the wrong coordinates happened to mean. The local point
+is kept for the session, so the saved coordinates can be written again as the
+mapping improves.
 
 **Vertical position must not come from GPS.** Altitude is the least reliable
 number a receiver reports — two or three times worse than the horizontal fix,

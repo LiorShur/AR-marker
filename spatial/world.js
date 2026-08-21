@@ -28,6 +28,12 @@
     var store = options.store;
     var provider = options.provider;
     var pose = options.pose || function () { return { x: 0, y: 0, z: 0 }; };
+    /* Where the floor actually is in this session's frame.
+       local-floor is an estimate the device recomputes each session, and it
+       can differ by a metre or more — which is a metre of vertical drift on
+       everything already placed. A surface the hit test has actually touched
+       is a far better datum than one the platform guessed. */
+    var floorOf = options.floor || function () { return 0; };
     var now = options.now || function () { return Date.now(); };
     var config = options.config || {};
 
@@ -40,6 +46,9 @@
     var heading = null;          // the winning baseline
     var compass = options.compass || null;
     var placements = [];
+    // Placements made in this session, remembered by the local point they
+    // were dropped at. That point is exact; the mapping to the globe was not.
+    var mine = [];
     var state = 'idle';
     var lastFixLocal = null;
     var busy = false;
@@ -239,7 +248,40 @@
       });
 
       reproject();
+      correctMine();
       fetchIfNeeded();
+    }
+
+    /* Re-derive what this session placed, now that the mapping is better.
+       Placing immediately after arriving used to bake the first fix's error
+       into the record permanently: the object appeared to drift as the frame
+       converged, and settled at whatever the wrong coordinates happened to
+       mean. The local point never moved, so the fix is simply to write the
+       coordinates again. */
+    function correctMine() {
+      if (!frame || !store.move || !mine.length) { return; }
+
+      mine.forEach(function (entry) {
+        var position = frame.toGlobal(entry.local);
+        var moved = geo.haversine(position.lat, position.lon, entry.at.lat, entry.at.lon);
+
+        // Below this it is not worth a write, and the estimate wobbles by
+        // this much anyway.
+        if (moved < 0.5) { return; }
+
+        entry.at = { lat: position.lat, lon: position.lon };
+        var headingDeg = frame.localYawToHeading(entry.yawRad);
+        var offset = (entry.local.y || 0) - floor();
+
+        store.move(entry.id, position, headingDeg, offset).then(function () {
+          placements.forEach(function (p) {
+            if (p.id !== entry.id) { return; }
+            p.geopose.position = position;
+            p.groundOffset = offset;
+          });
+          reproject();
+        }).catch(function () { /* it will be tried again on the next fix */ });
+      });
     }
 
     /* Becoming located is what makes a query possible, so it is also what
@@ -292,6 +334,11 @@
 
     // Local coordinates are derived, never stored — the frame changes every
     // time we re-localize and the placements do not.
+    function floor() {
+      var y = floorOf();
+      return typeof y === 'number' && isFinite(y) ? y : 0;
+    }
+
     function reproject() {
       if (!frame) { return []; }
 
@@ -302,7 +349,7 @@
         // from the globe. Horizontally a few metres of GPS error is a few
         // metres sideways; vertically it is the difference between an object
         // being there and being twenty metres underground.
-        if (typeof p.groundOffset === 'number') { local.y = p.groundOffset; }
+        if (typeof p.groundOffset === 'number') { local.y = p.groundOffset + floor(); }
         var worldHeading = geo.headingFromQuaternion(p.geopose.quaternion);
         return {
           id: p.id,
@@ -332,7 +379,7 @@
 
       return store.place({
         scene: scene,
-        groundOffset: localPoint.y || 0,
+        groundOffset: (localPoint.y || 0) - floor(),
         label: label || '',
         geopose: {
           position: position,
@@ -350,6 +397,15 @@
       }).then(function (saved) {
         saved.distance = 0;
         placements.push(saved);
+        // Keep the local point. When the frame improves, this is what lets the
+        // saved coordinates improve with it rather than keeping the error they
+        // were written with.
+        mine.push({
+          id: saved.id,
+          local: { x: localPoint.x, y: localPoint.y, z: localPoint.z },
+          yawRad: localYawRad || 0,
+          at: { lat: position.lat, lon: position.lon }
+        });
         reproject();
         return saved;
       });
@@ -391,6 +447,7 @@
     function reset() {
       if (compass) { compass.stop(); }
       samples = [];
+      mine = [];
       fetchedAt = null;
       frame = null;
       heading = null;
@@ -410,6 +467,9 @@
       needsRelocalize: needsRelocalize,
       state: function () { return state; },
       frame: function () { return frame; },
+      // How settled the estimate is, for an interface that wants to say
+      // "not yet" rather than let someone place into a frame still moving.
+      fixes: function () { return samples.length; },
       // How far the user has actually walked, so the interface can ask for
       // more rather than just saying "calibrating" forever.
       walked: walkedSoFar,

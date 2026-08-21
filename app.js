@@ -9,7 +9,7 @@
      job is to answer "am I running the code I just deployed", which during a
      week of deploy-and-walk-outside is a question worth being able to answer
      in one glance rather than by bisecting behaviour. */
-  var BUILD = '17';
+  var BUILD = '18';
 
   var gate       = document.getElementById('gate');
   var stage      = document.getElementById('stage');
@@ -811,6 +811,12 @@
 
         var scene = document.getElementById('scene');
         scene.addEventListener('ar-hit-test-select', onPlaceHere);
+        // The reticle is on a real surface whenever it is visible, which is a
+        // steadier read on the floor than waiting for someone to tap.
+        scene.addEventListener('ar-hit-test-achieved', function () {
+          var reticle = document.getElementById('reticle');
+          if (reticle && reticle.object3D) { noteFloor(reticle.object3D.position.y); }
+        });
         scene.addEventListener('exit-vr', function () { if (mode === 'world') { stop(); } });
 
         var appCheck = window.SpatialAppCheck
@@ -823,6 +829,7 @@
           store: store,
           provider: SpatialLocalize.gpsProvider(),
           compass: SpatialLocalize.compass(),
+          floor: observedFloor,
           config: window.SpatialConfig,
           pose: sessionPose,
           onState: onWorldState,
@@ -898,6 +905,25 @@
            'alone is not enough.';
   }
 
+  /* The floor, as actually seen rather than as guessed.
+     local-floor is the device's estimate of where the ground is, recomputed
+     from scratch each session, and it can land a metre or more away from last
+     time — which is a metre of vertical drift on everything already placed.
+     Every hit test lands on a real surface, so the lowest of those is a datum
+     that means the same thing from one session to the next. */
+  var floorY = null;
+
+  function noteFloor(y) {
+    if (typeof y !== 'number' || !isFinite(y)) { return; }
+    // Lowest wins: a hit test can land on a table, and a table is not the
+    // floor. It only ever settles downwards.
+    floorY = floorY === null ? y : Math.min(floorY, y);
+  }
+
+  function observedFloor() {
+    return floorY === null ? 0 : floorY;
+  }
+
   // Where the device is in the session's own frame. The controller needs this
   // paired with each fix — a position on the globe is only half of a bearing.
   function sessionPose() {
@@ -916,7 +942,7 @@
       var walked = Math.round(detail.walked || 0);
       setState('seeking', 'Walk a few metres — ' + walked + 'm so far');
     } else if (next === 'ready') {
-      setState('locked', fixLabel(detail.accuracy));
+      setState('locked', fixLabel(detail.accuracy) + settlingSuffix());
     } else if (next === 'error') {
       // A failed read is not a failed fix, and the readout should not claim
       // to have lost you when it has only lost the database.
@@ -950,10 +976,23 @@
     }
     if ((accuracy.fixes || 1) < 4) {
       lines.push('It improves as more fixes arrive — standing still for half ' +
-                 'a minute is worth doing before placing anything.');
+                 'a minute before placing anything saves watching it slide ' +
+                 'into position afterwards.');
     }
 
     return lines.join(' ');
+  }
+
+  /* Placing into a frame that is still converging bakes its error into the
+     record. That is now corrected as the estimate improves, but it is still
+     worth saying — waiting half a minute costs nothing and skips the whole
+     business of watching an object slide into place. */
+  var SETTLED_FIXES = 5;
+
+  function settlingSuffix() {
+    if (!world) { return ''; }
+    var fixes = world.fixes();
+    return fixes < SETTLED_FIXES ? ' · settling ' + fixes + '/' + SETTLED_FIXES : '';
   }
 
   function fixLabel(accuracy) {
@@ -1134,6 +1173,8 @@
 
     var at = e.detail && e.detail.position;
     if (!at) { return; }
+
+    noteFloor(at.y);
 
     // ar-hit-test anchors its target on select, which would leave the reticle
     // sitting on the ground. It is an aiming mark, not the content.
@@ -1697,6 +1738,7 @@
     listBtn.hidden = true;
     nearby = [];
     readError = null;
+    floorY = null;
     store = null;
     clearInterval(worldTimer);
     worldTimer = null;

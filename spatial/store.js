@@ -285,6 +285,49 @@
       return bad;
     }
 
+    /* Correct a placement that is already saved.
+       A placement written while the session was still settling carries that
+       session's error permanently — the local point it was dropped at is
+       exact, but the mapping from local to global was not. Re-deriving the
+       global position as the mapping improves is the only way to get that
+       error back out.
+
+       PATCH with an updateMask, so nothing else on the document is touched:
+       the owner, the label and the time it was left all stay as they were. */
+    function move(id, position, headingDeg, groundOffset) {
+      var fields = {
+        geopose: {
+          position: {
+            lat: Number(position.lat), lon: Number(position.lon), h: Number(position.h || 0)
+          },
+          quaternion: geo.headingToQuaternion(Number(headingDeg) || 0)
+        },
+        geohash: geo.geohash(Number(position.lat), Number(position.lon), 10),
+        groundOffset: Number(groundOffset || 0)
+      };
+
+      var mask = Object.keys(fields)
+        .map(function (f) { return 'updateMask.fieldPaths=' + f; })
+        .join('&');
+
+      return Promise.all([signIn(), attest()]).then(function (parts) {
+        var headers = {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + parts[0].idToken
+        };
+        if (parts[1]) { headers['X-Firebase-AppCheck'] = parts[1]; }
+
+        return fetchImpl(docs() + '/' + collection + '/' + encodeURIComponent(id) + '?' + mask, {
+          method: 'PATCH',
+          headers: headers,
+          body: JSON.stringify({ fields: toFields(fields) })
+        }).then(function (res) {
+          if (!res.ok) { throw new Error('could not move placement: HTTP ' + res.status); }
+          return true;
+        });
+      });
+    }
+
     function remove(id) {
       return Promise.all([signIn(), attest()]).then(function (parts) {
         var s = parts[0];
@@ -350,6 +393,7 @@
       signIn: signIn,
       nearby: nearby,
       place: place,
+      move: move,
       remove: remove,
       uid: function () { return session && session.uid; },
       // exposed for the tests, and for anyone debugging a wire format that

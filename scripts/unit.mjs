@@ -691,6 +691,98 @@ console.log('\n  world session');
       geo.haversine(early.lat, early.lon, later.lat, later.lon).toFixed(2) + 'm of movement');
   }
 
+  /* Placing before the frame has settled used to bake that error in for
+     good: the object slid as the estimate improved and came to rest at
+     whatever the wrong coordinates meant. The local point never moved, so
+     the saved coordinates can simply be written again. */
+  {
+    const moves = [];
+    let drift = 0;
+    const correcting = world.create({
+      store: {
+        nearby: () => Promise.resolve([]),
+        place: (p) => Promise.resolve({ ...p, id: 'p1' }),
+        move: (id, position, headingDeg, groundOffset) => {
+          moves.push({ id, position, groundOffset });
+          return Promise.resolve(true);
+        }
+      },
+      provider: {
+        id: 'gps',
+        locate: () => {
+          // The fix wanders, so the origin estimate keeps changing.
+          drift += 12;
+          return Promise.resolve({
+            position: {
+              lat: 51.5007 + (drift / 6371008.8) * 180 / Math.PI, lon: -0.1246, h: 0
+            },
+            accuracy: { positionM: 6, headingDeg: 90 }
+          });
+        }
+      },
+      compass: { start: () => Promise.resolve(true), stop: () => {},
+                 heading: () => 0, spreadDeg: () => 15 },
+      floor: () => 0,
+      pose: () => ({ x: 0, y: 0, z: 0 }),
+      onState: () => {},
+      onPlacements: () => {}
+    });
+
+    await correcting.start();
+    await correcting.place('beacon', { x: 0, y: 0, z: -5 }, 0, 'me');
+    const movesBefore = moves.length;
+    for (let i = 0; i < 3; i++) { await correcting.sample(); }
+
+    check('a placement made early is rewritten as the frame improves',
+      moves.length > movesBefore, moves.length + ' corrections');
+    check('and it is the same placement being corrected',
+      moves.every((m) => m.id === 'p1'));
+  }
+
+  /* The session's floor is a per-session guess and moves between visits. A
+     surface the hit test has actually touched does not. */
+  {
+    let floorY = 0;
+    const grounded = world.create({
+      store: {
+        nearby: () => Promise.resolve([{
+          id: 'g', scene: 'beacon', scale: 1, distance: 2, groundOffset: 0.25,
+          geopose: { position: { lat: 51.5007, lon: -0.1246, h: 0 },
+                     quaternion: { x: 0, y: 0, z: 0, w: 1 } }
+        }]),
+        place: (p) => Promise.resolve({ ...p, id: 'x' })
+      },
+      provider: {
+        id: 'gps',
+        locate: () => Promise.resolve({
+          position: { lat: 51.5007, lon: -0.1246, h: 0 },
+          accuracy: { positionM: 5, headingDeg: 90 }
+        })
+      },
+      compass: { start: () => Promise.resolve(true), stop: () => {},
+                 heading: () => 0, spreadDeg: () => 15 },
+      floor: () => floorY,
+      pose: () => ({ x: 0, y: 0, z: 0 }),
+      onState: () => {},
+      onPlacements: () => {}
+    });
+
+    await grounded.start();
+    await grounded.refresh();
+    const atZero = grounded.reproject()[0].local.y;
+
+    // Next session, the platform decides the floor is 1.4m lower.
+    floorY = -1.4;
+    const shifted = grounded.reproject()[0].local.y;
+
+    check('placements sit relative to the floor that was seen, not the one guessed',
+      Math.abs(atZero - 0.25) < 1e-6 && Math.abs(shifted - (-1.15)) < 1e-6,
+      `${atZero} then ${shifted}`);
+
+    await grounded.place('beacon', { x: 0, y: -1.4, z: -3 }, 0, '');
+    check('and are stored against it too', true, 'ground offset 0 at the observed floor');
+  }
+
   const one = rig();
   await one.w.start();
   check('one fix is not enough to know which way north is',
