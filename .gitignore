@@ -11,3 +11,27 @@ spatial/config.local.js
 # .NET build output
 native/**/bin/
 native/**/obj/
+
+# Unity — generated, machine-specific, or enormous. If the Unity project lives
+# in this repo, these keep it to the parts that are actually yours.
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+[Mm]emoryCaptures/
+*.csproj
+*.sln
+*.unityproj
+*.pidb
+*.booproj
+*.svd
+*.pdb.meta
+sysinfo.txt
+
+# Xcode output from a Unity iOS build
+iOSBuild/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
