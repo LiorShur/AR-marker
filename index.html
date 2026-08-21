@@ -23,7 +23,7 @@
 <link rel="prefetch" href="vendor/aframe.min.js" as="script">
 <link rel="prefetch" href="vendor/aframe-ar-nft.js" as="script">
 
-<link rel="stylesheet" href="app.css?v=14">
+<link rel="stylesheet" href="app.css?v=15">
 </head>
 <body>
 
@@ -45,6 +45,10 @@
     p.hidden = false;
   }
   window.addEventListener('error', function(e){
+    // Teardown pulls three libraries apart in an order none of them expect
+    // and is written to survive that. Its noise is traced, not shown: a red
+    // panel at the moment everything was successfully put away is a lie.
+    if (window.__markerOneTearingDown) { return; }
     if (e.target && e.target.tagName === 'SCRIPT') {
       // spatial/config.local.js is gitignored and usually absent. A missing
       // optional script is not a crash and must not look like one.
@@ -55,6 +59,7 @@
     show('JavaScript error', e.message || String(e.error), (e.filename||'') + ':' + (e.lineno||'?'));
   }, true);
   window.addEventListener('unhandledrejection', function(e){
+    if (window.__markerOneTearingDown) { return; }
     show('Unhandled rejection', (e.reason && (e.reason.message || e.reason)) || 'unknown', '');
   });
 })();
@@ -159,15 +164,15 @@
   <div id="flash" class="flash" hidden></div>
 </div>
 
-<script src="spatial/config.js?v=14"></script>
+<script src="spatial/config.js?v=15"></script>
 <!-- Optional and gitignored: your own project settings. data-optional keeps
      the on-screen error trap quiet when it is simply not there. -->
 <script src="spatial/config.local.js" data-optional onerror="void 0"></script>
-<script src="spatial/geo.js?v=14"></script>
-<script src="spatial/store.js?v=14"></script>
-<script src="spatial/localize.js?v=14"></script>
-<script src="spatial/appcheck.js?v=14"></script>
-<script src="spatial/world.js?v=14"></script>
-<script src="app.js?v=14"></script>
+<script src="spatial/geo.js?v=15"></script>
+<script src="spatial/store.js?v=15"></script>
+<script src="spatial/localize.js?v=15"></script>
+<script src="spatial/appcheck.js?v=15"></script>
+<script src="spatial/world.js?v=15"></script>
+<script src="app.js?v=15"></script>
 </body>
 </html>

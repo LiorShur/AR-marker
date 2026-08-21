@@ -177,7 +177,7 @@ whatever the camera's real resolution, so a target filling the frame is about
 200 pixels tall by the time it is matched. Detail finer than ~2% of its width
 is gone.
 
-## Fourteen things that are load-bearing and not obvious
+## Fifteen things that are load-bearing and not obvious
 
 **The camera video is not part of the scene.** AR.js appends a plain `<video>`
 to `<body>` at `z-index: -2` and draws the AR overlay on a transparent WebGL
@@ -252,6 +252,15 @@ session the page is not rendered; only the element named by `overlayElement`
 and its descendants are. Anything the user has to see or touch mid-session must
 live inside it, which is why the HUD and the nearby panel share one `#overlay`
 root outside the stage rather than sitting wherever the markup was tidiest.
+
+**Teardown order is the whole of it.** `a-scene`'s `disconnectedCallback`
+disposes the renderer itself, and three.js's `dispose()` nulls the extension
+registry that `forceContextLoss()` needs — so the context has to be released
+*before* the scene is detached, and the scene's own textures and geometries
+released before that again, while there is still a context to release them
+from. Detach first and tidy up afterwards and you leak a context per session,
+which is about four sessions on a phone. Calling `dispose()` a second time
+throws, too, which is why nothing here calls it at all.
 
 **Exiting a camera mode has to dispose four separate things.** Removing the
 scene from the page stops the render loop and nothing else. AR.js keeps an

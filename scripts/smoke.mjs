@@ -448,6 +448,17 @@ async function testTeardown() {
 
   const last = readings[readings.length - 1];
   check('the render loop stops', readings.every((r) => r.stillRendering === 0));
+
+  // a-scene's disconnectedCallback disposes the renderer, so teardown's own
+  // call is usually the second one — and three.js throws on a second call.
+  // The context loss must still happen, and the crash panel must not appear
+  // at the moment everything was in fact put away.
+  const survived = await page.evaluate(() => ({
+    crash: !document.getElementById('crash') || document.getElementById('crash').hidden,
+    flagCleared: window.__markerOneTearingDown === false
+  }));
+  check('a redundant dispose does not raise the crash panel', survived.crash);
+  check('and the teardown flag is cleared afterwards', survived.flagCleared);
   check('the canvas, video and scene are all gone',
     readings.every((r) => r.canvases === 0 && r.videos === 0 && r.scenes === 0));
   check('a new context is taken each session', last.glMade >= 3, last.glMade + ' created');

@@ -9,7 +9,7 @@
      job is to answer "am I running the code I just deployed", which during a
      week of deploy-and-walk-outside is a question worth being able to answer
      in one glance rather than by bisecting behaviour. */
-  var BUILD = '14';
+  var BUILD = '15';
 
   var gate       = document.getElementById('gate');
   var stage      = document.getElementById('stage');
@@ -1795,6 +1795,13 @@
   function teardown(scene) {
     if (!scene) { trace('nothing to tear down'); return; }
 
+    /* Everything below is best-effort cleanup of libraries being pulled apart
+       in an order none of them expect. It is traced, and it is not a crash:
+       showing the red panel for it tells the user something is broken at the
+       exact moment everything has in fact been put away. */
+    window.__markerOneTearingDown = true;
+    setTimeout(function () { window.__markerOneTearingDown = false; }, 4000);
+
     // First, before anything can fire. AR.js registers two window resize
     // handlers per session and offers no way to remove them; once its source
     // is disposed they dereference a null domElement and throw. They survive
@@ -1807,18 +1814,40 @@
     stopCameraTracks();
     trace('ar.js disposed, camera stopped');
 
-    if (scene.parentNode) { scene.parentNode.removeChild(scene); }
-    slot.innerHTML = '';
+    /* Order is the whole of this.
+       a-scene's disconnectedCallback disposes the renderer, and three.js's
+       dispose() nulls the extension registry that forceContextLoss() needs —
+       so releasing the context has to happen before the scene is detached,
+       not after. Disposing the scene's own textures and geometries has to
+       happen before that again, while there is still a context for them to be
+       released from. Detaching first and tidying afterwards leaks a context
+       per session, which is roughly four sessions on a phone. */
+    var renderer = scene.renderer;
+
+    try {
+      if (renderer && renderer.setAnimationLoop) { renderer.setAnimationLoop(null); }
+    } catch (e) { /* already stopped */ }
 
     disposeSceneGraph(scene);
     trace('scene graph disposed');
 
+    releaseContext(renderer);
+
+    // And only now hand the scene back, which is where A-Frame disposes the
+    // renderer itself. It can throw on the way out; an exception here would
+    // abandon everything below.
+    try {
+      if (scene.parentNode) { scene.parentNode.removeChild(scene); }
+    } catch (e) { trace('scene removal threw: ' + (e && e.message)); }
+    slot.innerHTML = '';
+    trace('scene detached');
+
     restorePageChrome();
     trace('page chrome restored');
-    disposeRenderer(scene);
-    trace('renderer disposed');
+
     terminateWorkers();
     trace('workers terminated');
+    window.__markerOneTearingDown = false;
   }
 
   function disposeARjs(scene) {
@@ -1901,14 +1930,22 @@
     } catch (e) { /* best effort */ }
   }
 
-  function disposeRenderer(scene) {
+  /* The one step that cannot be left to anyone else.
+     renderer.dispose() frees three.js's own bookkeeping but leaves the WebGL
+     context alive until the garbage collector reaches the canvas, and a phone
+     allows only a handful at once. A-Frame will call dispose() when the scene
+     is detached; nothing calls this. */
+  function releaseContext(renderer) {
+    if (!renderer) { trace('no renderer to release'); return; }
+
     try {
-      var renderer = scene.renderer;
-      if (!renderer) { return; }
-      if (renderer.setAnimationLoop) { renderer.setAnimationLoop(null); }
-      renderer.dispose();
-      if (renderer.forceContextLoss) { renderer.forceContextLoss(); }
-    } catch (e) { /* best effort */ }
+      if (renderer.forceContextLoss) {
+        renderer.forceContextLoss();
+        trace('gl context released');
+      }
+    } catch (e) {
+      trace('gl context could not be released: ' + (e && e.message));
+    }
   }
 
   /* Window listeners added while a scene exists belong to that scene.
