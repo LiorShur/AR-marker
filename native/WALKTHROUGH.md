@@ -98,12 +98,30 @@ Then, inside the Hub:
    costs an unfixable build. Upgrading later is one click; downgrading means
    recreating the project.
 
-   **If a newer editor is already installed, try it before downloading 6.0.**
-   The reasoning above is about which ten gigabytes to fetch, and that cost is
-   already paid. No project exists yet either, so falling back means creating a
-   new one rather than migrating an old one — a few minutes against an hour of
-   downloading. The moment of truth is the next step: if the ARCore Extensions
-   package compiles, the version is fine.
+   **6.5 is known not to work.** Tried, and it fails like this:
+
+   ```
+   TypeLoadException: Could not load type of field
+   'UnityEditor.Scripting.ScriptCompilation.MsBuild.MsBuildCompilation:_currentBuildTask'
+   ... expected class 'Google.Protobuf.IBufferMessage' in assembly
+   'Google.Protobuf, Version=3.23.0.0'
+   ```
+
+   Unity 6.5 compiles scripts through an MSBuild pipeline that itself uses
+   Google.Protobuf 3.23. ARCore Extensions ships an older Google.Protobuf.dll
+   for its editor analytics, Unity imports it, and it shadows the one the
+   editor's own compiler needs — so the editor cannot compile anything at all.
+   Burst carries 3.23 too, but inside a dotted folder the asset pipeline
+   ignores, so only ARCore's copy is ever loaded.
+
+   It is not worth working around. Deleting the analytics folder breaks the two
+   files one directory up that consume its generated types; deleting only the
+   DLL breaks the folder itself. Unity 6.0 LTS compiles scripts the old way and
+   never loads protobuf into the editor, so the collision cannot arise.
+
+   If a newer editor is already installed it costs five minutes to try, and the
+   ARCore Extensions install is the moment of truth. But 6.0 LTS is the
+   answer.
 4. On the modules page, tick **iOS Build Support**. For an editor already
    installed, check with `ls /Applications/Unity/Hub/Editor/*/PlaybackEngines/`
    — you want `iOSSupport` listed — and add it from **Installs → ⚙ → Add
