@@ -97,7 +97,17 @@ Then, inside the Hub:
    features this project never uses, while choosing the newest and being wrong
    costs an unfixable build. Upgrading later is one click; downgrading means
    recreating the project.
-4. On the modules page, tick **iOS Build Support**. Tick **Android Build
+
+   **If a newer editor is already installed, try it before downloading 6.0.**
+   The reasoning above is about which ten gigabytes to fetch, and that cost is
+   already paid. No project exists yet either, so falling back means creating a
+   new one rather than migrating an old one — a few minutes against an hour of
+   downloading. The moment of truth is the next step: if the ARCore Extensions
+   package compiles, the version is fine.
+4. On the modules page, tick **iOS Build Support**. For an editor already
+   installed, check with `ls /Applications/Unity/Hub/Editor/*/PlaybackEngines/`
+   — you want `iOSSupport` listed — and add it from **Installs → ⚙ → Add
+   modules** if it is not. Tick **Android Build
    Support** too if you want that later — it brings its own SDK, NDK and JDK.
 
 The editor is a large download; with iOS support it is comfortably over ten
