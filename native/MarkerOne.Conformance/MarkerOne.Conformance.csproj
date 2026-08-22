@@ -6,6 +6,14 @@
     <Nullable>disable</Nullable>
     <AssemblyName>MarkerOne.Conformance</AssemblyName>
     <RootNamespace>MarkerOne.Conformance</RootNamespace>
+
+    <!-- Targets net8.0 but runs on whatever runtime is present. Homebrew
+         installs the newest SDK, and a major runtime does not carry its
+         predecessors: on a machine with only .NET 10 this builds perfectly and
+         then refuses to start, which reads as a broken checkout rather than a
+         missing runtime. This is a test host, so the newest runtime is always
+         an acceptable place to run it. -->
+    <RollForward>LatestMajor</RollForward>
   </PropertyGroup>
 
   <ItemGroup>

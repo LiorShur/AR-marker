@@ -53,6 +53,13 @@ Expect `1527/1527 vectors matched`. If that passes, every coordinate transform
 the app depends on is proven before a single line of Unity exists, and anything
 that goes wrong from here is in the Unity layer.
 
+Homebrew installs the newest SDK, which as of writing is .NET 10, and a major
+runtime does not carry its predecessors. The project targets net8.0 with
+`RollForward` set to `LatestMajor` so it runs on whatever is installed. If you
+are on an older checkout and see *"You must install or update .NET"* after a
+build that plainly succeeded, that is what it means — pull, or run it with
+`DOTNET_ROLL_FORWARD=LatestMajor`.
+
 ## 3. Make the Unity project
 
 **Unity Hub → New project → Universal 3D → Unity 6 LTS.**

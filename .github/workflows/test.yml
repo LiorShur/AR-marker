@@ -109,9 +109,13 @@ jobs:
         with:
           node-version: '22'
 
+      # Deliberately not the version the project targets. RollForward is meant
+      # to carry it onto a newer runtime, and a build agent pinned to the exact
+      # SDK would never exercise that — which is how a machine with only the
+      # latest SDK ended up building fine and refusing to start.
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: '10.0.x'
 
       - name: Vectors match the JavaScript that generates them
         run: |
