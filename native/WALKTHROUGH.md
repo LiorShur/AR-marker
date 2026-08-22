@@ -70,20 +70,15 @@ That puts it inside the repo, which is what you want — `.gitignore` already
 excludes `Library/`, `Temp/`, `Build/` and the rest, so only your own work gets
 committed.
 
-Wait for it to finish opening, then quit Unity for the next step.
+Wait for it to finish opening, and leave it open — the packages go in next.
 
-## 4. Copy the core in
+The packages have to be installed **before** the core is copied in.
+`MarkerOne.Unity.asmdef` names AR Foundation and the ARCore Extensions among
+its references, and an assembly definition whose references do not exist yet
+reports every type in every file as missing. Nothing is wrong when that
+happens, but it looks alarming enough to send anyone hunting.
 
-```bash
-cd ~/AR-marker
-./native/unity/install.sh native/unity/MarkerOneApp
-```
-
-It prints what it copied. **Re-run it whenever the core changes** — the copy in
-`Assets/` is what the app compiles, and the copy in `native/MarkerOne.Core/` is
-what the conformance suite proves. They have to be the same file.
-
-## 5. Packages
+## 4. Packages
 
 Reopen the project. **Window → Package Manager**, then:
 
@@ -103,6 +98,20 @@ and a wall of compile errors that read like a broken install.
 
 **Edit → Project Settings → XR Plug-in Management**: tick **Google ARCore**
 under *Android*, **Apple ARKit** under *iOS*.
+
+## 5. Copy the core in
+
+Quit Unity first — it imports more predictably from a cold start than while
+watching the folder.
+
+```bash
+cd ~/AR-marker
+./native/unity/install.sh native/unity/MarkerOneApp
+```
+
+It prints what it copied. **Re-run it whenever the core changes** — the copy in
+`Assets/` is what the app compiles, and the copy in `native/MarkerOne.Core/` is
+what the conformance suite proves. They have to be the same file.
 
 ## 6. Google Cloud
 
