@@ -83,7 +83,20 @@ Then, inside the Hub:
    one.
 2. **Preferences → Licenses → Add → Get a free personal license.** That is the
    tier you are entitled to below the revenue threshold.
-3. **Installs → Install Editor → Unity 6 LTS.**
+3. **Installs → Install Editor → Unity 6.0 LTS.**
+
+   The Hub will offer newer versions and mark the newest "recommended". Take
+   6.0 LTS anyway. ARCore Extensions is Google's package, not Unity's, and its
+   `arf6` branch was built against AR Foundation 6.0 — which is what 6.0 LTS
+   ships. A newer editor brings a newer AR Foundation that Google has not
+   necessarily tested against, and the failure mode is compile errors inside a
+   package you cannot patch. "Recommended" means newest stable Unity; it knows
+   nothing about your third-party dependencies.
+
+   The asymmetry is the argument: choosing 6.0 and being wrong costs editor
+   features this project never uses, while choosing the newest and being wrong
+   costs an unfixable build. Upgrading later is one click; downgrading means
+   recreating the project.
 4. On the modules page, tick **iOS Build Support**. Tick **Android Build
    Support** too if you want that later — it brings its own SDK, NDK and JDK.
 
