@@ -60,7 +60,41 @@ are on an older checkout and see *"You must install or update .NET"* after a
 build that plainly succeeded, that is what it means — pull, or run it with
 `DOTNET_ROLL_FORWARD=LatestMajor`.
 
-## 3. Make the Unity project
+## 3. Get Unity Hub and an editor
+
+Unity Hub is a separate application that manages editor versions and projects —
+it is not Unity itself, and installing it does not install an editor. Check
+whether it is already here:
+
+```bash
+ls /Applications | grep -i unity
+```
+
+Nothing listed:
+
+```bash
+brew install --cask unity-hub
+open -a "Unity Hub"
+```
+
+Then, inside the Hub:
+
+1. **Sign in.** A Unity account is free and the Hub will not proceed without
+   one.
+2. **Preferences → Licenses → Add → Get a free personal license.** That is the
+   tier you are entitled to below the revenue threshold.
+3. **Installs → Install Editor → Unity 6 LTS.**
+4. On the modules page, tick **iOS Build Support**. Tick **Android Build
+   Support** too if you want that later — it brings its own SDK, NDK and JDK.
+
+The editor is a large download; with iOS support it is comfortably over ten
+gigabytes and takes a while. Nothing below can start until it finishes.
+
+⚠️ Ticking the build support modules **now** is worth the disk. Adding them
+afterwards means the Hub re-runs the installer, and it is the single most
+common reason *Switch Platform* is greyed out later with no explanation.
+
+## 4. Make the Unity project
 
 **Unity Hub → New project → Universal 3D → Unity 6 LTS.**
 
@@ -78,7 +112,7 @@ its references, and an assembly definition whose references do not exist yet
 reports every type in every file as missing. Nothing is wrong when that
 happens, but it looks alarming enough to send anyone hunting.
 
-## 4. Packages
+## 5. Packages
 
 Reopen the project. **Window → Package Manager**, then:
 
@@ -99,7 +133,7 @@ and a wall of compile errors that read like a broken install.
 **Edit → Project Settings → XR Plug-in Management**: tick **Google ARCore**
 under *Android*, **Apple ARKit** under *iOS*.
 
-## 5. Copy the core in
+## 6. Copy the core in
 
 Quit Unity first — it imports more predictably from a cold start than while
 watching the folder.
@@ -113,7 +147,7 @@ It prints what it copied. **Re-run it whenever the core changes** — the copy i
 `Assets/` is what the app compiles, and the copy in `native/MarkerOne.Core/` is
 what the conformance suite proves. They have to be the same file.
 
-## 6. Google Cloud
+## 7. Google Cloud
 
 1. **console.cloud.google.com** → pick or create a project.
 2. **APIs & Services → Library** → search *ARCore API* → **Enable**.
@@ -122,7 +156,7 @@ what the conformance suite proves. They have to be the same file.
    Extensions** → *Geospatial* **enabled**, both authentication strategies
    **Keyless**.
 
-## 7. The scene
+## 8. The scene
 
 **GameObject → XR → AR Session**, then **GameObject → XR → XR Origin (Mobile
 AR)**. Delete the default `Main Camera` that came with the scene — the XR Origin
@@ -144,7 +178,7 @@ For the prefabs, anything visible will do to start — a cube a third of a metre
 across proves the pipeline as well as a model does, and rules out the model
 being the problem.
 
-## 8. Player settings
+## 9. Player settings
 
 **Edit → Project Settings → Player → iOS**:
 
@@ -157,7 +191,7 @@ being the problem.
 Under *Android*, if you build it later: minimum **API 24**, remove **Vulkan**
 from the graphics APIs, ARM64 only, IL2CPP.
 
-## 9. Build to the iPhone
+## 10. Build to the iPhone
 
 **File → Build Settings → iOS → Switch Platform**, then **Build**. Choose
 `~/AR-marker/native/unity/iOSBuild` — already gitignored.
@@ -181,7 +215,7 @@ pod install
 In Xcode: select the `Unity-iPhone` target → *Signing & Capabilities* → your
 team. Plug the phone in, pick it as the destination, **⌘R**.
 
-## 10. Committing your Unity work
+## 11. Committing your Unity work
 
 ```bash
 cd ~/AR-marker
