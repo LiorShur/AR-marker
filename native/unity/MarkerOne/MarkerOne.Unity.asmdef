@@ -4,7 +4,9 @@
   "references": [
     "MarkerOne.Core",
     "Unity.XR.ARFoundation",
+    "Unity.XR.ARSubsystems",
     "Unity.XR.CoreUtils",
+    "Unity.TextMeshPro",
     "Google.XR.ARCoreExtensions"
   ],
   "includePlatforms": [],

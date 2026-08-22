@@ -27,25 +27,30 @@ namespace MarkerOne.Unity
         public double Floor => _floor ?? 0;
         public bool HasFloor => _floor.HasValue;
 
-        private void Awake() => _planes = FindObjectOfType<ARPlaneManager>();
+        private void Awake() => _planes = FindFirstObjectByType<ARPlaneManager>();
 
         private void OnEnable()
         {
-            if (_planes != null) { _planes.planesChanged += OnPlanesChanged; }
+            // AR Foundation 6 replaced the per-trackable events with one
+            // trackablesChanged UnityEvent. planesChanged still exists and is
+            // deprecated, which compiles today and will not for long.
+            if (_planes != null) { _planes.trackablesChanged.AddListener(OnPlanesChanged); }
         }
 
         private void OnDisable()
         {
-            if (_planes != null) { _planes.planesChanged -= OnPlanesChanged; }
+            if (_planes != null) { _planes.trackablesChanged.RemoveListener(OnPlanesChanged); }
         }
 
-        private void OnPlanesChanged(ARPlanesChangedEventArgs args)
+        private void OnPlanesChanged(ARTrackablesChangedEventArgs<ARPlane> args)
         {
             Consider(args.added);
             Consider(args.updated);
         }
 
-        private void Consider(List<ARPlane> planes)
+        // IEnumerable rather than the concrete collection: AR Foundation has
+        // changed what these are twice, and nothing here needs indexing.
+        private void Consider(IEnumerable<ARPlane> planes)
         {
             if (planes == null) { return; }
 

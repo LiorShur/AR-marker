@@ -3,7 +3,6 @@ using System.Collections;
 using System.Collections.Generic;
 using MarkerOne.Core;
 using UnityEngine;
-using UnityEngine.XR.ARFoundation;
 
 namespace MarkerOne.Unity
 {

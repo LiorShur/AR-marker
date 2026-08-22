@@ -38,12 +38,10 @@ namespace MarkerOne.Unity
         public Camera SessionCamera;
 
         private AREarthManager _earth;
-        private ARSession _session;
 
         private void Awake()
         {
             _earth = GetComponent<AREarthManager>();
-            _session = FindObjectOfType<ARSession>();
             if (SessionCamera == null) { SessionCamera = Camera.main; }
         }
 
