@@ -7,6 +7,12 @@ lists the failure modes; this is the shortest path through.
 Android could be done on either, but keeping one machine avoids a whole class of
 "works on the laptop" confusion.
 
+**Paste one line at a time.** Nothing below carries a trailing comment, and it
+should stay that way: zsh does not treat `#` as a comment interactively unless
+`interactive_comments` is set, so a `# note with an apostrophe` does not become
+a note — it becomes an unterminated quote and a `quote>` prompt. `Ctrl-C` if
+that happens.
+
 ---
 
 ## 1. Get the repo onto the Mac
@@ -28,7 +34,9 @@ git pull origin claude/ar-web-app-setup-417jgy
 
 ## 2. Check the core is sound before building anything on top of it
 
-Optional, and worth the two minutes. If the .NET SDK is not installed:
+Optional, and worth the two minutes.
+
+Install the .NET SDK if you do not have it:
 
 ```bash
 brew install --cask dotnet-sdk
@@ -161,11 +169,13 @@ team. Plug the phone in, pick it as the destination, **⌘R**.
 
 ```bash
 cd ~/AR-marker
-git status                # Library/ and Temp/ should not appear
+git status
 git add native/unity/MarkerOneApp
 git commit -m "Unity project"
 git push origin claude/ar-web-app-setup-417jgy
 ```
+
+`git status` should not list `Library/` or `Temp/`.
 
 If `git status` shows thousands of files, the Unity ignores are not being
 applied — check you are in the repo root and that `.gitignore` contains the
