@@ -193,9 +193,17 @@ what the conformance suite proves. They have to be the same file.
 1. **console.cloud.google.com** → pick or create a project.
 2. **APIs & Services → Library** → search *ARCore API* → **Enable**.
 3. Wait five minutes. Refusals before that mean nothing.
-4. Unity: **Edit → Project Settings → XR Plug-in Management → ARCore
-   Extensions** → *Geospatial* **enabled**, both authentication strategies
-   **Keyless**.
+4. **APIs & Services → Credentials → Create Credentials → API key**. Restrict
+   it to *iOS apps* with your bundle id, and to the *ARCore API* only. This is
+   not the Firebase web key.
+5. Unity: **Edit → Project Settings → XR Plug-in Management → ARCore
+   Extensions**:
+   - *Geospatial* **enabled**
+   - *Android Authentication Strategy* → **Keyless**
+   - *iOS Authentication Strategy* → **API Key**, pasted. Keyless is Android
+     only; it registers an app signing certificate, and iOS has none.
+   - *iOS Support Enabled* → **ticked**, or the ARCore pod never reaches the
+     Xcode project and Earth stays disabled at runtime.
 
 ## 8. The scene
 

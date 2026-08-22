@@ -42,12 +42,21 @@ it authenticates.
 3. In Unity: **Edit → Project Settings → XR Plug-in Management → ARCore
    Extensions**.
 4. Set **Geospatial** to enabled.
-5. **Android authentication**: choose **Keyless**. This signs with your app's
-   own signing identity rather than shipping a key in the binary — which is why
-   it is the recommended route.
-6. **iOS authentication**: also **Keyless**. It needs the bundle id registered,
-   which happens automatically the first time you build from Xcode with a team
-   selected.
+5. **Android authentication**: **Keyless**. It signs with the app's own signing
+   identity rather than shipping a key in the binary.
+6. **iOS authentication**: **API Key**. Keyless does not exist on iOS — it works
+   by registering an Android signing certificate with Google, and iOS has no
+   equivalent. The alternative, an Authentication Key, is a service-account JWT
+   and needs a token server to be worth anything.
+
+   Create it in **APIs & Services → Credentials → Create Credentials → API
+   key**, then restrict it: *Application restrictions* → iOS apps → your bundle
+   id, and *API restrictions* → ARCore API only. An unrestricted key is a bill
+   waiting to happen. It is a different key from the Firebase web one, even
+   though both live in the same Cloud project.
+7. Tick **iOS Support Enabled** in the same panel. Without it the build
+   succeeds, installs and runs, and EarthState never leaves
+   ErrorGeospatialModeDisabled — because the ARCore iOS pod was never added.
 
 ⚠️ **Keyless on Android needs the signing certificate registered.** A debug
 build signed with the debug keystore and a release build signed with yours are
