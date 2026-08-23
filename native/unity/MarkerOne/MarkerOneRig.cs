@@ -61,7 +61,17 @@ namespace MarkerOne.Unity
         public event Action<SessionState, string> StateChanged;
 
         private readonly Dictionary<string, GameObject> _spawned = new Dictionary<string, GameObject>();
+        private readonly HashSet<string> _unknownScenes = new HashSet<string>();
         private IPlacementStore _store;
+
+        /// <summary>How many of the known placements actually became objects.
+        /// Distinct from how many were found, and the difference is the entire
+        /// content of "it says two and I can see none".</summary>
+        public int Rendered => _spawned.Count;
+
+        /// <summary>Metres to the closest known placement, or -1 with none.
+        /// Something two hundred metres away is not missing, it is far.</summary>
+        public double NearestM { get; private set; } = -1;
 
         private void Awake()
         {
@@ -181,6 +191,12 @@ namespace MarkerOne.Unity
         {
             var seen = new HashSet<string>();
 
+            NearestM = -1;
+            foreach (PlacedItem near in items)
+            {
+                if (NearestM < 0 || near.DistanceM < NearestM) { NearestM = near.DistanceM; }
+            }
+
             foreach (PlacedItem item in items)
             {
                 seen.Add(item.Id);
@@ -188,7 +204,18 @@ namespace MarkerOne.Unity
                 if (!_spawned.TryGetValue(item.Id, out GameObject go) || go == null)
                 {
                     GameObject prefab = PrefabFor(item.Scene);
-                    if (prefab == null) { continue; }
+                    if (prefab == null)
+                    {
+                        // Once per scene id. Every refresh would otherwise say
+                        // it again, and the log is the only place it is said.
+                        if (_unknownScenes.Add(item.Scene))
+                        {
+                            Debug.LogWarning("MarkerOne: nothing to render for scene '" +
+                                             item.Scene + "' — add it to Scenes on the rig, " +
+                                             "or check the prefab reference is not empty.");
+                        }
+                        continue;
+                    }
 
                     go = Instantiate(prefab, PlacementRoot);
                     go.name = $"{item.Scene}:{item.Id}";

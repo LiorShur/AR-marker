@@ -206,7 +206,13 @@ namespace MarkerOne.Unity
                 _text.Append("Fix    ").Append(session.Frame.Fix).Append('\n');
             }
 
-            _text.Append("Items  ").Append(_items).Append('\n');
+            _text.Append("Items  ").Append(_items)
+                 .Append(" found, ").Append(_rig.Rendered).Append(" shown");
+            if (_rig.NearestM >= 0)
+            {
+                _text.Append(", nearest ").Append(_rig.NearestM.ToString("0.#")).Append('m');
+            }
+            _text.Append('\n');
 
             if (!string.IsNullOrEmpty(session.LastError))
             {
