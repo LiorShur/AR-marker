@@ -70,6 +70,14 @@ namespace MarkerOne.Unity
 
         private readonly Dictionary<string, GameObject> _spawned = new Dictionary<string, GameObject>();
         private readonly HashSet<string> _unknownScenes = new HashSet<string>();
+
+        /// <summary>What each placement needs to become an anchor, kept so the
+        /// attempt can be repeated. Earth is often not tracking yet at the
+        /// moment placements first arrive, and one try was never enough.</summary>
+        private readonly Dictionary<string, (double Lat, double Lon, double Height, double Heading)>
+            _onGlobe = new Dictionary<string, (double, double, double, double)>();
+
+        private float _retry;
         private IPlacementStore _store;
 
         /// <summary>How many of the known placements actually became objects.
@@ -152,6 +160,8 @@ namespace MarkerOne.Unity
 
         private void Update()
         {
+            Anchor();
+
             HasNearest = false;
             if (SessionCamera == null) { return; }
 
@@ -189,6 +199,39 @@ namespace MarkerOne.Unity
             catch (Exception e)
             {
                 Debug.LogWarning("MarkerOne: fix rejected — " + e.Message);
+            }
+        }
+
+        /// <summary>
+        /// Move anything not yet anchored onto an anchor, and keep trying.
+        ///
+        /// Doing this once, inside the render that follows a fetch, meant the
+        /// single attempt landed in the seconds before Earth began tracking —
+        /// ARCore returned null, and nothing ever asked again. Placements then
+        /// stayed on the frame for the life of the session while the readout
+        /// cheerfully said the anchor path was in use.
+        /// </summary>
+        private void Anchor()
+        {
+            if (Anchors == null || _spawned.Count == 0) { return; }
+
+            _retry -= Time.unscaledDeltaTime;
+            if (_retry > 0) { return; }
+            _retry = 1f;
+
+            if (!Anchors.Ready) { return; }
+
+            foreach (KeyValuePair<string, GameObject> entry in _spawned)
+            {
+                if (entry.Value == null || Anchors.Has(entry.Key)) { continue; }
+                if (!_onGlobe.TryGetValue(entry.Key, out var at)) { continue; }
+
+                Transform anchor = Anchors.Acquire(entry.Key, at.Lat, at.Lon, at.Height, at.Heading);
+                if (anchor == null) { continue; }
+
+                entry.Value.transform.SetParent(anchor, false);
+                entry.Value.transform.localPosition = Vector3.zero;
+                entry.Value.transform.localRotation = Quaternion.identity;
             }
         }
 
@@ -315,20 +358,13 @@ namespace MarkerOne.Unity
                     }
                 }
 
-                // Prefer an anchor. Where one exists the object is simply at
-                // its origin, and ARCore keeps that origin honest.
-                Transform anchor = Anchors != null
-                    ? Anchors.Acquire(item.Id, item.Position.Lat, item.Position.Lon,
-                                      item.Position.Height, item.HeadingDeg)
-                    : null;
+                _onGlobe[item.Id] = (item.Position.Lat, item.Position.Lon,
+                                     item.Position.Height, item.HeadingDeg);
 
-                if (anchor != null)
-                {
-                    if (go.transform.parent != anchor) { go.transform.SetParent(anchor, false); }
-                    go.transform.localPosition = Vector3.zero;
-                    go.transform.localRotation = Quaternion.identity;
-                }
-                else
+                // An anchored object is ARCore's to position. Writing the
+                // frame's answer over it every refresh would undo exactly the
+                // thing the anchor is for.
+                if (Anchors == null || !Anchors.Has(item.Id))
                 {
                     if (go.transform.parent != PlacementRoot)
                     {
@@ -353,6 +389,7 @@ namespace MarkerOne.Unity
                 if (seen.Contains(entry.Key)) { continue; }
                 if (entry.Value != null) { Destroy(entry.Value); }
                 Anchors?.Release(entry.Key);
+                _onGlobe.Remove(entry.Key);
                 gone.Add(entry.Key);
             }
             foreach (string id in gone) { _spawned.Remove(id); }

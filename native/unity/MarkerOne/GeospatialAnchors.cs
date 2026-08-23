@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Google.XR.ARCoreExtensions;
 using UnityEngine;
 using UnityEngine.XR.ARFoundation;
+using UnityEngine.XR.ARSubsystems;
 
 namespace MarkerOne.Unity
 {
@@ -27,17 +28,37 @@ namespace MarkerOne.Unity
     public sealed class GeospatialAnchors : MonoBehaviour
     {
         private ARAnchorManager _anchors;
+        private AREarthManager _earth;
         private readonly Dictionary<string, ARGeospatialAnchor> _made =
             new Dictionary<string, ARGeospatialAnchor>();
         private bool _complained;
+        private bool _refused;
 
         public int Count => _made.Count;
 
-        public bool Ready => _anchors != null && ARSession.state == ARSessionState.SessionTracking;
+        /// <summary>ARCore will not resolve a latitude and longitude while
+        /// Earth is not tracking, and says so by returning null rather than by
+        /// throwing. Checking only the ARKit session made this look ready
+        /// several seconds before it was, and a failed attempt was never
+        /// retried.</summary>
+        public bool Ready
+        {
+            get
+            {
+                if (_anchors == null || _earth == null) { return false; }
+                if (ARSession.state != ARSessionState.SessionTracking) { return false; }
+
+                try { return _earth.EarthTrackingState == TrackingState.Tracking; }
+                catch (Exception) { return false; }
+            }
+        }
+
+        public bool Has(string id) => _made.TryGetValue(id, out ARGeospatialAnchor a) && a != null;
 
         private void Awake()
         {
             _anchors = FindFirstObjectByType<ARAnchorManager>();
+            _earth = FindFirstObjectByType<AREarthManager>();
             if (_anchors == null)
             {
                 Debug.LogWarning("MarkerOne: no ARAnchorManager in the scene — placements " +
@@ -68,7 +89,18 @@ namespace MarkerOne.Unity
                 ARGeospatialAnchor anchor =
                     _anchors.AddAnchor(latitude, longitude, altitude, rotation);
 
-                if (anchor == null) { return null; }
+                if (anchor == null)
+                {
+                    // The other way this fails, and the quiet one.
+                    if (!_refused)
+                    {
+                        _refused = true;
+                        Debug.LogWarning("MarkerOne: ARCore declined to create a geospatial " +
+                                         "anchor while Earth reported " +
+                                         _earth.EarthTrackingState + ". Still using the frame.");
+                    }
+                    return null;
+                }
 
                 _made[id] = anchor;
                 return anchor.transform;
