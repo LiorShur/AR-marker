@@ -319,7 +319,7 @@ namespace MarkerOne.Unity
                 // its origin, and ARCore keeps that origin honest.
                 Transform anchor = Anchors != null
                     ? Anchors.Acquire(item.Id, item.Position.Lat, item.Position.Lon,
-                                      item.Position.Alt, item.HeadingDeg)
+                                      item.Position.Height, item.HeadingDeg)
                     : null;
 
                 if (anchor != null)
