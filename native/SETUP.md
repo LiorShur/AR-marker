@@ -128,8 +128,11 @@ Marker One
   GeospatialFixSource
 ```
 
-Add **AR Plane Manager** to the XR Origin if you want `FloorProbe` to learn the
-floor from detected planes as well as from taps.
+Add **AR Plane Manager** and **AR Raycast Manager** to the XR Origin. The
+plane manager lets `FloorProbe` learn the floor from detected planes as well as
+from taps; the raycast manager is what `PlacementInput` aims with. Without it
+every placement lands in mid-air two metres ahead, and the control bar says so
+rather than leaving you to work it out.
 
 ### ARCore Extensions
 
@@ -277,6 +280,17 @@ Items  4
 plus the last few warnings, which is usually the line that explains the other
 six. `×` hides it; the `state` button brings it back. To leave it out of a
 build, add `MARKERONE_NO_HUD` to *Player Settings → Scripting Define Symbols*.
+
+Placement is on the same principle — `PlacementInput` installs itself too. A
+crosshair at the centre of the screen, and a bar along the bottom with the
+scene id, a name field and **Place**. The crosshair turns green on a detected
+surface and the bar reads `surface · 1.4m`; white and `mid-air` means no plane
+was found and the object will hang where the reticle is.
+
+Aiming with the phone rather than tapping is deliberate: it is steadier at
+arm's length, and a fixed reticle can say what it is over *before* anything is
+committed. A tap that silently lands on nothing is the most confusing thing an
+AR app can do.
 
 The first two lines localize the common failures without a debugger:
 
