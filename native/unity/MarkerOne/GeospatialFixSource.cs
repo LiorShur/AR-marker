@@ -135,22 +135,31 @@ namespace MarkerOne.Unity
             }
         }
 
-        /// <summary>The four failures below are indistinguishable from the app —
-        /// no content appears — and each has a different fix.</summary>
+        /// <summary>These failures are indistinguishable from inside the app —
+        /// no content appears — and each has a different fix.
+        ///
+        /// Switched on the name rather than the enum member because the member
+        /// set has changed across ARCore Extensions releases, and a missing
+        /// member is a compile error rather than a silent fallthrough. The two
+        /// states this code genuinely depends on, Enabled and ErrorEarthNotReady,
+        /// are referenced directly; everything else is advisory text.</summary>
         private static string Explain(EarthState state)
         {
-            switch (state)
+            switch (state.ToString())
             {
-                case EarthState.ErrorAPIKeyInvalid:
-                    return "The API key is wrong, restricted to a different bundle id, " +
-                           "or was created less than a few minutes ago.";
-                case EarthState.ErrorGeospatialModeDisabled:
+                case "ErrorNotAuthorized":
+                    return "The ARCore API is not enabled on the Cloud project, or " +
+                           "the API key is wrong, restricted to a different bundle " +
+                           "id, or was created less than a few minutes ago.";
+                case "ErrorGeospatialModeDisabled":
                     return "Geospatial is off in the ARCore Extensions config asset, " +
-                           "or iOS Support is unticked.";
-                case EarthState.ErrorNotAuthorized:
-                    return "The ARCore API is not enabled on the Cloud project.";
-                case EarthState.ErrorResourcesExhausted:
+                           "or iOS Support is unticked in XR Plug-in Management.";
+                case "ErrorResourceExhausted":
+                case "ErrorResourcesExhausted":
                     return "The project is over its ARCore API quota.";
+                case "ErrorInternal":
+                    return "ARCore reported an internal failure. Retrying the session " +
+                           "is the only remedy.";
                 default:
                     return "";
             }
