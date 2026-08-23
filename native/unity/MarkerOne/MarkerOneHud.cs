@@ -32,6 +32,7 @@ namespace MarkerOne.Unity
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Install()
         {
+            Visible = true;
             var go = new GameObject("MarkerOne HUD");
             go.AddComponent<MarkerOneHud>();
             DontDestroyOnLoad(go);
@@ -126,16 +127,33 @@ namespace MarkerOne.Unity
 
             if (!Visible)
             {
-                if (GUI.Button(new Rect(left, top, lineHeight * 3, lineHeight * 1.6f), "state", _button))
+                if (GUI.Button(new Rect(left, top, lineHeight * 4, lineHeight * 1.6f), "▸ state", _button))
                 {
                     Visible = true;
                 }
                 return;
             }
 
-            string body = Body();
+            string body;
+            try
+            {
+                body = Body();
+            }
+            catch (System.Exception e)
+            {
+                // A diagnostic that cannot survive the thing it is diagnosing
+                // is worse than no diagnostic, because it looks like nothing
+                // is wrong.
+                body = "HUD error: " + e.Message;
+            }
+
             float width = Mathf.Min(safe.width - 16, _style.fontSize * 30);
-            float height = _style.CalcHeight(new GUIContent(body), width - 16) + 16;
+
+            int lines = 1;
+            for (int i = 0; i < body.Length; i++) { if (body[i] == '\n') { lines++; } }
+
+            float height = Mathf.Max(_style.CalcHeight(new GUIContent(body), width - 16),
+                                     lines * lineHeight) + 16;
 
             var box = new Rect(left, top, width, height);
             GUI.DrawTexture(box, _panel);
@@ -224,13 +242,18 @@ namespace MarkerOne.Unity
                 _panel.hideFlags = HideFlags.HideAndDontSave;
             }
 
+            // Deliberately the built-in skin font rather than an OS font.
+            // Font.CreateDynamicFontFromOSFont returns null where the platform
+            // has no dynamic font support, and on iOS can return a font that
+            // renders no glyphs at all — which is the worse failure, because
+            // the panel then draws at full size containing nothing. A
+            // monospaced column was not worth that.
             _style = new GUIStyle(GUI.skin.label)
             {
                 fontSize = size,
                 richText = false,
                 wordWrap = true,
-                alignment = TextAnchor.UpperLeft,
-                font = Font.CreateDynamicFontFromOSFont("Courier", size)
+                alignment = TextAnchor.UpperLeft
             };
             _style.normal.textColor = Color.white;
 
