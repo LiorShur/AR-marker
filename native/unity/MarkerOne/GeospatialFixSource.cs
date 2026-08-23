@@ -163,7 +163,7 @@ namespace MarkerOne.Unity
             Problem?.Invoke(message);
         }
 
-        private void TryFix()        private void TryFix()
+        private void TryFix()
         {
             GeospatialPose pose = _earth.CameraGeospatialPose;
 
