@@ -45,6 +45,11 @@ namespace MarkerOne.Unity
         /// than showing nothing.</summary>
         public string Failed { get; private set; }
 
+        /// <summary>Where startup has got to. Distinct from Failed: this is the
+        /// happy path narrating itself, so a screen showing nothing can say
+        /// which of the several waits it is in.</summary>
+        public string Status { get; private set; } = "starting";
+
         public event System.Action<string> Problem;
 
         private AREarthManager _earth;
@@ -59,8 +64,11 @@ namespace MarkerOne.Unity
         {
             // ARKit first. Nothing about Earth means anything until the
             // underlying session is tracking.
+            Status = "waiting for AR session";
             yield return new WaitUntil(() => ARSession.state == ARSessionState.SessionTracking);
             Debug.Log("MarkerOne: AR session tracking");
+
+            Status = "waiting for Earth";
 
             // Then Earth, separately and defensively. AREarthManager.EarthState
             // dereferences the ARCore Extensions session without checking it
@@ -97,6 +105,7 @@ namespace MarkerOne.Unity
             }
 
             Debug.Log("MarkerOne: Earth enabled, waiting for a fix");
+            Status = "enabled, waiting for a fix";
 
             var wait = new WaitForSeconds(Interval);
             while (enabled)
@@ -104,6 +113,10 @@ namespace MarkerOne.Unity
                 if (_earth.EarthTrackingState == TrackingState.Tracking)
                 {
                     TryFix();
+                }
+                else
+                {
+                    Status = "enabled, not tracking (" + _earth.EarthTrackingState + ")";
                 }
                 yield return wait;
             }
@@ -169,6 +182,7 @@ namespace MarkerOne.Unity
         {
             Debug.LogWarning("MarkerOne: " + message);
             Failed = message;
+            Status = message;
             Problem?.Invoke(message);
         }
 
@@ -180,8 +194,13 @@ namespace MarkerOne.Unity
             // and worth re-checking rather than assuming.
             if (pose.HorizontalAccuracy <= 0 || pose.HorizontalAccuracy > WorstUsableAccuracyM)
             {
+                Status = string.Format("fix too poor to use: ±{0:0.#}m, want ≤{1:0.#}m",
+                                       pose.HorizontalAccuracy, WorstUsableAccuracyM);
                 return;
             }
+
+            Status = string.Format("tracking ±{0:0.#}m ±{1:0.#}°",
+                                   pose.HorizontalAccuracy, pose.OrientationYawAccuracy);
 
             var fix = new Fix
             {

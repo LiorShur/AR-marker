@@ -233,7 +233,41 @@ Keyless option.
 ## 8. Knowing whether it works
 
 Geospatial needs a view of the sky and VPS coverage to do its best work.
-Indoors it will localize and be honest that the result is poor.
+Indoors it will localize and be honest that the result is poor. Which means
+every real test happens outdoors, and reading the state from a tethered Mac
+turns each one into a trip to the car park with a laptop.
+
+So the state is on the phone. `MarkerOneHud` installs itself after the scene
+loads — there is nothing to add to the scene and nothing to wire — and draws:
+
+```
+AR     SessionTracking
+Earth  enabled, waiting for a fix
+Rig    Locating
+Fixes  3
+Fix    ±0.8m ±1° via geospatial/direct
+Items  4
+```
+
+plus the last few warnings, which is usually the line that explains the other
+six. `×` hides it; the `state` button brings it back. To leave it out of a
+build, add `MARKERONE_NO_HUD` to *Player Settings → Scripting Define Symbols*.
+
+The first two lines localize the common failures without a debugger:
+
+| Line | Means |
+|---|---|
+| `AR` stuck below `SessionTracking` | ARKit has not started — camera permission, or no `ARSession` in the scene |
+| `Earth  no GeospatialFixSource in scene` | The component was never added |
+| `Earth  ARCore Extensions has not started a session…` | The `ARCoreExtensions` component is missing or unassigned — see §5 |
+| `Earth  Geospatial unavailable: <state>` | Reached ARCore and was refused; the detail names which setting |
+| `Earth  fix too poor to use: ±40m` | Working, but indoors or without sky |
+| `Rig    no session — check Project Id and Api Key` | Firebase fields empty on `MarkerOneRig` |
+
+If you do want the console, you do not need the cable: **Window → Devices and
+Simulators → Connect via network** keeps Xcode attached over Wi-Fi. Out of
+range, `log collect --device --last 30m` retrieves what the device recorded
+while you were away.
 
 The rig reports its state. Wire `StateChanged` to a label:
 
