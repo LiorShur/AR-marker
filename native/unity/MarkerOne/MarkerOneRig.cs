@@ -77,6 +77,15 @@ namespace MarkerOne.Unity
         /// Something two hundred metres away is not missing, it is far.</summary>
         public double NearestM { get; private set; } = -1;
 
+        /// <summary>Where the closest rendered object actually is, relative to
+        /// the camera, in session axes. "Nine shown and none visible" is nearly
+        /// always vertical — the horizontal distance looks reasonable while the
+        /// object sits fifteen metres overhead — and no other number on screen
+        /// can tell you that.</summary>
+        public Vector3 NearestOffset { get; private set; }
+
+        public bool HasNearest { get; private set; }
+
         private void Awake()
         {
             if (SessionCamera == null) { SessionCamera = Camera.main; }
@@ -97,6 +106,28 @@ namespace MarkerOne.Unity
 
             Session.StateChanged += (state, detail) => StateChanged?.Invoke(state, detail);
             Session.PlacementsChanged += Render;
+        }
+
+        private void Update()
+        {
+            HasNearest = false;
+            if (SessionCamera == null) { return; }
+
+            Vector3 eye = SessionCamera.transform.position;
+            float best = float.MaxValue;
+
+            foreach (KeyValuePair<string, GameObject> entry in _spawned)
+            {
+                if (entry.Value == null) { continue; }
+
+                Vector3 offset = entry.Value.transform.position - eye;
+                float distance = offset.sqrMagnitude;
+                if (distance >= best) { continue; }
+
+                best = distance;
+                NearestOffset = offset;
+                HasNearest = true;
+            }
         }
 
         /// <summary>Called by whatever is producing fixes. Async void because

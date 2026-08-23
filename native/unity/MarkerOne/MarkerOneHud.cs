@@ -214,6 +214,26 @@ namespace MarkerOne.Unity
             }
             _text.Append('\n');
 
+            if (_rig.HasNearest)
+            {
+                Vector3 d = _rig.NearestOffset;
+                // Session axes, not camera-relative: x and z depend on which
+                // way the session was facing when it started, but y is up
+                // whatever happens, and y is the one that answers this.
+                _text.AppendFormat("Near   x {0:0.0}  y {1:0.0} (up)  z {2:0.0}\n",
+                                   d.x, d.y, d.z);
+            }
+
+            // Placements hang off this. If it is not at the origin, everything
+            // is offset by however far it has wandered.
+            if (_rig.PlacementRoot != null &&
+                _rig.PlacementRoot.position.sqrMagnitude > 0.01f)
+            {
+                Vector3 r = _rig.PlacementRoot.position;
+                _text.AppendFormat("Root   {0:0.0} {1:0.0} {2:0.0}  (should be 0 0 0)\n",
+                                   r.x, r.y, r.z);
+            }
+
             if (!string.IsNullOrEmpty(session.LastError))
             {
                 _text.Append("Error  ").Append(session.LastError).Append('\n');
