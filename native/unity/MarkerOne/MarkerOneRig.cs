@@ -89,7 +89,7 @@ namespace MarkerOne.Unity
         private void Awake()
         {
             if (SessionCamera == null) { SessionCamera = Camera.main; }
-            if (PlacementRoot == null) { PlacementRoot = transform; }
+            EnsurePlacementRoot();
 
             if (string.IsNullOrEmpty(ProjectId) || string.IsNullOrEmpty(ApiKey))
             {
@@ -106,6 +106,43 @@ namespace MarkerOne.Unity
 
             Session.StateChanged += (state, detail) => StateChanged?.Invoke(state, detail);
             Session.PlacementsChanged += Render;
+        }
+
+        /// <summary>
+        /// Placements are positioned in session coordinates, and session
+        /// coordinates are world coordinates — Feed() passes the camera's world
+        /// position on exactly that assumption. So the transform they hang off
+        /// has to be the identity.
+        ///
+        /// Defaulting it to this component's own transform made that an
+        /// invisible dependency on where somebody happened to drag the rig in
+        /// the hierarchy. Move it thirty metres and every placement moves
+        /// thirty metres, with nothing on screen connecting the two: the
+        /// placements are at the right offsets from their parent, the parent is
+        /// simply somewhere else, and the world looks empty.
+        ///
+        /// A dedicated root removes the dependency rather than documenting it.
+        /// </summary>
+        private void EnsurePlacementRoot()
+        {
+            if (PlacementRoot == null)
+            {
+                var root = new GameObject("MarkerOne Placements");
+                root.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+                PlacementRoot = root.transform;
+                return;
+            }
+
+            // Assigned deliberately: respect it, but say so, because every
+            // placement inherits whatever is wrong with it.
+            if (PlacementRoot.position.sqrMagnitude > 0.0001f ||
+                Quaternion.Angle(PlacementRoot.rotation, Quaternion.identity) > 0.1f)
+            {
+                Debug.LogWarning("MarkerOne: PlacementRoot is at " + PlacementRoot.position +
+                                 " rather than the origin. Placements are positioned in " +
+                                 "session coordinates, so every one of them will be off by " +
+                                 "that much.");
+            }
         }
 
         private void Update()
@@ -176,8 +213,17 @@ namespace MarkerOne.Unity
             // equally-good fixes forever costs work and buys almost nothing,
             // since the accuracy floor is deliberately half the best single
             // fix however many there are.
-            return fix.PositionAccuracyM > 0
-                && fix.PositionAccuracyM < frame.Fix.PositionAccuracyM * ImprovementRatio;
+            // Either axis. A fix no better placed but far better oriented is
+            // worth having — at thirty metres out, seventeen degrees of heading
+            // error moves an object nine metres, which is more than the
+            // position error contributes.
+            bool better = fix.PositionAccuracyM > 0
+                       && fix.PositionAccuracyM < frame.Fix.PositionAccuracyM * ImprovementRatio;
+
+            bool aimed = fix.HeadingAccuracyDeg > 0
+                      && fix.HeadingAccuracyDeg < frame.Fix.HeadingAccuracyDeg * ImprovementRatio;
+
+            return better || aimed;
         }
 
         /// <summary>Leave something here. localPoint is in session coordinates —
