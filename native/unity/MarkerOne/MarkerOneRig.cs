@@ -37,6 +37,10 @@ namespace MarkerOne.Unity
 
         public double RelocalizeAfterM = 25;
 
+        [Tooltip("Draw a plain marker where a placement has no prefab, rather "
+               + "than drawing nothing. A visible mistake beats an empty world.")]
+        public bool PlaceholderForMissing = true;
+
         [Tooltip("Keep taking fixes until at least this many are in the "
                + "estimate, even after the session says it is ready.")]
         public int MinFixes = 10;
@@ -214,10 +218,12 @@ namespace MarkerOne.Unity
                                              item.Scene + "' — add it to Scenes on the rig, " +
                                              "or check the prefab reference is not empty.");
                         }
-                        continue;
+                        if (!PlaceholderForMissing) { continue; }
                     }
 
-                    go = Instantiate(prefab, PlacementRoot);
+                    go = prefab != null
+                        ? Instantiate(prefab, PlacementRoot)
+                        : Placeholder();
                     go.name = $"{item.Scene}:{item.Id}";
                     _spawned[item.Id] = go;
 
@@ -245,6 +251,46 @@ namespace MarkerOne.Unity
                 gone.Add(entry.Key);
             }
             foreach (string id in gone) { _spawned.Remove(id); }
+        }
+
+        /// <summary>
+        /// A cube, built in code, for placements whose prefab is missing.
+        ///
+        /// The alternative is what happened here: placements written, read
+        /// back, counted, positioned correctly and drawing nothing, because a
+        /// prefab field had been emptied by deleting the object it pointed at.
+        /// Nothing on screen and nothing wrong — the hardest kind of bug to
+        /// look at. A cube in the right place answers most of the question
+        /// before anyone opens a log.
+        ///
+        /// Wrapped in an empty parent so the item's own scale multiplies the
+        /// marker's size instead of replacing it.
+        /// </summary>
+        private GameObject Placeholder()
+        {
+            var root = new GameObject("placeholder");
+            root.transform.SetParent(PlacementRoot, false);
+
+            GameObject cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            cube.transform.SetParent(root.transform, false);
+            cube.transform.localScale = Vector3.one * 0.3f;
+
+            Collider collider = cube.GetComponent<Collider>();
+            if (collider != null) { Destroy(collider); }
+
+            // CreatePrimitive assigns the built-in default material, which a
+            // URP project renders as magenta. Which is fine — magenta is what
+            // a placeholder should look like — but a shader that exists is
+            // better, and URP's Lit is certainly in the build.
+            Shader shader = Shader.Find("Universal Render Pipeline/Lit");
+            if (shader != null)
+            {
+                var material = new Material(shader);
+                material.SetColor("_BaseColor", new Color(1f, 0.25f, 0.8f));
+                cube.GetComponent<Renderer>().material = material;
+            }
+
+            return root;
         }
 
         private GameObject PrefabFor(string scene)
