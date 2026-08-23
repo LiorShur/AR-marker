@@ -94,7 +94,26 @@ the app runs. It is not much use proving a copy that has since diverged.
 TMP Essential Resources*. Skip the file if you would rather draw captions
 another way.
 
-## 4. The scene
+## 4. URP needs the AR background feature
+
+**This is why the camera feed is missing and the screen is a flat colour.**
+
+The Universal Render Pipeline does not draw the camera passthrough by itself.
+AR Foundation supplies a renderer feature that does, and installing the package
+does not add it — it has to be put on the renderer by hand.
+
+1. **Edit → Project Settings → Graphics** → note which *Render Pipeline Asset*
+   is in use.
+2. Find that asset in the Project window, and the **Universal Renderer Data**
+   asset it points at — usually `PC_Renderer` or `Mobile_Renderer` beside it.
+3. Select the renderer data asset → **Add Renderer Feature** → **AR Background
+   Renderer Feature**.
+
+Without it ARKit runs, tracking works, planes are found, and the screen shows
+the camera's clear colour instead of the world — which looks like a broken
+build rather than a missing render feature.
+
+## 5. The scene
 
 ```
 AR Session
@@ -122,7 +141,7 @@ On **MarkerOneRig**:
 
 On **GeospatialFixSource**, set *Rig* to the `MarkerOneRig`.
 
-## 5. Player settings
+## 6. Player settings
 
 | | Android | iOS |
 |---|---|---|
@@ -135,7 +154,7 @@ On **GeospatialFixSource**, set *Rig* to the `MarkerOneRig`.
 ⚠️ ARCore does not support Vulkan on all devices. Leaving it first in the list
 produces a black camera feed with no error.
 
-## 6. Building to the iPhone
+## 7. Building to the iPhone
 
 1. **File → Build Settings → iOS → Switch Platform**.
 2. **Build** to a folder — Unity produces an Xcode project, not an app.
@@ -153,7 +172,7 @@ not.
 does this itself, and silently does not when CocoaPods is not on the PATH that
 the Unity process inherited — which on a Mac with Homebrew Ruby is common.
 
-## 7. Knowing whether it works
+## 8. Knowing whether it works
 
 Geospatial needs a view of the sky and VPS coverage to do its best work.
 Indoors it will localize and be honest that the result is poor.

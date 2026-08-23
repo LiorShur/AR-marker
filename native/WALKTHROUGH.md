@@ -205,7 +205,16 @@ what the conformance suite proves. They have to be the same file.
    - *iOS Support Enabled* → **ticked**, or the ARCore pod never reaches the
      Xcode project and Earth stays disabled at runtime.
 
-## 8. The scene
+## 8. URP: add the AR background feature
+
+Without this the camera feed never draws and you get a flat colour with AR
+otherwise working perfectly.
+
+**Project Settings → Graphics** → find the render pipeline asset in use → in the
+Project window find the **Universal Renderer Data** beside it → **Add Renderer
+Feature → AR Background Renderer Feature**.
+
+## 9. The scene
 
 **GameObject → XR → AR Session**, then **GameObject → XR → XR Origin (Mobile
 AR)**. Delete the default `Main Camera` that came with the scene — the XR Origin
@@ -227,7 +236,7 @@ For the prefabs, anything visible will do to start — a cube a third of a metre
 across proves the pipeline as well as a model does, and rules out the model
 being the problem.
 
-## 9. Player settings
+## 10. Player settings
 
 **Edit → Project Settings → Player → iOS**:
 
@@ -240,7 +249,7 @@ being the problem.
 Under *Android*, if you build it later: minimum **API 24**, remove **Vulkan**
 from the graphics APIs, ARM64 only, IL2CPP.
 
-## 10. Build to the iPhone
+## 11. Build to the iPhone
 
 **File → Build Settings → iOS → Switch Platform**, then **Build**. Choose
 `~/AR-marker/native/unity/iOSBuild` — already gitignored.
@@ -264,7 +273,7 @@ pod install
 In Xcode: select the `Unity-iPhone` target → *Signing & Capabilities* → your
 team. Plug the phone in, pick it as the destination, **⌘R**.
 
-## 11. Committing your Unity work
+## 12. Committing your Unity work
 
 ```bash
 cd ~/AR-marker

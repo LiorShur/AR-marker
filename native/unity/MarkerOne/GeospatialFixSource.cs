@@ -37,6 +37,16 @@ namespace MarkerOne.Unity
 
         public Camera SessionCamera;
 
+        [Tooltip("Seconds to wait for Earth to become ready before giving up and "
+               + "saying so. It is normally a second or two outdoors.")]
+        public float StartupTimeout = 30f;
+
+        /// <summary>Set when startup fails, so an interface can show why rather
+        /// than showing nothing.</summary>
+        public string Failed { get; private set; }
+
+        public event System.Action<string> Problem;
+
         private AREarthManager _earth;
 
         private void Awake()
@@ -47,14 +57,48 @@ namespace MarkerOne.Unity
 
         private IEnumerator Start()
         {
-            // The session has to be up and Earth has to be tracking before any
-            // of this means anything.
-            yield return new WaitUntil(() =>
-                ARSession.state == ARSessionState.SessionTracking &&
-                _earth != null && _earth.EarthState == EarthState.Enabled);
+            // ARKit first. Nothing about Earth means anything until the
+            // underlying session is tracking.
+            yield return new WaitUntil(() => ARSession.state == ARSessionState.SessionTracking);
+            Debug.Log("MarkerOne: AR session tracking");
+
+            // Then Earth, separately and defensively. AREarthManager.EarthState
+            // dereferences the ARCore Extensions session without checking it
+            // exists, so on a build where the extensions did not start — iOS
+            // Support unticked, no authentication configured, no ARCoreExtensions
+            // component in the scene — reading it throws rather than reporting a
+            // state. Catching it turns a dead coroutine into a message saying
+            // which of those it was.
+            float waited = 0;
+            EarthState state = EarthState.ErrorEarthNotReady;
+
+            while (waited < StartupTimeout)
+            {
+                if (!TryReadEarthState(out state)) { yield break; }
+                if (state == EarthState.Enabled) { break; }
+
+                if (state != EarthState.ErrorEarthNotReady)
+                {
+                    // A real error state, not "still starting up". Saying it
+                    // once is more use than saying it sixty times a second.
+                    Report("Geospatial unavailable: " + state + ". " + Explain(state));
+                    yield break;
+                }
+
+                waited += 0.25f;
+                yield return new WaitForSeconds(0.25f);
+            }
+
+            if (state != EarthState.Enabled)
+            {
+                Report("Geospatial did not become ready within " + StartupTimeout +
+                       "s — last state " + state);
+                yield break;
+            }
+
+            Debug.Log("MarkerOne: Earth enabled, waiting for a fix");
 
             var wait = new WaitForSeconds(Interval);
-
             while (enabled)
             {
                 if (_earth.EarthTrackingState == TrackingState.Tracking)
@@ -65,7 +109,61 @@ namespace MarkerOne.Unity
             }
         }
 
-        private void TryFix()
+        private bool TryReadEarthState(out EarthState state)
+        {
+            state = EarthState.ErrorEarthNotReady;
+
+            if (_earth == null)
+            {
+                Report("No AREarthManager on this object.");
+                return false;
+            }
+
+            try
+            {
+                state = _earth.EarthState;
+                return true;
+            }
+            catch (System.NullReferenceException)
+            {
+                Report("ARCore Extensions has not started a session. Check that " +
+                       "an ARCore Extensions component is in the scene with its " +
+                       "Session, Camera Manager and Config assigned, that iOS " +
+                       "Support is enabled in XR Plug-in Management, and that an " +
+                       "authentication strategy is set.");
+                return false;
+            }
+        }
+
+        /// <summary>The four failures below are indistinguishable from the app —
+        /// no content appears — and each has a different fix.</summary>
+        private static string Explain(EarthState state)
+        {
+            switch (state)
+            {
+                case EarthState.ErrorAPIKeyInvalid:
+                    return "The API key is wrong, restricted to a different bundle id, " +
+                           "or was created less than a few minutes ago.";
+                case EarthState.ErrorGeospatialModeDisabled:
+                    return "Geospatial is off in the ARCore Extensions config asset, " +
+                           "or iOS Support is unticked.";
+                case EarthState.ErrorNotAuthorized:
+                    return "The ARCore API is not enabled on the Cloud project.";
+                case EarthState.ErrorResourcesExhausted:
+                    return "The project is over its ARCore API quota.";
+                default:
+                    return "";
+            }
+        }
+
+        private void Report(string message)
+        {
+            Debug.LogWarning("MarkerOne: " + message);
+            Failed = message;
+            Problem?.Invoke(message);
+        }
+
+        private void TryFix()        private void TryFix()
         {
             GeospatialPose pose = _earth.CameraGeospatialPose;
 
