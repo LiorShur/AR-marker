@@ -131,6 +131,34 @@ Marker One
 Add **AR Plane Manager** to the XR Origin if you want `FloorProbe` to learn the
 floor from detected planes as well as from taps.
 
+### ARCore Extensions
+
+This one is easy to leave out, because nothing complains at edit time and the
+build succeeds. Create an empty GameObject, add the **ARCore Extensions**
+component, and fill in all three references:
+
+| Field | Value |
+|---|---|
+| Session | the `AR Session` GameObject |
+| Camera Manager | the camera carrying `ARCameraManager` |
+| Config | the `ARCoreExtensionsConfig` asset, with *Geospatial Mode* Enabled |
+
+Without it, `AREarthManager.EarthState` throws a `NullReferenceException`
+rather than reporting a state — it dereferences a session that was never
+started. `GeospatialFixSource` catches that and says so, but the app otherwise
+looks like a working AR build that simply never finds anything.
+
+Worth verifying from a terminal rather than from the Inspector, since a
+reference can be silently emptied by deleting the object it pointed at:
+
+```bash
+G=$(grep -m1 guid Library/PackageCache/com.google.ar.core.arfoundation.extensions*/Runtime/Scripts/ARCoreExtensions.cs.meta | awk '{print $2}')
+grep -A12 "$G" Assets/Scenes/SampleScene.unity
+```
+
+A block should come back, and none of its references should read
+`{fileID: 0}`, which is how Unity serializes "empty".
+
 On **MarkerOneRig**:
 
 - *Project Id* and *Api Key* — the same Firebase values the web app uses. The
@@ -158,19 +186,49 @@ produces a black camera feed with no error.
 
 1. **File → Build Settings → iOS → Switch Platform**.
 2. **Build** to a folder — Unity produces an Xcode project, not an app.
-3. Open the generated `.xcworkspace`, **not** the `.xcodeproj`. ARCore arrives
-   through CocoaPods and only the workspace has it.
+3. Open the generated `.xcworkspace`, **not** the `.xcodeproj`.
 4. Signing → your team. A free Apple ID works for a seven-day build; your paid
    account gives a year.
 5. Run to the device.
 
-⚠️ **The workspace, not the project.** Opening the `.xcodeproj` gives linker
-errors about missing ARCore symbols, which look like a broken package and are
-not.
+Choose **Replace** rather than **Append** whenever packages, player settings or
+plugins have changed. Append refreshes Unity's own output and leaves the
+dependency wiring as it found it. Append is fine for script and asset edits.
 
-⚠️ If CocoaPods has not run, `pod install` in the build folder. Unity usually
-does this itself, and silently does not when CocoaPods is not on the PATH that
-the Unity process inherited — which on a Mac with Homebrew Ruby is common.
+### How ARCore actually reaches the build
+
+Extensions 1.54 ships its iOS dependency as a **Swift package**, not a pod:
+
+```xml
+<remoteSwiftPackage url="https://github.com/google-ar/arcore-ios-sdk.git" version="1.54.0">
+    <swiftPackage name="ARCoreGeospatial" replacesPod="ARCore/Geospatial"/>
+```
+
+`replacesPod` is the operative word. The External Dependency Manager adds the
+package to the Xcode project and deliberately leaves the Podfile alone, so
+**the generated Podfile has empty targets and that is correct**. It is a
+convincing false lead when hunting a missing ARCore session — the reflex is to
+read the Podfile, find nothing, and conclude iOS support is off.
+
+What actually tells you ARCore is in the build:
+
+```bash
+grep -c ARCoreGeospatial Unity-iPhone.xcodeproj/project.pbxproj
+```
+
+Non-zero means linked. Zero means the resolver did not run, and then the
+Podfile is worth looking at — check *Assets → External Dependency Manager →
+iOS Resolver → Settings*.
+
+Settings themselves can be read without the GUI:
+
+```bash
+cat ProjectSettings/ARCoreExtensionsProjectSettings.json
+```
+
+`IsIOSSupportEnabled` and `GeospatialEnabled` should both be `true`, and
+`IOSAuthenticationStrategySetting` should be `2` for API Key — iOS has no
+Keyless option.
 
 ## 8. Knowing whether it works
 
