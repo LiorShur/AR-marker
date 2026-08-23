@@ -22,6 +22,24 @@ namespace MarkerOne.Core
         public string CreatedAt;
         public Vec3 Local;
         public double YawRad;
+
+        /// <summary>Where this is on the globe, carried through unchanged.
+        ///
+        /// Local is this position resolved through the session's frame, and a
+        /// frame is only ever as good as the fixes behind it. A renderer with
+        /// access to something better — ARCore's geospatial anchors resolve a
+        /// latitude and longitude against VPS continuously, rather than once
+        /// through an estimate — needs the original to hand it over.
+        /// </summary>
+        public GeoPoint Position;
+
+        /// <summary>Compass heading, clockwise from north, for the same
+        /// reason: Local's yaw is relative to a frame, this is not.</summary>
+        public double HeadingDeg;
+
+        /// <summary>Metres above the floor it was left on. What a terrain
+        /// anchor wants, and more trustworthy than any altitude.</summary>
+        public double GroundOffset;
     }
 
     /// <summary>
@@ -293,6 +311,7 @@ namespace MarkerOne.Core
             double floor = Floor();
             var items = _placements.Select(p =>
             {
+                double headingDeg = Geodesy.HeadingFromQuaternion(p.Orientation);
                 Vec3 local = Frame.ToLocal(p.Position);
 
                 // Vertical position comes from the floor of the current
@@ -311,7 +330,10 @@ namespace MarkerOne.Core
                     Label = p.Label,
                     CreatedAt = p.CreatedAt,
                     Local = local,
-                    YawRad = Frame.HeadingToLocalYaw(Geodesy.HeadingFromQuaternion(p.Orientation))
+                    YawRad = Frame.HeadingToLocalYaw(headingDeg),
+                    Position = p.Position,
+                    HeadingDeg = headingDeg,
+                    GroundOffset = p.GroundOffset
                 };
             }).ToList();
 

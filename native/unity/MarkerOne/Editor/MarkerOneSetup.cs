@@ -47,7 +47,7 @@ namespace MarkerOne.EditorTools
             }
 
             int wired = WireRig(made);
-            int added = EnsureManagers();
+            int added = EnsureManagers() + EnsureAnchors();
 
             AssetDatabase.SaveAssets();
 
@@ -123,6 +123,20 @@ namespace MarkerOne.EditorTools
             return made.Count;
         }
 
+        /// <summary>Without this component the rig positions placements from
+        /// its own frame, which is a metre or two worse between sessions and
+        /// gives no sign that anything is missing.</summary>
+        private static int EnsureAnchors()
+        {
+            var rig = Object.FindFirstObjectByType<MarkerOneRig>();
+            if (rig == null || rig.GetComponent<GeospatialAnchors>() != null) { return 0; }
+
+            rig.gameObject.AddComponent<GeospatialAnchors>();
+            EditorUtility.SetDirty(rig);
+            EditorSceneManager.MarkSceneDirty(rig.gameObject.scene);
+            return 1;
+        }
+
         /// <summary>PlacementInput aims with the raycast manager and FloorProbe
         /// learns from the plane manager. Both belong on the XR Origin, and
         /// putting them anywhere else fails silently.</summary>
@@ -145,6 +159,11 @@ namespace MarkerOne.EditorTools
             if (origin.GetComponent<ARPlaneManager>() == null)
             {
                 origin.gameObject.AddComponent<ARPlaneManager>();
+                added++;
+            }
+            if (origin.GetComponent<ARAnchorManager>() == null)
+            {
+                origin.gameObject.AddComponent<ARAnchorManager>();
                 added++;
             }
 

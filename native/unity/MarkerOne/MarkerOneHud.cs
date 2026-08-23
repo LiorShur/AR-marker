@@ -214,6 +214,13 @@ namespace MarkerOne.Unity
             }
             _text.Append('\n');
 
+            if (_source != null && _rig.Anchors != null)
+            {
+                _text.Append("Anchor ").Append(_rig.Anchors.Count)
+                     .Append(_rig.Anchors.Ready ? " (arcore)" : " (frame — not ready)")
+                     .Append('\n');
+            }
+
             if (_rig.HasNearest)
             {
                 Vector3 d = _rig.NearestOffset;

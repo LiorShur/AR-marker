@@ -30,6 +30,10 @@ namespace MarkerOne.Unity
         public Camera SessionCamera;
         public FloorProbe Floor;
 
+        [Tooltip("Optional. Found automatically. When present, placements are "
+               + "anchored by ARCore rather than positioned from our frame.")]
+        public GeospatialAnchors Anchors;
+
         [Header("Placement")]
         [Tooltip("Metres of query radius. Loading a city to render the three "
                + "things you can see is the obvious mistake.")]
@@ -89,6 +93,7 @@ namespace MarkerOne.Unity
         private void Awake()
         {
             if (SessionCamera == null) { SessionCamera = Camera.main; }
+            if (Anchors == null) { Anchors = FindFirstObjectByType<GeospatialAnchors>(); }
             EnsurePlacementRoot();
 
             if (string.IsNullOrEmpty(ProjectId) || string.IsNullOrEmpty(ApiKey))
@@ -310,13 +315,35 @@ namespace MarkerOne.Unity
                     }
                 }
 
-                // Double to float at the boundary and nowhere earlier: a float
-                // loses centimetres a few hundred metres out, which is the whole
-                // range this works in.
-                go.transform.localPosition =
-                    new Vector3((float)item.Local.X, (float)item.Local.Y, (float)item.Local.Z);
-                go.transform.localRotation =
-                    Quaternion.Euler(0, (float)(item.YawRad * Mathf.Rad2Deg), 0);
+                // Prefer an anchor. Where one exists the object is simply at
+                // its origin, and ARCore keeps that origin honest.
+                Transform anchor = Anchors != null
+                    ? Anchors.Acquire(item.Id, item.Position.Lat, item.Position.Lon,
+                                      item.Position.Alt, item.HeadingDeg)
+                    : null;
+
+                if (anchor != null)
+                {
+                    if (go.transform.parent != anchor) { go.transform.SetParent(anchor, false); }
+                    go.transform.localPosition = Vector3.zero;
+                    go.transform.localRotation = Quaternion.identity;
+                }
+                else
+                {
+                    if (go.transform.parent != PlacementRoot)
+                    {
+                        go.transform.SetParent(PlacementRoot, false);
+                    }
+
+                    // Double to float at the boundary and nowhere earlier: a
+                    // float loses centimetres a few hundred metres out, which
+                    // is the whole range this works in.
+                    go.transform.localPosition = new Vector3(
+                        (float)item.Local.X, (float)item.Local.Y, (float)item.Local.Z);
+                    go.transform.localRotation =
+                        Quaternion.Euler(0, (float)(item.YawRad * Mathf.Rad2Deg), 0);
+                }
+
                 go.transform.localScale = Vector3.one * (float)item.Scale;
             }
 
@@ -325,6 +352,7 @@ namespace MarkerOne.Unity
             {
                 if (seen.Contains(entry.Key)) { continue; }
                 if (entry.Value != null) { Destroy(entry.Value); }
+                Anchors?.Release(entry.Key);
                 gone.Add(entry.Key);
             }
             foreach (string id in gone) { _spawned.Remove(id); }
