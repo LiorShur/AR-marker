@@ -128,11 +128,29 @@ Marker One
   GeospatialFixSource
 ```
 
-Add **AR Plane Manager** and **AR Raycast Manager** to the XR Origin. The
-plane manager lets `FloorProbe` learn the floor from detected planes as well as
-from taps; the raycast manager is what `PlacementInput` aims with. Without it
-every placement lands in mid-air two metres ahead, and the control bar says so
-rather than leaving you to work it out.
+### MarkerOne → Set up scene
+
+Run this menu item once. It creates a prefab and a material per scene id in
+`Assets/MarkerOne/Prefabs`, fills in the rig's *Scenes* list, and adds
+**AR Raycast Manager** and **AR Plane Manager** to the XR Origin.
+
+All of that can be done by hand, and each step has a way of appearing to
+succeed without succeeding. A prefab field can be set to a *scene object*
+rather than an asset — it looks identical in the inspector and empties itself
+the moment that object is deleted. A drag into the Project window can fail to
+create anything at all, silently. A manager added to the wrong GameObject does
+nothing and says nothing.
+
+The menu item is not a shortcut past understanding the scene. It is a refusal
+to keep losing to the same ambiguity.
+
+Afterwards, *Scenes* on the rig should list one entry per id in `content.json`,
+each pointing at something under `Assets/`. Verify from a terminal if the
+inspector has misled you before:
+
+```bash
+ls Assets/MarkerOne/Prefabs
+```
 
 ### ARCore Extensions
 

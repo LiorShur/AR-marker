@@ -28,11 +28,13 @@ fi
 
 core="$target/Assets/MarkerOne/Core"
 unity="$target/Assets/MarkerOne/Unity"
-mkdir -p "$core" "$unity"
+editor="$target/Assets/MarkerOne/Editor"
+mkdir -p "$core" "$unity" "$editor"
 
 # Delete first: a file removed from the core should disappear here too, or a
 # stale copy keeps compiling long after it stopped being real.
-rm -f "$core"/*.cs "$core"/*.asmdef "$unity"/*.cs "$unity"/*.asmdef
+rm -f "$core"/*.cs "$core"/*.asmdef "$unity"/*.cs "$unity"/*.asmdef \
+      "$editor"/*.cs "$editor"/*.asmdef
 
 cp "$here"/native/MarkerOne.Core/*.cs                 "$core/"
 cp "$here"/native/unity/MarkerOne/MarkerOne.Core.asmdef "$core/"
@@ -40,9 +42,14 @@ cp "$here"/native/unity/MarkerOne/MarkerOne.Core.asmdef "$core/"
 cp "$here"/native/unity/MarkerOne/*.cs                "$unity/"
 cp "$here"/native/unity/MarkerOne/MarkerOne.Unity.asmdef "$unity/"
 
+cp "$here"/native/unity/MarkerOne/Editor/*.cs        "$editor/"
+cp "$here"/native/unity/MarkerOne/Editor/*.asmdef    "$editor/"
+
 echo "core   -> $core"
 ls -1 "$core" | sed 's/^/           /'
 echo "unity  -> $unity"
 ls -1 "$unity" | sed 's/^/           /'
+echo "editor -> $editor"
+ls -1 "$editor" | sed 's/^/           /'
 echo
 echo "Unity will import these when it next has focus."
