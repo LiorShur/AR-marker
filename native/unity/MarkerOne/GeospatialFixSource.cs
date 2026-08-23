@@ -41,6 +41,10 @@ namespace MarkerOne.Unity
                + "saying so. It is normally a second or two outdoors.")]
         public float StartupTimeout = 30f;
 
+        [Tooltip("Seconds to wait for the location permission prompt to be "
+               + "answered. Generous, because it waits on a person.")]
+        public float LocationTimeout = 60f;
+
         /// <summary>Set when startup fails, so an interface can show why rather
         /// than showing nothing.</summary>
         public string Failed { get; private set; }
@@ -67,6 +71,21 @@ namespace MarkerOne.Unity
             Status = "waiting for AR session";
             yield return new WaitUntil(() => ARSession.state == ARSessionState.SessionTracking);
             Debug.Log("MarkerOne: AR session tracking");
+
+            // Then location permission, which is the step with no obvious
+            // owner. ARCore needs it and does not ask for it; ARKit does not
+            // need it and so never prompts. Without something here the session
+            // fails to configure with ErrorLocationPermissionNotGranted and
+            // Earth simply never becomes ready — a silence that looks exactly
+            // like poor reception.
+            yield return AwaitLocation();
+            if (!string.IsNullOrEmpty(Failed)) { yield break; }
+
+            // ARCore Extensions configures its session once, early, and that
+            // attempt has already failed by the time a person taps Allow.
+            // Cycling the component makes it configure again now that the
+            // permission it wanted exists.
+            yield return Reconfigure();
 
             Status = "waiting for Earth";
 
@@ -120,6 +139,61 @@ namespace MarkerOne.Unity
                 }
                 yield return wait;
             }
+        }
+
+        /// <summary>Started in its own method because C# forbids yielding
+        /// inside a try/catch, and this call can throw when a project is set to
+        /// the new input system only.</summary>
+        private bool BeginLocation()
+        {
+            try
+            {
+                if (Input.location.status == LocationServiceStatus.Running) { return true; }
+
+                // On iOS this call is what raises the permission dialog.
+                Input.location.Start(1f, 0.1f);
+                return true;
+            }
+            catch (System.Exception e)
+            {
+                Report("Could not start location services: " + e.Message);
+                return false;
+            }
+        }
+
+        private IEnumerator AwaitLocation()
+        {
+            if (!BeginLocation()) { yield break; }
+
+            float waited = 0;
+            while (Input.location.status == LocationServiceStatus.Initializing &&
+                   waited < LocationTimeout)
+            {
+                Status = "waiting for location permission";
+                waited += 0.25f;
+                yield return new WaitForSeconds(0.25f);
+            }
+
+            if (Input.location.status == LocationServiceStatus.Running)
+            {
+                Debug.Log("MarkerOne: location permission granted");
+                yield break;
+            }
+
+            Report("Location permission not granted — Geospatial cannot start " +
+                   "without it. Settings → Privacy & Security → Location Services, " +
+                   "then this app, then While Using the App.");
+        }
+
+        private IEnumerator Reconfigure()
+        {
+            var extensions = FindFirstObjectByType<ARCoreExtensions>();
+            if (extensions == null) { yield break; }
+
+            extensions.enabled = false;
+            yield return null;
+            extensions.enabled = true;
+            yield return null;
         }
 
         private bool TryReadEarthState(out EarthState state)

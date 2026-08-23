@@ -182,6 +182,31 @@ On **GeospatialFixSource**, set *Rig* to the `MarkerOneRig`.
 ⚠️ ARCore does not support Vulkan on all devices. Leaving it first in the list
 produces a black camera feed with no error.
 
+⚠️ **Location usage is not optional on iOS.** Leave the description empty and
+iOS terminates the app the instant it asks for the permission — not a dialog,
+not a warning, the process is killed. It is under *Player Settings → Other
+Settings → Location Usage Description*, and it is worth confirming it survived
+into the build:
+
+```bash
+grep -A1 NSLocationWhenInUseUsageDescription iOSBuild/Info.plist
+```
+
+### Why location, when ARKit never asks for it
+
+Geospatial needs it and ARCore does not request it; ARKit does not need it and
+so never prompts. Nothing asks unless the app does, and the failure is quiet:
+the session fails to configure with `ErrorLocationPermissionNotGranted`, Earth
+stays at `ErrorEarthNotReady`, and what you see is an AR view that tracks
+perfectly and never finds anything — indistinguishable from standing somewhere
+with no VPS coverage.
+
+`GeospatialFixSource` handles this: it starts the location service, waits for
+the answer, and then cycles the `ARCoreExtensions` component. That last part
+matters. Extensions configures its session once, early, and that attempt has
+already failed by the time anyone taps Allow — without the cycle, granting
+permission changes nothing until the app is restarted.
+
 ## 7. Building to the iPhone
 
 1. **File → Build Settings → iOS → Switch Platform**.
