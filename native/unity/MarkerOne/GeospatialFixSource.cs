@@ -49,6 +49,12 @@ namespace MarkerOne.Unity
         /// than showing nothing.</summary>
         public string Failed { get; private set; }
 
+        /// <summary>Whether Google has Street View coverage good enough to
+        /// localize visually at the first place a fix was taken. Without it,
+        /// Geospatial falls back to GPS and compass — the same inputs the web
+        /// version had, and the same accuracy.</summary>
+        public string Vps { get; private set; } = "not checked";
+
         /// <summary>Where startup has got to. Distinct from Failed: this is the
         /// happy path narrating itself, so a screen showing nothing can say
         /// which of the several waits it is in.</summary>
@@ -57,6 +63,7 @@ namespace MarkerOne.Unity
         public event System.Action<string> Problem;
 
         private AREarthManager _earth;
+        private bool _askedAboutVps;
 
         private void Awake()
         {
@@ -185,6 +192,16 @@ namespace MarkerOne.Unity
                    "then this app, then While Using the App.");
         }
 
+        private IEnumerator CheckVps(double latitude, double longitude)
+        {
+            VpsAvailabilityPromise promise =
+                AREarthManager.CheckVpsAvailabilityAsync(latitude, longitude);
+            yield return promise;
+
+            Vps = promise.Result.ToString();
+            Debug.Log("MarkerOne: VPS " + Vps);
+        }
+
         private IEnumerator Reconfigure()
         {
             var extensions = FindFirstObjectByType<ARCoreExtensions>();
@@ -294,6 +311,15 @@ namespace MarkerOne.Unity
 
             Vector3 local = SessionCamera != null ? SessionCamera.transform.position : Vector3.zero;
             Rig?.Feed(fix, new Vec3(local.x, local.y, local.z));
+
+            // Once, at the first place we had a position good enough to ask
+            // about. Coverage is a property of the neighbourhood, not of the
+            // second.
+            if (!_askedAboutVps)
+            {
+                _askedAboutVps = true;
+                StartCoroutine(CheckVps(pose.Latitude, pose.Longitude));
+            }
         }
 
         /// <summary>

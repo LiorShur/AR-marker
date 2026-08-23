@@ -181,6 +181,7 @@ namespace MarkerOne.Unity
                 _text.Append("Earth  ")
                      .Append(string.IsNullOrEmpty(_source.Failed) ? _source.Status : _source.Failed)
                      .Append('\n');
+                _text.Append("VPS    ").Append(_source.Vps).Append('\n');
             }
 
             if (_rig == null)

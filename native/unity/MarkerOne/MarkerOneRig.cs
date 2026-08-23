@@ -37,6 +37,15 @@ namespace MarkerOne.Unity
 
         public double RelocalizeAfterM = 25;
 
+        [Tooltip("Keep taking fixes until at least this many are in the "
+               + "estimate, even after the session says it is ready.")]
+        public int MinFixes = 10;
+
+        [Tooltip("Once past MinFixes, take a fix only if it is at least this "
+               + "much better than what the frame is currently built on. 0.7 "
+               + "means thirty percent better.")]
+        public double ImprovementRatio = 0.7;
+
         [Serializable]
         public struct ScenePrefab
         {
@@ -85,7 +94,7 @@ namespace MarkerOne.Unity
 
             try
             {
-                if (Session.State != SessionState.Ready || Session.NeedsRelocalize(localPose))
+                if (Worth(fix, localPose))
                 {
                     await Session.AddFixAsync(fix, localPose);
                 }
@@ -94,6 +103,36 @@ namespace MarkerOne.Unity
             {
                 Debug.LogWarning("MarkerOne: fix rejected — " + e.Message);
             }
+        }
+
+        /// <summary>
+        /// Whether this fix is worth adding to the estimate.
+        ///
+        /// Reaching Ready on one fix and then ignoring everything until the
+        /// user has walked twenty-five metres wastes the entire reason the
+        /// origin is estimated rather than taken: OriginEstimator weights by
+        /// one over accuracy squared, so a later sample cannot make the answer
+        /// worse, and a good one drags it a long way. With Geospatial that
+        /// matters more than it did on the web, because the first fix is
+        /// typically GPS-grade and a VPS lock arriving twenty seconds later is
+        /// an order of magnitude better — worth roughly a thousand times as
+        /// much to the estimate, and previously thrown away.
+        /// </summary>
+        private bool Worth(Fix fix, Vec3 localPose)
+        {
+            if (Session.State != SessionState.Ready) { return true; }
+            if (Session.NeedsRelocalize(localPose)) { return true; }
+            if (Session.Fixes < MinFixes) { return true; }
+
+            LocalizationFrame frame = Session.Frame;
+            if (frame == null || frame.Fix == null) { return true; }
+
+            // Past that, only take what actually improves things. Adding
+            // equally-good fixes forever costs work and buys almost nothing,
+            // since the accuracy floor is deliberately half the best single
+            // fix however many there are.
+            return fix.PositionAccuracyM > 0
+                && fix.PositionAccuracyM < frame.Fix.PositionAccuracyM * ImprovementRatio;
         }
 
         /// <summary>Leave something here. localPoint is in session coordinates —
