@@ -217,7 +217,8 @@ namespace MarkerOne.Unity
             if (_source != null && _rig.Anchors != null)
             {
                 _text.Append("Anchor ").Append(_rig.Anchors.Count).Append('/').Append(_rig.Rendered)
-                     .Append(_rig.Anchors.Ready ? " (arcore)" : " (earth not tracking)")
+                     .Append(_rig.Anchors.GaveUp ? " (gave up — see log)"
+                             : _rig.Anchors.Ready ? " (arcore)" : " (earth not tracking)")
                      .Append('\n');
             }
 

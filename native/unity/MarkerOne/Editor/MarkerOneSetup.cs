@@ -6,6 +6,7 @@ using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.XR.ARFoundation;
+using Google.XR.ARCoreExtensions;
 
 namespace MarkerOne.EditorTools
 {
@@ -47,7 +48,7 @@ namespace MarkerOne.EditorTools
             }
 
             int wired = WireRig(made);
-            int added = EnsureManagers() + EnsureAnchors();
+            int added = EnsureManagers() + EnsureAnchors() + EnsureExtensionsOrigin();
 
             AssetDatabase.SaveAssets();
 
@@ -134,6 +135,24 @@ namespace MarkerOne.EditorTools
             rig.gameObject.AddComponent<GeospatialAnchors>();
             EditorUtility.SetDirty(rig);
             EditorSceneManager.MarkSceneDirty(rig.gameObject.scene);
+            return 1;
+        }
+
+        /// <summary>ARCoreExtensions.Origin is read by exactly one thing —
+        /// the line in AddAnchor that parents a new geospatial anchor to the
+        /// trackables parent. Leave it empty and everything else works, right
+        /// up to the first anchor, which throws from inside the package.</summary>
+        private static int EnsureExtensionsOrigin()
+        {
+            var extensions = Object.FindFirstObjectByType<ARCoreExtensions>();
+            if (extensions == null || extensions.Origin != null) { return 0; }
+
+            var origin = Object.FindFirstObjectByType<XROrigin>();
+            if (origin == null) { return 0; }
+
+            extensions.Origin = origin;
+            EditorUtility.SetDirty(extensions);
+            EditorSceneManager.MarkSceneDirty(extensions.gameObject.scene);
             return 1;
         }
 

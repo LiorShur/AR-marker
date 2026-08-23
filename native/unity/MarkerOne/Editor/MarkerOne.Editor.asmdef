@@ -5,9 +5,12 @@
         "MarkerOne.Core",
         "MarkerOne.Unity",
         "Unity.XR.ARFoundation",
-        "Unity.XR.CoreUtils"
+        "Unity.XR.CoreUtils",
+        "Google.XR.ARCoreExtensions"
     ],
-    "includePlatforms": ["Editor"],
+    "includePlatforms": [
+        "Editor"
+    ],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
     "overrideReferences": false,

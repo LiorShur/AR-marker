@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Google.XR.ARCoreExtensions;
+using Unity.XR.CoreUtils;
 using UnityEngine;
 using UnityEngine.XR.ARFoundation;
 using UnityEngine.XR.ARSubsystems;
@@ -33,6 +34,17 @@ namespace MarkerOne.Unity
             new Dictionary<string, ARGeospatialAnchor>();
         private bool _complained;
         private bool _refused;
+        private int _failures;
+
+        [Tooltip("Stop attempting anchors after this many consecutive failures. "
+               + "Eight placements retried every second is eight exceptions a "
+               + "second, which is its own problem.")]
+        public int GiveUpAfter = 12;
+
+        /// <summary>True once the attempts have been abandoned, so the readout
+        /// can say so rather than showing a zero that looks like it is still
+        /// trying.</summary>
+        public bool GaveUp => _failures >= GiveUpAfter;
 
         public int Count => _made.Count;
 
@@ -45,7 +57,7 @@ namespace MarkerOne.Unity
         {
             get
             {
-                if (_anchors == null || _earth == null) { return false; }
+                if (_anchors == null || _earth == null || GaveUp) { return false; }
                 if (ARSession.state != ARSessionState.SessionTracking) { return false; }
 
                 try { return _earth.EarthTrackingState == TrackingState.Tracking; }
@@ -59,12 +71,43 @@ namespace MarkerOne.Unity
         {
             _anchors = FindFirstObjectByType<ARAnchorManager>();
             _earth = FindFirstObjectByType<AREarthManager>();
+            EnsureExtensionsOrigin();
             if (_anchors == null)
             {
                 Debug.LogWarning("MarkerOne: no ARAnchorManager in the scene — placements " +
                                  "will be positioned from the session frame instead of " +
                                  "anchored, which costs a metre or two between sessions.");
             }
+        }
+
+        /// <summary>
+        /// AddAnchor ends with:
+        ///
+        ///     anchor.transform.SetParent(
+        ///         ARCoreExtensions._instance.Origin.TrackablesParent, false);
+        ///
+        /// so an unassigned Origin on the ARCoreExtensions component is a
+        /// NullReferenceException thrown from inside the package, several
+        /// frames after everything that could have reported it. Nothing else
+        /// in Geospatial reads that field, which is why it can sit empty
+        /// through a working localization and only fail here.
+        /// </summary>
+        private void EnsureExtensionsOrigin()
+        {
+            var extensions = FindFirstObjectByType<ARCoreExtensions>();
+            if (extensions == null || extensions.Origin != null) { return; }
+
+            var origin = FindFirstObjectByType<XROrigin>();
+            if (origin == null)
+            {
+                Debug.LogWarning("MarkerOne: ARCoreExtensions has no Origin and there is no " +
+                                 "XR Origin to give it. Geospatial anchors will fail.");
+                return;
+            }
+
+            extensions.Origin = origin;
+            Debug.Log("MarkerOne: filled in the empty ARCoreExtensions Origin. Assign it in " +
+                      "the inspector to stop relying on this.");
         }
 
         /// <summary>The anchor for a placement, made once and kept. Null means
@@ -103,18 +146,49 @@ namespace MarkerOne.Unity
                 }
 
                 _made[id] = anchor;
+                _failures = 0;
                 return anchor.transform;
             }
             catch (Exception e)
             {
+                _failures++;
+
                 if (!_complained)
                 {
                     _complained = true;
-                    Debug.LogWarning("MarkerOne: could not create a geospatial anchor — " +
-                                     e.Message + ". Falling back to the session frame.");
+
+                    // The whole exception, not just its message. A
+                    // NullReferenceException raised inside somebody else's
+                    // package is only diagnosable from the frame it was thrown
+                    // in, and Message says nothing at all.
+                    Debug.LogException(e);
+
+                    // Everything the call depends on, since one of these is
+                    // almost certainly the null in question.
+                    Debug.LogWarning(string.Format(
+                        "MarkerOne: anchor failed. manager={0} enabled={1} subsystem={2} " +
+                        "running={3} earth={4} at {5:F7},{6:F7} @{7:F1}m",
+                        _anchors != null,
+                        _anchors != null && _anchors.enabled,
+                        _anchors != null && _anchors.subsystem != null,
+                        _anchors != null && _anchors.subsystem != null && _anchors.subsystem.running,
+                        Earth(), latitude, longitude, altitude));
+                }
+
+                if (GaveUp)
+                {
+                    Debug.LogWarning("MarkerOne: giving up on geospatial anchors after " +
+                                     _failures + " failures. Placements stay on the session " +
+                                     "frame, which costs a metre or two between sessions.");
                 }
                 return null;
             }
+        }
+
+        private string Earth()
+        {
+            try { return _earth == null ? "none" : _earth.EarthTrackingState.ToString(); }
+            catch (Exception) { return "unreadable"; }
         }
 
         public void Release(string id)

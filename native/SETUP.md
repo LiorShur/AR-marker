@@ -161,8 +161,21 @@ component, and fill in all three references:
 | Field | Value |
 |---|---|
 | Session | the `AR Session` GameObject |
+| Origin | the `XR Origin` GameObject |
 | Camera Manager | the camera carrying `ARCameraManager` |
 | Config | the `ARCoreExtensionsConfig` asset, with *Geospatial Mode* Enabled |
+
+**Origin is not optional**, however much it looks it. Localization works
+without it — fixes arrive, accuracy converges, placements render. It is read by
+exactly one line, at the end of `AddAnchor`:
+
+```csharp
+anchor.transform.SetParent(ARCoreExtensions._instance.Origin.TrackablesParent, false);
+```
+
+So an empty Origin is a `NullReferenceException` thrown from inside the package
+at the moment the first geospatial anchor is created, long after anything that
+could have explained it. `MarkerOne → Set up scene` fills it in.
 
 Without it, `AREarthManager.EarthState` throws a `NullReferenceException`
 rather than reporting a state — it dereferences a session that was never
