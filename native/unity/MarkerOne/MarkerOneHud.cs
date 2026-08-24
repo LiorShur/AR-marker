@@ -214,6 +214,12 @@ namespace MarkerOne.Unity
             }
             _text.Append('\n');
 
+            if (_source != null && _source.SessionTiltDeg > 5f)
+            {
+                _text.Append("Tilt   ").Append(_source.SessionTiltDeg.ToString("0.#"))
+                     .Append("° — heading from baseline, walk ~20m\n");
+            }
+
             if (_source != null && _source.FrameErrorM >= 0)
             {
                 _text.Append("Frame  off by ")

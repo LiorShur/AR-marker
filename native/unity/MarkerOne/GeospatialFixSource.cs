@@ -77,6 +77,11 @@ namespace MarkerOne.Unity
         /// </summary>
         public double FrameErrorM { get; private set; } = -1;
 
+        /// <summary>How far the session-to-EUN composition is from being the
+        /// pure yaw it ought to be. Anything but near zero means the heading
+        /// cannot be trusted, and it is better seen than inferred.</summary>
+        public float SessionTiltDeg { get; private set; } = -1;
+
         /// <summary>Where startup has got to. Distinct from Failed: this is the
         /// happy path narrating itself, so a screen showing nothing can say
         /// which of the several waits it is in.</summary>
@@ -87,6 +92,7 @@ namespace MarkerOne.Unity
         private AREarthManager _earth;
         private bool _askedAboutVps;
         private bool _saidTilted;
+        private int _basis = -1;
 
         private void Awake()
         {
@@ -113,8 +119,13 @@ namespace MarkerOne.Unity
 
             // VPS coverage can be answered from the phone's own GPS, without
             // waiting for Earth. Worth knowing early, and especially worth
-            // knowing when Earth never starts tracking at all.
-            yield return CheckVpsEarly();
+            // knowing when Earth never starts tracking at all — but started
+            // alongside rather than waited on. Yielding here held up the Earth
+            // wait for as long as it took the location service to produce a
+            // reading, with the status line still saying it was waiting for a
+            // permission that had already been granted.
+            StartCoroutine(CheckVpsEarly());
+            Status = "checking the Earth state";
 
             // Restarting ARCore Extensions is a repair, not a routine.
             //
@@ -435,55 +446,102 @@ namespace MarkerOne.Unity
         }
 
         /// <summary>
-        /// The compass heading of the session's forward axis.
+        /// Candidate bases relating ARCore's camera frame to Unity's.
+        ///
+        /// EunRotation is expressed in the device's native camera frame; the
+        /// Unity camera's transform is in the display-oriented one, and in
+        /// portrait those differ by a quarter turn about the view axis. There
+        /// are only eight sensible ways two right-handed camera frames sharing
+        /// a view axis can differ, so rather than reason about which applies to
+        /// this device in this orientation, all eight are tried and the one
+        /// that actually works is used.
+        /// </summary>
+        private static readonly Quaternion[] Bases =
+        {
+            Quaternion.identity,
+            Quaternion.Euler(0, 0, 90),
+            Quaternion.Euler(0, 0, 180),
+            Quaternion.Euler(0, 0, 270),
+            Quaternion.Euler(0, 180, 0),
+            Quaternion.Euler(0, 180, 90),
+            Quaternion.Euler(0, 180, 180),
+            Quaternion.Euler(0, 180, 270),
+        };
+
+        /// <summary>
+        /// The compass heading of the session's forward axis, or null when it
+        /// cannot be established honestly.
         ///
         /// This is the one number the whole localization turns on: everything
         /// written to the store is a local point rotated by it, so an error
-        /// here rotates every coordinate about wherever the session started,
-        /// by an amount that grows with distance from that point. It is also
-        /// invisible from inside a session — placing and rendering apply it in
-        /// opposite directions and cancel it exactly — which is why objects sat
-        /// where they were put while the coordinates behind them were wrong.
+        /// rotates every coordinate about wherever the session started, by an
+        /// amount that grows with distance from that point. It is invisible
+        /// from inside a session, because placing and rendering apply it in
+        /// opposite directions and cancel it exactly.
         ///
-        /// It used to take a heading out of EunRotation by projecting a forward
-        /// vector, take a yaw out of the camera by reading eulerAngles.y, and
-        /// subtract. Two different extractions from two rotations, and they only
-        /// agree when the phone has no roll. Hold it tilted — which is how
-        /// anybody holds a phone while panning — and the two disagree by
-        /// degrees, which is metres once you have walked a little.
+        /// Composing EunRotation with the inverse of the camera's rotation
+        /// should give a pure yaw, because both frames are gravity-aligned. On
+        /// the device it came out tilted by 89.4° — the two rotations are not
+        /// in the same camera basis, and no amount of care extracting an angle
+        /// from a wrong composition produces a right answer.
         ///
-        /// Composing the rotations instead removes the question. EunRotation
-        /// takes camera-local to East-Up-North; the inverse of the camera's
-        /// rotation takes session-world to camera-local; together they take
-        /// session-world to EUN. Both frames are gravity-aligned, so that
-        /// composition is a pure yaw, and mapping the session's forward axis
-        /// through it gives a vector that is horizontal by construction. No
-        /// decomposition, no roll sensitivity, no gimbal lock, and nothing that
-        /// depends on how the phone is being held.
+        /// So the basis is measured rather than assumed. Gravity is the test:
+        /// whichever candidate makes the composition map up to up is the one
+        /// that describes this device. If none does, the assumption behind all
+        /// of them is wrong, and this returns null — which drops the fix back to
+        /// the walked baseline, a slower path that needs no convention at all
+        /// because it derives the heading from two positions and the journey
+        /// between them.
+        ///
+        /// Returning nothing beats returning a number that will be believed.
         /// </summary>
         private double? SessionYaw(GeospatialPose pose)
         {
             if (SessionCamera == null) { return null; }
 
-            Quaternion sessionToEun =
-                pose.EunRotation * Quaternion.Inverse(SessionCamera.transform.rotation);
+            Quaternion camera = Quaternion.Inverse(SessionCamera.transform.rotation);
+
+            Quaternion best = Quaternion.identity;
+            float bestTilt = float.MaxValue;
+            int chose = -1;
+
+            for (int i = 0; i < Bases.Length; i++)
+            {
+                Quaternion candidate = pose.EunRotation * Bases[i] * camera;
+                float tilt = Vector3.Angle(candidate * Vector3.up, Vector3.up);
+
+                if (tilt >= bestTilt) { continue; }
+
+                bestTilt = tilt;
+                best = candidate;
+                chose = i;
+            }
+
+            SessionTiltDeg = bestTilt;
+
+            if (bestTilt > 5f)
+            {
+                if (!_saidTilted)
+                {
+                    _saidTilted = true;
+                    Debug.LogWarning("MarkerOne: no camera basis makes the session-to-EUN " +
+                                     "rotation a pure yaw — the closest is still tilted by " +
+                                     bestTilt.ToString("0.#") + "°. Falling back to the " +
+                                     "walked baseline for heading; walk twenty metres or so.");
+                }
+                return null;
+            }
+
+            if (chose != _basis)
+            {
+                _basis = chose;
+                Debug.Log("MarkerOne: camera basis " + chose + " fits, tilt " +
+                          bestTilt.ToString("0.#") + "°");
+            }
 
             // EUN: +X east, +Y up, +Z north. atan2(east, north) is a compass
             // bearing, clockwise from north, which is what the core wants.
-            Vector3 forward = sessionToEun * Vector3.forward;
-
-            // Should be zero. It is worth knowing if it is not, because a
-            // composition that is not a pure yaw means one of the two rotations
-            // is not in the frame this assumes.
-            float tilt = Vector3.Angle(sessionToEun * Vector3.up, Vector3.up);
-            if (tilt > 5f && !_saidTilted)
-            {
-                _saidTilted = true;
-                Debug.LogWarning("MarkerOne: session-to-EUN rotation is tilted by " +
-                                 tilt.ToString("0.#") + "°, which it should not be. " +
-                                 "The heading derived from it will be off.");
-            }
-
+            Vector3 forward = best * Vector3.forward;
             double heading = Mathf.Atan2(forward.x, forward.z) * Mathf.Rad2Deg;
             return (heading % 360 + 360) % 360;
         }
