@@ -106,11 +106,32 @@ namespace MarkerOne.Unity
             yield return AwaitLocation();
             if (!string.IsNullOrEmpty(Failed)) { yield break; }
 
-            // ARCore Extensions configures its session once, early, and that
-            // attempt has already failed by the time a person taps Allow.
-            // Cycling the component makes it configure again now that the
-            // permission it wanted exists.
-            yield return Reconfigure();
+            // VPS coverage can be answered from the phone's own GPS, without
+            // waiting for Earth. Worth knowing early, and especially worth
+            // knowing when Earth never starts tracking at all.
+            yield return CheckVpsEarly();
+
+            // Restarting ARCore Extensions is a repair, not a routine.
+            //
+            // Extensions configures its session once, early, and on a first run
+            // that attempt has already failed with
+            // ErrorLocationPermissionNotGranted by the time anybody taps Allow.
+            // Restarting it is the only way to recover. On every launch after
+            // that the permission already exists, Extensions starts up healthy,
+            // and cycling the component tears down a working session and builds
+            // a new one that then has to find itself again from nothing — which
+            // is a first run's delay imposed on every subsequent run, and
+            // sometimes an Earth that never starts tracking at all.
+            //
+            // So ask first, and only intervene if something is actually wrong.
+            if (!TryReadEarthState(out EarthState afterPermission)) { yield break; }
+
+            if (afterPermission != EarthState.Enabled)
+            {
+                Debug.Log("MarkerOne: Earth reported " + afterPermission +
+                          " once location was granted — restarting ARCore Extensions");
+                yield return Reconfigure();
+            }
 
             Status = "waiting for Earth";
 
@@ -214,6 +235,22 @@ namespace MarkerOne.Unity
             Report("Location permission not granted — Geospatial cannot start " +
                    "without it. Settings → Privacy & Security → Location Services, " +
                    "then this app, then While Using the App.");
+        }
+
+        /// <summary>Coverage is a property of the neighbourhood, and the
+        /// phone's own GPS locates the neighbourhood perfectly well. Waiting
+        /// for a Geospatial fix to ask meant the answer arrived only in the
+        /// sessions that did not need it.</summary>
+        private IEnumerator CheckVpsEarly()
+        {
+            if (_askedAboutVps) { yield break; }
+            if (Input.location.status != LocationServiceStatus.Running) { yield break; }
+
+            LocationInfo at = Input.location.lastData;
+            if (at.latitude == 0 && at.longitude == 0) { yield break; }
+
+            _askedAboutVps = true;
+            yield return CheckVps(at.latitude, at.longitude);
         }
 
         private IEnumerator CheckVps(double latitude, double longitude)
