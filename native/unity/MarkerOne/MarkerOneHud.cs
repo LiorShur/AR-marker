@@ -214,6 +214,13 @@ namespace MarkerOne.Unity
             }
             _text.Append('\n');
 
+            if (_source != null && _source.FrameErrorM >= 0)
+            {
+                _text.Append("Frame  off by ")
+                     .Append(_source.FrameErrorM.ToString("0.#"))
+                     .Append("m vs arcore\n");
+            }
+
             if (_source != null && _rig.Anchors != null)
             {
                 _text.Append("Anchor ").Append(_rig.Anchors.Count).Append('/').Append(_rig.Rendered)

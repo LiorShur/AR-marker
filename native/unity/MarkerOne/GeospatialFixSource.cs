@@ -55,6 +55,24 @@ namespace MarkerOne.Unity
         /// version had, and the same accuracy.</summary>
         public string Vps { get; private set; } = "not checked";
 
+        /// <summary>
+        /// How far our frame's answer is from ARCore's, for the one position
+        /// both of them know: where the device is, right now.
+        ///
+        /// Everything else has been inferred. The frame reports its accuracy
+        /// from the accuracies of the fixes behind it, which says how good the
+        /// inputs were and nothing about whether the arithmetic between them is
+        /// right. A frame with a wrong yaw is perfectly self-consistent — place
+        /// and render cancel it exactly, so objects sit where you put them —
+        /// while every coordinate it writes is rotated about the session
+        /// origin, by an amount that grows with distance from it.
+        ///
+        /// This is the number that cannot be fooled by that. If the frame is
+        /// sound it stays near its own claimed accuracy; if it is rotated it
+        /// grows as you walk away from where you started.
+        /// </summary>
+        public double FrameErrorM { get; private set; } = -1;
+
         /// <summary>Where startup has got to. Distinct from Failed: this is the
         /// happy path narrating itself, so a screen showing nothing can say
         /// which of the several waits it is in.</summary>
@@ -142,7 +160,13 @@ namespace MarkerOne.Unity
                 }
                 else
                 {
-                    Status = "enabled, not tracking (" + _earth.EarthTrackingState + ")";
+                    // Earth being enabled says the session is configured and
+                    // authorized. Tracking says it has recognised where it is,
+                    // which needs parallax and something worth looking at —
+                    // pointing at tarmac while standing still satisfies
+                    // neither, and looks identical to a broken build.
+                    Status = "enabled, not tracking (" + _earth.EarthTrackingState +
+                             ") — pan across buildings and walk a few steps";
                 }
                 yield return wait;
             }
@@ -310,7 +334,22 @@ namespace MarkerOne.Unity
             }
 
             Vector3 local = SessionCamera != null ? SessionCamera.transform.position : Vector3.zero;
-            Rig?.Feed(fix, new Vec3(local.x, local.y, local.z));
+            var here = new Vec3(local.x, local.y, local.z);
+
+            // Before feeding it in, ask the frame we already have where it
+            // thinks this same spot is, and compare with where ARCore says it
+            // is. Measured against the previous frame deliberately — including
+            // this fix first would let the answer flatter itself.
+            LocalizationFrame frame = Rig != null && Rig.Session != null
+                ? Rig.Session.Frame
+                : null;
+
+            if (frame != null)
+            {
+                FrameErrorM = Geodesy.Haversine(frame.ToGlobal(here), fix.Position);
+            }
+
+            Rig?.Feed(fix, here);
 
             // Once, at the first place we had a position good enough to ask
             // about. Coverage is a property of the neighbourhood, not of the
