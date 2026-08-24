@@ -34,9 +34,10 @@ namespace MarkerOne.Unity
                + "anchored by ARCore rather than positioned from our frame.")]
         public GeospatialAnchors Anchors;
 
-        [Tooltip("Refuse an anchor that lands further than this from where the "
-               + "frame says the object is. An anchor is meant to be a better "
-               + "answer than the frame, not a different one.")]
+        [Tooltip("Refuse an anchor whose horizontal position lands further than "
+               + "this from where the frame says the object is. An anchor is "
+               + "meant to be a better answer than the frame, not a different "
+               + "one. Horizontal only — see Anchor().")]
         public float AnchorAgreementM = 10f;
 
         [Header("Placement")]
@@ -45,6 +46,10 @@ namespace MarkerOne.Unity
         public double RadiusM = 300;
 
         public double RelocalizeAfterM = 25;
+
+        [Tooltip("Seconds before retrying a read that failed. A dropped request "
+               + "should cost a few seconds, not the session.")]
+        public float RetryAfterS = 10f;
 
         [Tooltip("Draw a plain marker where a placement has no prefab, rather "
                + "than drawing nothing. A visible mistake beats an empty world.")]
@@ -83,6 +88,7 @@ namespace MarkerOne.Unity
             _onGlobe = new Dictionary<string, (double, double, double, double)>();
 
         private float _retry;
+        private float _refetch;
 
         /// <summary>How many times each placement's anchor has been refused for
         /// disagreeing with the frame. Counted rather than flagged so the
@@ -176,6 +182,7 @@ namespace MarkerOne.Unity
 
         private void Update()
         {
+            Retry();
             Anchor();
 
             HasNearest = false;
@@ -219,6 +226,41 @@ namespace MarkerOne.Unity
         }
 
         /// <summary>
+        /// Try a failed read again.
+        ///
+        /// Reads were only ever attempted from inside AddFixAsync, on the
+        /// assumption that a new fix is the thing that makes a new query worth
+        /// running. That stopped being true when fixes started being filtered:
+        /// once the frame is good the gate rejects nearly everything, so after
+        /// one dropped request nothing asked again and the world stayed empty
+        /// until the user walked a hundred metres. A network blip should cost a
+        /// few seconds.
+        /// </summary>
+        private void Retry()
+        {
+            if (Session == null || Session.State != SessionState.Error)
+            {
+                _refetch = 0;
+                return;
+            }
+
+            _refetch -= Time.unscaledDeltaTime;
+            if (_refetch > 0) { return; }
+            _refetch = RetryAfterS;
+
+            Refetch();
+        }
+
+        /// <summary>Async void deliberately: this is a timer firing, not
+        /// something anybody awaits, and RefreshAsync reports its own
+        /// failures before rethrowing.</summary>
+        private async void Refetch()
+        {
+            try { await Session.RefreshAsync(); }
+            catch (Exception) { /* already emitted as Error; the timer comes round again */ }
+        }
+
+        /// <summary>
         /// Move anything not yet anchored onto an anchor, and keep trying.
         ///
         /// Doing this once, inside the render that follows a fetch, meant the
@@ -259,7 +301,18 @@ namespace MarkerOne.Unity
                 // Where the frame says this is. The object is still on the
                 // frame path, so its current position is exactly that.
                 Vector3 was = entry.Value.transform.position;
-                float apart = Vector3.Distance(was, anchor.position);
+                Vector3 to = anchor.position;
+
+                // Horizontally only. The frame puts the object at the floor the
+                // session measured; the anchor puts it at the WGS84 altitude
+                // recorded when it was placed. Those two are supposed to
+                // disagree — altitude is the weakest axis Geospatial has, which
+                // is the whole reason the vertical comes from the floor — so
+                // folding it into the comparison rejects good anchors for
+                // being right about the thing they are not being asked.
+                float apart = Vector2.Distance(new Vector2(was.x, was.z),
+                                               new Vector2(to.x, to.z));
+                float vertical = Mathf.Abs(was.y - to.y);
 
                 if (apart > AnchorAgreementM)
                 {
@@ -273,9 +326,10 @@ namespace MarkerOne.Unity
                     if (refused == 0 || refused + 1 == DisagreementsAllowed)
                     {
                         Debug.LogWarning(string.Format(
-                            "MarkerOne: anchor for {0} landed {1:0.#}m from where the frame " +
-                            "puts it, past the {2:0.#}m limit. {3}",
-                            entry.Key, apart, AnchorAgreementM,
+                            "MarkerOne: anchor for {0} landed {1:0.#}m horizontally from " +
+                            "where the frame puts it ({2:0.#}m vertically), past the " +
+                            "{3:0.#}m limit. {4}",
+                            entry.Key, apart, vertical, AnchorAgreementM,
                             refused + 1 == DisagreementsAllowed
                                 ? "Giving up on anchoring this one."
                                 : "Staying on the frame and retrying."));
@@ -286,9 +340,15 @@ namespace MarkerOne.Unity
                 }
 
                 _disagreed[entry.Key] = 0;
+
+                // Horizontally the anchor, vertically the floor. ARCore knows
+                // where this is on the globe far better than our frame does;
+                // the session knows how high the ground is far better than any
+                // altitude does. Taking each from whichever measured it beats
+                // taking both from either.
                 entry.Value.transform.SetParent(anchor, false);
-                entry.Value.transform.localPosition = Vector3.zero;
-                entry.Value.transform.localRotation = Quaternion.identity;
+                entry.Value.transform.position = new Vector3(to.x, was.y, to.z);
+                entry.Value.transform.rotation = anchor.rotation;
             }
         }
 
