@@ -45,6 +45,10 @@ namespace MarkerOne.Unity
                + "answered. Generous, because it waits on a person.")]
         public float LocationTimeout = 60f;
 
+        [Tooltip("Seconds of an enabled Earth that never starts tracking before "
+               + "restarting the extensions session once, as a repair.")]
+        public float StuckAfterS = 60f;
+
         /// <summary>Set when startup fails, so an interface can show why rather
         /// than showing nothing.</summary>
         public string Failed { get; private set; }
@@ -82,6 +86,7 @@ namespace MarkerOne.Unity
 
         private AREarthManager _earth;
         private bool _askedAboutVps;
+        private bool _saidTilted;
 
         private void Awake()
         {
@@ -173,10 +178,14 @@ namespace MarkerOne.Unity
             Status = "enabled, waiting for a fix";
 
             var wait = new WaitForSeconds(Interval);
+            float untracked = 0;
+            bool repaired = false;
+
             while (enabled)
             {
                 if (_earth.EarthTrackingState == TrackingState.Tracking)
                 {
+                    untracked = 0;
                     TryFix();
                 }
                 else
@@ -188,6 +197,22 @@ namespace MarkerOne.Unity
                     // neither, and looks identical to a broken build.
                     Status = "enabled, not tracking (" + _earth.EarthTrackingState +
                              ") — pan across buildings and walk a few steps";
+
+                    untracked += Interval;
+
+                    // Somewhere past a minute of that, the advice has been
+                    // followed and it still has not localized, so this is not
+                    // the environment. Restart the extensions session once — the
+                    // repair that fixes a session which came up wrong — and if
+                    // it still will not track, at least say so rather than
+                    // waiting indefinitely with an encouraging message.
+                    if (!repaired && untracked > StuckAfterS)
+                    {
+                        repaired = true;
+                        Debug.LogWarning("MarkerOne: Earth enabled but not tracking after " +
+                                         untracked + "s — restarting ARCore Extensions once");
+                        yield return Reconfigure();
+                    }
                 }
                 yield return wait;
             }
@@ -246,11 +271,22 @@ namespace MarkerOne.Unity
             if (_askedAboutVps) { yield break; }
             if (Input.location.status != LocationServiceStatus.Running) { yield break; }
 
-            LocationInfo at = Input.location.lastData;
-            if (at.latitude == 0 && at.longitude == 0) { yield break; }
+            // lastData is empty for a second or two after the service starts
+            // running, and looking once landed inside that window.
+            float waited = 0;
+            while (waited < 10f)
+            {
+                LocationInfo at = Input.location.lastData;
+                if (at.latitude != 0 || at.longitude != 0)
+                {
+                    _askedAboutVps = true;
+                    yield return CheckVps(at.latitude, at.longitude);
+                    yield break;
+                }
 
-            _askedAboutVps = true;
-            yield return CheckVps(at.latitude, at.longitude);
+                waited += 0.5f;
+                yield return new WaitForSeconds(0.5f);
+            }
         }
 
         private IEnumerator CheckVps(double latitude, double longitude)
@@ -399,31 +435,57 @@ namespace MarkerOne.Unity
         }
 
         /// <summary>
-        /// The world heading of the session's forward axis.
+        /// The compass heading of the session's forward axis.
         ///
-        /// EunRotation is in East-Up-North: +X east, +Y up, +Z north. Unity's
-        /// render frame is East +X, Up +Y, North -Z — the same handedness with
-        /// north on the other axis — so a heading taken from EUN cannot be used
-        /// against session coordinates without accounting for that.
+        /// This is the one number the whole localization turns on: everything
+        /// written to the store is a local point rotated by it, so an error
+        /// here rotates every coordinate about wherever the session started,
+        /// by an amount that grows with distance from that point. It is also
+        /// invisible from inside a session — placing and rendering apply it in
+        /// opposite directions and cancel it exactly — which is why objects sat
+        /// where they were put while the coordinates behind them were wrong.
         ///
-        /// Rotating forward by EunRotation gives where the camera points in the
-        /// world; atan2(east, north) turns that into a compass heading. The
-        /// camera's own yaw within the session is the same direction expressed
-        /// in session terms. The difference is the offset between the two
-        /// frames, which is the one number the whole localization turns on.
+        /// It used to take a heading out of EunRotation by projecting a forward
+        /// vector, take a yaw out of the camera by reading eulerAngles.y, and
+        /// subtract. Two different extractions from two rotations, and they only
+        /// agree when the phone has no roll. Hold it tilted — which is how
+        /// anybody holds a phone while panning — and the two disagree by
+        /// degrees, which is metres once you have walked a little.
+        ///
+        /// Composing the rotations instead removes the question. EunRotation
+        /// takes camera-local to East-Up-North; the inverse of the camera's
+        /// rotation takes session-world to camera-local; together they take
+        /// session-world to EUN. Both frames are gravity-aligned, so that
+        /// composition is a pure yaw, and mapping the session's forward axis
+        /// through it gives a vector that is horizontal by construction. No
+        /// decomposition, no roll sensitivity, no gimbal lock, and nothing that
+        /// depends on how the phone is being held.
         /// </summary>
         private double? SessionYaw(GeospatialPose pose)
         {
             if (SessionCamera == null) { return null; }
 
-            Vector3 worldForward = pose.EunRotation * Vector3.forward;
-            double deviceHeading = Mathf.Atan2(worldForward.x, worldForward.z) * Mathf.Rad2Deg;
+            Quaternion sessionToEun =
+                pose.EunRotation * Quaternion.Inverse(SessionCamera.transform.rotation);
 
-            // Unity yaw runs clockwise seen from above, which is already the
-            // convention a compass heading uses.
-            double cameraYaw = SessionCamera.transform.eulerAngles.y;
+            // EUN: +X east, +Y up, +Z north. atan2(east, north) is a compass
+            // bearing, clockwise from north, which is what the core wants.
+            Vector3 forward = sessionToEun * Vector3.forward;
 
-            return ((deviceHeading - cameraYaw) % 360 + 360) % 360;
+            // Should be zero. It is worth knowing if it is not, because a
+            // composition that is not a pure yaw means one of the two rotations
+            // is not in the frame this assumes.
+            float tilt = Vector3.Angle(sessionToEun * Vector3.up, Vector3.up);
+            if (tilt > 5f && !_saidTilted)
+            {
+                _saidTilted = true;
+                Debug.LogWarning("MarkerOne: session-to-EUN rotation is tilted by " +
+                                 tilt.ToString("0.#") + "°, which it should not be. " +
+                                 "The heading derived from it will be off.");
+            }
+
+            double heading = Mathf.Atan2(forward.x, forward.z) * Mathf.Rad2Deg;
+            return (heading % 360 + 360) % 360;
         }
     }
 }
