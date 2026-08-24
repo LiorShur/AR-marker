@@ -67,6 +67,17 @@ namespace MarkerOne.Unity
 
         public bool Has(string id) => _made.TryGetValue(id, out ARGeospatialAnchor a) && a != null;
 
+        /// <summary>An anchor already made but not yet resolved. Acquire hands
+        /// back its transform once it starts tracking.</summary>
+        public Transform Tracked(string id)
+        {
+            if (!_made.TryGetValue(id, out ARGeospatialAnchor anchor) || anchor == null)
+            {
+                return null;
+            }
+            return anchor.trackingState == TrackingState.Tracking ? anchor.transform : null;
+        }
+
         private void Awake()
         {
             _anchors = FindFirstObjectByType<ARAnchorManager>();
@@ -147,7 +158,12 @@ namespace MarkerOne.Unity
 
                 _made[id] = anchor;
                 _failures = 0;
-                return anchor.transform;
+
+                // Made, but not yet worth using. A fresh anchor reports its
+                // pose before ARCore has resolved it, and that pose is the
+                // session origin — so attaching to it immediately teleports
+                // the object to wherever the session happened to start.
+                return anchor.trackingState == TrackingState.Tracking ? anchor.transform : null;
             }
             catch (Exception e)
             {

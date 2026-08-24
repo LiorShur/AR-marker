@@ -34,6 +34,11 @@ namespace MarkerOne.Unity
                + "anchored by ARCore rather than positioned from our frame.")]
         public GeospatialAnchors Anchors;
 
+        [Tooltip("Refuse an anchor that lands further than this from where the "
+               + "frame says the object is. An anchor is meant to be a better "
+               + "answer than the frame, not a different one.")]
+        public float AnchorAgreementM = 10f;
+
         [Header("Placement")]
         [Tooltip("Metres of query radius. Loading a city to render the three "
                + "things you can see is the obvious mistake.")]
@@ -78,6 +83,17 @@ namespace MarkerOne.Unity
             _onGlobe = new Dictionary<string, (double, double, double, double)>();
 
         private float _retry;
+
+        /// <summary>How many times each placement's anchor has been refused for
+        /// disagreeing with the frame. Counted rather than flagged so the
+        /// retrying stops: indoors every attempt disagrees, and creating and
+        /// destroying an anchor per placement per second forever is not a
+        /// fallback, it is a leak with a schedule.</summary>
+        private readonly Dictionary<string, int> _disagreed = new Dictionary<string, int>();
+
+        [Tooltip("Give up anchoring a placement after this many anchors land "
+               + "too far from where the frame puts it.")]
+        public int DisagreementsAllowed = 10;
         private IPlacementStore _store;
 
         /// <summary>How many of the known placements actually became objects.
@@ -223,12 +239,53 @@ namespace MarkerOne.Unity
 
             foreach (KeyValuePair<string, GameObject> entry in _spawned)
             {
-                if (entry.Value == null || Anchors.Has(entry.Key)) { continue; }
+                if (entry.Value == null) { continue; }
+
+                // Already attached — the anchor governs it now.
+                if (entry.Value.transform.parent != PlacementRoot) { continue; }
+
                 if (!_onGlobe.TryGetValue(entry.Key, out var at)) { continue; }
 
-                Transform anchor = Anchors.Acquire(entry.Key, at.Lat, at.Lon, at.Height, at.Heading);
+                _disagreed.TryGetValue(entry.Key, out int refused);
+                if (refused >= DisagreementsAllowed) { continue; }
+
+                // Made earlier but still resolving, or not made yet.
+                Transform anchor = Anchors.Has(entry.Key)
+                    ? Anchors.Tracked(entry.Key)
+                    : Anchors.Acquire(entry.Key, at.Lat, at.Lon, at.Height, at.Heading);
+
                 if (anchor == null) { continue; }
 
+                // Where the frame says this is. The object is still on the
+                // frame path, so its current position is exactly that.
+                Vector3 was = entry.Value.transform.position;
+                float apart = Vector3.Distance(was, anchor.position);
+
+                if (apart > AnchorAgreementM)
+                {
+                    // Not an improvement — a contradiction. Indoors, with no
+                    // VPS and weak GPS, ARCore will resolve an anchor tens of
+                    // metres out, and attaching to it makes the object vanish
+                    // rather than merely sit wrong. Dropped and retried; it
+                    // often agrees a few seconds later.
+                    _disagreed[entry.Key] = refused + 1;
+
+                    if (refused == 0 || refused + 1 == DisagreementsAllowed)
+                    {
+                        Debug.LogWarning(string.Format(
+                            "MarkerOne: anchor for {0} landed {1:0.#}m from where the frame " +
+                            "puts it, past the {2:0.#}m limit. {3}",
+                            entry.Key, apart, AnchorAgreementM,
+                            refused + 1 == DisagreementsAllowed
+                                ? "Giving up on anchoring this one."
+                                : "Staying on the frame and retrying."));
+                    }
+
+                    Anchors.Release(entry.Key);
+                    continue;
+                }
+
+                _disagreed[entry.Key] = 0;
                 entry.Value.transform.SetParent(anchor, false);
                 entry.Value.transform.localPosition = Vector3.zero;
                 entry.Value.transform.localRotation = Quaternion.identity;
@@ -390,6 +447,7 @@ namespace MarkerOne.Unity
                 if (entry.Value != null) { Destroy(entry.Value); }
                 Anchors?.Release(entry.Key);
                 _onGlobe.Remove(entry.Key);
+                _disagreed.Remove(entry.Key);
                 gone.Add(entry.Key);
             }
             foreach (string id in gone) { _spawned.Remove(id); }
