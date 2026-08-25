@@ -50,6 +50,7 @@ namespace MarkerOne.EditorTools
             int wired = WireRig(made);
             int added = EnsureManagers() + EnsureAnchors() + EnsureExtensionsOrigin();
             RetuneRig();
+            ZeroOrigin();
 
             AssetDatabase.SaveAssets();
 
@@ -137,6 +138,42 @@ namespace MarkerOne.EditorTools
             EditorUtility.SetDirty(rig);
             EditorSceneManager.MarkSceneDirty(rig.gameObject.scene);
             return 1;
+        }
+
+        /// <summary>
+        /// Move the XR Origin to the world origin.
+        ///
+        /// ARCore's Convert works in session space, which is the XR Origin's
+        /// trackables space. Session space and world space are the same thing
+        /// only while the XR Origin sits at zero, and nothing enforces that.
+        /// This one had been dragged about thirty metres, and every coordinate
+        /// written was thirty metres wrong, then read back and drawn thirty
+        /// metres wrong again, with a correctly resolved anchor holding it
+        /// faithfully in the wrong place.
+        ///
+        /// The conversion handles a displaced origin now. Zeroing it anyway,
+        /// because the amount of this project that reads more simply when the
+        /// two spaces coincide is considerable.
+        /// </summary>
+        private static void ZeroOrigin()
+        {
+            var origin = Object.FindFirstObjectByType<XROrigin>();
+            if (origin == null) { return; }
+
+            Transform t = origin.transform;
+            if (t.localPosition.sqrMagnitude < 0.0001f &&
+                Quaternion.Angle(t.localRotation, Quaternion.identity) < 0.1f)
+            {
+                return;
+            }
+
+            Debug.Log("MarkerOne: XR Origin was at " + t.localPosition + " — moved to zero.");
+            t.localPosition = Vector3.zero;
+            t.localRotation = Quaternion.identity;
+            t.localScale = Vector3.one;
+
+            EditorUtility.SetDirty(origin);
+            EditorSceneManager.MarkSceneDirty(origin.gameObject.scene);
         }
 
         /// <summary>

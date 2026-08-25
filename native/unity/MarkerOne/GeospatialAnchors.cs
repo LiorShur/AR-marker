@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Google.XR.ARCoreExtensions;
 using Unity.XR.CoreUtils;
 using UnityEngine;
+
 using UnityEngine.XR.ARFoundation;
 using UnityEngine.XR.ARSubsystems;
 
@@ -30,6 +31,21 @@ namespace MarkerOne.Unity
     {
         private ARAnchorManager _anchors;
         private AREarthManager _earth;
+
+        /// <summary>
+        /// What ARCore means by "session space".
+        ///
+        /// Convert takes and returns poses relative to the XR Origin's
+        /// trackables parent, not Unity's world. Those are the same thing only
+        /// while the XR Origin sits at the world origin, and nothing enforces
+        /// that — the moment it is dragged anywhere, every conversion is off by
+        /// however far it was dragged, in both directions at once.
+        ///
+        /// That is the thirty metres: coordinates written thirty metres wrong,
+        /// then read back and drawn thirty metres wrong again, with a correctly
+        /// resolved anchor faithfully holding the wrong position.
+        /// </summary>
+        private Transform _session;
         private readonly Dictionary<string, ARGeospatialAnchor> _made =
             new Dictionary<string, ARGeospatialAnchor>();
         private bool _complained;
@@ -84,6 +100,17 @@ namespace MarkerOne.Unity
             _anchors = FindFirstObjectByType<ARAnchorManager>();
             _earth = FindFirstObjectByType<AREarthManager>();
             EnsureExtensionsOrigin();
+
+            var origin = FindFirstObjectByType<XROrigin>();
+            _session = origin != null ? origin.TrackablesParent : null;
+
+            if (_session != null && _session.position.sqrMagnitude > 0.01f)
+            {
+                Debug.LogWarning("MarkerOne: the XR Origin is at " + _session.position +
+                                 " rather than the world origin. Handled, but it is worth " +
+                                 "zeroing — a great deal here reads more simply when session " +
+                                 "space and world space are the same thing.");
+            }
             if (_anchors == null)
             {
                 Debug.LogWarning("MarkerOne: no ARAnchorManager in the scene — placements " +
@@ -153,7 +180,10 @@ namespace MarkerOne.Unity
 
             try
             {
-                GeospatialPose at = _earth.Convert(new Pose(worldPoint, worldRotation));
+                // Into session space first. Handing Convert a world-space
+                // point is only correct while the XR Origin is at the world
+                // origin, and that is a coincidence rather than a rule.
+                GeospatialPose at = _earth.Convert(ToSession(worldPoint, worldRotation));
 
                 latitude = at.Latitude;
                 longitude = at.Longitude;
@@ -207,19 +237,19 @@ namespace MarkerOne.Unity
 
             try
             {
-                Pose here = _earth.Convert(Geo(latitude, longitude, height));
+                Vector3 here = ToWorld(_earth.Convert(Geo(latitude, longitude, height)));
 
                 // About eleven metres north. Far enough that the difference is
                 // not lost in the conversion, near enough that the curvature
                 // between them is irrelevant.
-                Pose north = _earth.Convert(Geo(latitude + 0.0001, longitude, height));
+                Vector3 north = ToWorld(_earth.Convert(Geo(latitude + 0.0001, longitude, height)));
 
-                Vector3 toNorth = north.position - here.position;
+                Vector3 toNorth = north - here;
                 toNorth.y = 0;
 
                 if (toNorth.sqrMagnitude < 1e-4f) { return false; }
 
-                position = here.position;
+                position = here;
                 northYawDeg = Mathf.Atan2(toNorth.x, toNorth.z) * Mathf.Rad2Deg;
                 return true;
             }
@@ -233,6 +263,21 @@ namespace MarkerOne.Unity
                 }
                 return false;
             }
+        }
+
+        private Pose ToSession(Vector3 worldPoint, Quaternion worldRotation)
+        {
+            if (_session == null) { return new Pose(worldPoint, worldRotation); }
+
+            return new Pose(_session.InverseTransformPoint(worldPoint),
+                            Quaternion.Inverse(_session.rotation) * worldRotation);
+        }
+
+        private Vector3 ToWorld(Pose sessionPose)
+        {
+            return _session == null
+                ? sessionPose.position
+                : _session.TransformPoint(sessionPose.position);
         }
 
         private static GeospatialPose Geo(double latitude, double longitude, double height)
