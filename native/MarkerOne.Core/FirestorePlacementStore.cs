@@ -21,6 +21,7 @@ namespace MarkerOne.Core
     public sealed class FirestorePlacementStore : IPlacementStore
     {
         private const string Identity = "https://identitytoolkit.googleapis.com/v1";
+        private const string SecureToken = "https://securetoken.googleapis.com/v1";
         private const string Firestore = "https://firestore.googleapis.com/v1";
         private const int MaxPerRange = 200;
 
@@ -54,13 +55,35 @@ namespace MarkerOne.Core
 
         // ── identity ─────────────────────────────────────────────
 
-        /// <summary>Anonymous sign-in gives every device a stable uid without
-        /// asking anyone for anything. It is not a security boundary — anyone
-        /// can mint one — so it answers "who wrote this", never "who is
-        /// allowed".</summary>
+        /// <summary>Reads back whatever WriteRefreshToken last saved, or null.
+        /// Supplied by the host, because where a device keeps a secret is not
+        /// something this assembly can know.</summary>
+        public Func<string> ReadRefreshToken { get; set; }
+
+        public Action<string> WriteRefreshToken { get; set; }
+
+        /// <summary>
+        /// Anonymous sign-in identifies the device without asking anyone for
+        /// anything. It is not a security boundary — anyone can mint one — so
+        /// it answers "who wrote this", never "who is allowed".
+        ///
+        /// accounts:signUp creates a *new* user every time it is called, so
+        /// without somewhere to keep the refresh token the uid lasts exactly
+        /// one launch. Everything the device placed yesterday then belongs to a
+        /// stranger: it cannot be edited, cannot be deleted, and "the owner may
+        /// remove their own placement" is a rule that can never once be
+        /// satisfied. Which is what "0 removed, 5 refused" was.
+        /// </summary>
         public async Task<string> SignInAsync(CancellationToken cancel = default)
         {
             if (_idToken != null && DateTimeOffset.UtcNow < _tokenExpires.AddMinutes(-1))
+            {
+                return _idToken;
+            }
+
+            string refresh = ReadRefreshToken?.Invoke();
+            if (!string.IsNullOrEmpty(refresh) &&
+                await TryRefreshAsync(refresh, cancel).ConfigureAwait(false))
             {
                 return _idToken;
             }
@@ -74,6 +97,7 @@ namespace MarkerOne.Core
             Json root = await SendAsync(request, cancel).ConfigureAwait(false);
             _idToken = root["idToken"].AsString;
             Uid = root["localId"].AsString;
+            WriteRefreshToken?.Invoke(root["refreshToken"].AsString);
 
             // expiresIn arrives as a string of seconds.
             double seconds = 3600;
@@ -86,6 +110,51 @@ namespace MarkerOne.Core
             _tokenExpires = DateTimeOffset.UtcNow.AddSeconds(seconds);
 
             return _idToken;
+        }
+
+        /// <summary>Trade a saved refresh token for a live one, keeping the uid
+        /// that came with it. False on any failure — a refresh token can be
+        /// revoked or simply stale, and the remedy is a new anonymous user, not
+        /// an error the caller has to think about.</summary>
+        private async Task<bool> TryRefreshAsync(string refresh, CancellationToken cancel)
+        {
+            try
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Post,
+                    $"{SecureToken}/token?key={Uri.EscapeDataString(_apiKey)}")
+                {
+                    Content = Body(Json.Object()
+                        .Set("grant_type", Json.Of("refresh_token"))
+                        .Set("refresh_token", Json.Of(refresh)))
+                };
+
+                Json root = await SendAsync(request, cancel).ConfigureAwait(false);
+
+                string token = root["id_token"].AsString;
+                string uid = root["user_id"].AsString;
+                if (string.IsNullOrEmpty(token) || string.IsNullOrEmpty(uid)) { return false; }
+
+                _idToken = token;
+                Uid = uid;
+
+                double seconds = 3600;
+                string raw = root["expires_in"].AsString;
+                if (raw != null && double.TryParse(raw, NumberStyles.Any,
+                        CultureInfo.InvariantCulture, out double parsed))
+                {
+                    seconds = parsed;
+                }
+                _tokenExpires = DateTimeOffset.UtcNow.AddSeconds(seconds);
+
+                string rotated = root["refresh_token"].AsString;
+                if (!string.IsNullOrEmpty(rotated)) { WriteRefreshToken?.Invoke(rotated); }
+
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
         }
 
         // ── reading ──────────────────────────────────────────────

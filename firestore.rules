@@ -20,6 +20,21 @@ service cloud.firestore {
 
     match /placements/{placement} {
 
+      // ── development ────────────────────────────────────────────
+      // Delete this block, and every isDeveloper() below it, before anyone
+      // else uses this.
+      //
+      // It exists because clearing the collection between tests is otherwise a
+      // trip to the Firebase console, and a test run that cannot start from
+      // nothing is a test run whose result means very little. It is a named
+      // uid rather than "any signed-in caller" so that the hole is exactly one
+      // device wide and obvious in a diff.
+      //
+      // Paste the uid the app shows on its Uid line. It is stable across
+      // launches now that the refresh token is kept; before that it was a
+      // different uid every launch, which is why deleting your own placements
+      // never once worked.
+
       allow read: if resource.data.visibility == 'public'
                   || (request.auth != null && request.auth.uid == resource.data.owner);
 
@@ -36,7 +51,7 @@ service cloud.firestore {
                     && isWellFormed(request.resource.data);
 
       allow delete: if request.auth != null
-                    && resource.data.owner == request.auth.uid;
+                    && (resource.data.owner == request.auth.uid || isDeveloper());
     }
 
     // Anything not named above is closed. Collections get rules deliberately
@@ -44,6 +59,13 @@ service cloud.firestore {
     match /{document=**} {
       allow read, write: if false;
     }
+  }
+
+  // ── development ──────────────────────────────────────────────
+  // Remove along with the note above. An empty string matches nobody, so the
+  // rules are safe to deploy before the uid is filled in.
+  function isDeveloper() {
+    return request.auth.uid == '';
   }
 
   function isWellFormed(data) {

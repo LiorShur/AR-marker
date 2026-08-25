@@ -94,6 +94,10 @@ namespace MarkerOne.Unity
         /// </summary>
         public bool CanPlace => Session != null && Session.Frame != null;
 
+        /// <summary>This device's anonymous uid, shown so it can be pasted into
+        /// a rule. Stable across launches now that the refresh token is kept.</summary>
+        public string Uid => _store?.Uid;
+
         private readonly Dictionary<string, GameObject> _spawned = new Dictionary<string, GameObject>();
         private readonly HashSet<string> _unknownScenes = new HashSet<string>();
 
@@ -171,7 +175,19 @@ namespace MarkerOne.Unity
                 return;
             }
 
-            _store = new FirestorePlacementStore(ProjectId, ApiKey);
+            // PlayerPrefs, so the device keeps the same anonymous identity
+            // across launches. Without it every launch is a different person
+            // and nothing you placed yesterday is yours.
+            const string kept = "MarkerOne.RefreshToken";
+            _store = new FirestorePlacementStore(ProjectId, ApiKey)
+            {
+                ReadRefreshToken = () => PlayerPrefs.GetString(kept, null),
+                WriteRefreshToken = token =>
+                {
+                    PlayerPrefs.SetString(kept, token ?? "");
+                    PlayerPrefs.Save();
+                }
+            };
             Session = new WorldSession(_store, () => Floor != null ? Floor.Floor : 0)
             {
                 RadiusM = RadiusM,
