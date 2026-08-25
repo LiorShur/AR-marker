@@ -462,6 +462,31 @@ namespace MarkerOne.Core
             Reproject();
         }
 
+        /// <summary>
+        /// Write better coordinates for something already placed.
+        ///
+        /// For a caller that can re-derive the position of a placement it made
+        /// — the same physical spot, converted again once the device knows more
+        /// about where it is. Distinct from the frame's own correction pass,
+        /// which re-derives from the frame; this takes an answer from outside.
+        /// </summary>
+        public async Task RepositionAsync(string id, GeoPoint position, double headingDeg,
+            double groundOffset, CancellationToken cancel = default)
+        {
+            await _store.MoveAsync(id, position, headingDeg, groundOffset, cancel)
+                        .ConfigureAwait(false);
+
+            Placement stored = _placements.FirstOrDefault(p => p.Id == id);
+            if (stored != null)
+            {
+                stored.Position = position;
+                stored.Orientation = Geodesy.HeadingToQuaternion(headingDeg);
+                stored.GroundOffset = groundOffset;
+            }
+
+            Reproject();
+        }
+
         public async Task RemoveAsync(string id, CancellationToken cancel = default)
         {
             await _store.RemoveAsync(id, cancel).ConfigureAwait(false);

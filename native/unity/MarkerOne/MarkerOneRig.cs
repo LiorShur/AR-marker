@@ -105,6 +105,24 @@ namespace MarkerOne.Unity
 
         private float _retry;
         private float _refetch;
+        private float _recheck;
+
+        /// <summary>Placements made in this session, against the physical spot
+        /// they were aimed at. ARKit holds that spot steady in session
+        /// coordinates all session; what moves underneath it is ARCore's idea
+        /// of where the session is on the globe.</summary>
+        private readonly Dictionary<string, (Vector3 Point, Quaternion Rotation, float Ground)>
+            _mine = new Dictionary<string, (Vector3, Quaternion, float)>();
+
+        [Tooltip("Rewrite a placement's coordinates when re-converting the spot "
+               + "it was aimed at moves by more than this. ARCore revises its "
+               + "solution as it re-localizes, and a coordinate written before "
+               + "a revision is stale by the size of it.")]
+        public double RewriteOverM = 1.0;
+
+        [Tooltip("Seconds between checking placements made this session against "
+               + "ARCore's current answer.")]
+        public float RecheckAfterS = 5f;
 
         /// <summary>How many times each placement's anchor has been refused for
         /// disagreeing with the frame. Counted rather than flagged so the
@@ -231,9 +249,77 @@ namespace MarkerOne.Unity
             return true;
         }
 
+        /// <summary>
+        /// Re-convert what this session placed, and rewrite it if the answer
+        /// has moved.
+        ///
+        /// ARCore does not hold still. It re-solves against VPS, and when it
+        /// re-localizes the whole session shifts on the globe — reportedly by
+        /// fifteen metres, consistently eastward, some seconds after placing.
+        /// A coordinate written before such a revision is stale by the size of
+        /// it, and the accuracy figure alongside it is a confidence rather than
+        /// an error bar.
+        ///
+        /// The physical spot does not move: ARKit holds it steady in session
+        /// coordinates. So converting it again later asks the same question of
+        /// a device that now knows more, and the difference between the two
+        /// answers is exactly what the revision was.
+        /// </summary>
+        private void Rewrite()
+        {
+            if (Session == null || Anchors == null || _mine.Count == 0) { return; }
+
+            _recheck -= Time.unscaledDeltaTime;
+            if (_recheck > 0) { return; }
+            _recheck = RecheckAfterS;
+
+            foreach (KeyValuePair<string, (Vector3 Point, Quaternion Rotation, float Ground)> mine
+                     in new List<KeyValuePair<string, (Vector3, Quaternion, float)>>(_mine))
+            {
+                if (!Anchors.TryGlobal(mine.Value.Point, mine.Value.Rotation,
+                                       out double lat, out double lon,
+                                       out double height, out double headingDeg))
+                {
+                    continue;
+                }
+
+                if (!_onGlobe.TryGetValue(mine.Key, out var was)) { continue; }
+
+                double moved = Geodesy.Haversine(new GeoPoint(was.Lat, was.Lon),
+                                                 new GeoPoint(lat, lon));
+                if (moved < RewriteOverM) { continue; }
+
+                Debug.Log(string.Format("MarkerOne: ARCore has moved {0} by {1:0.#}m since it " +
+                                        "was placed — rewriting.", mine.Key, moved));
+
+                Correct(mine.Key, lat, lon, height, headingDeg,
+                        mine.Value.Ground - (float)(Floor != null ? Floor.Floor : 0));
+            }
+        }
+
+        private async void Correct(string id, double lat, double lon, double height,
+                                   double headingDeg, double groundOffset)
+        {
+            try
+            {
+                await Session.RepositionAsync(id, new GeoPoint(lat, lon, height),
+                                              headingDeg, groundOffset);
+
+                // The anchor was made from the old coordinates and is now
+                // holding the wrong place. Dropped so the next pass makes one
+                // from the new ones.
+                Anchors.Release(id);
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning("MarkerOne: could not rewrite " + id + " — " + e.Message);
+            }
+        }
+
         private void Update()
         {
             Retry();
+            Rewrite();
             Anchor();
 
             // Placements that ARCore can locate but has not yet anchored are
@@ -507,8 +593,13 @@ namespace MarkerOne.Unity
                                       out double lat, out double lon,
                                       out double height, out double headingDeg))
                 {
-                    await Session.PlaceAtAsync(scene, new GeoPoint(lat, lon, height),
-                                               headingDeg, local, label);
+                    Placement written = await Session.PlaceAtAsync(
+                        scene, new GeoPoint(lat, lon, height), headingDeg, local, label);
+
+                    if (written?.Id != null)
+                    {
+                        _mine[written.Id] = (localPoint, rotation, (float)localPoint.y);
+                    }
                 }
                 else
                 {
@@ -654,6 +745,7 @@ namespace MarkerOne.Unity
                 _onGlobe.Remove(entry.Key);
                 _disagreed.Remove(entry.Key);
                 _groundY.Remove(entry.Key);
+                _mine.Remove(entry.Key);
                 gone.Add(entry.Key);
             }
             foreach (string id in gone) { _spawned.Remove(id); }

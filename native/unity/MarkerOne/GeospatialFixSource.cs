@@ -528,25 +528,42 @@ namespace MarkerOne.Unity
             if (_basis < 0 || bestTilt > 5f)
             {
                 int chose = -1;
+                float runnerUp = float.MaxValue;
 
                 for (int i = 0; i < Bases.Length; i++)
                 {
                     Quaternion candidate = pose.EunRotation * Bases[i] * camera;
                     float tilt = Vector3.Angle(candidate * Vector3.up, Vector3.up);
 
-                    if (tilt >= bestTilt) { continue; }
-
-                    bestTilt = tilt;
-                    best = candidate;
-                    chose = i;
+                    if (tilt < bestTilt)
+                    {
+                        runnerUp = bestTilt;
+                        bestTilt = tilt;
+                        best = candidate;
+                        chose = i;
+                    }
+                    else if (tilt < runnerUp)
+                    {
+                        runnerUp = tilt;
+                    }
                 }
 
-                // Adopted only on a convincing fit. A marginal one is more
-                // likely to be a bad sample than a real basis.
-                if (bestTilt <= 2f && chose != _basis)
+                // Adopted only on a fit that is both convincing and unambiguous.
+                //
+                // The candidates differ by rolls about the view axis, and a
+                // roll about the view axis barely moves "up" when that axis is
+                // near vertical — which is to say, whenever the phone is
+                // pointed at the ground. Several candidates then tie, gravity
+                // cannot separate them, and taking the narrow winner made the
+                // basis flip between 0 and 1 every couple of seconds while
+                // every choice was ninety degrees from the last.
+                //
+                // Ambiguity is a reason to keep what we have, not to guess.
+                if (bestTilt <= 2f && runnerUp - bestTilt > 5f && chose != _basis)
                 {
                     Debug.Log("MarkerOne: camera basis " + chose + " fits, tilt " +
-                              bestTilt.ToString("0.#") + "° (was " + _basis + ")");
+                              bestTilt.ToString("0.#") + "° (next " +
+                              runnerUp.ToString("0.#") + "°, was " + _basis + ")");
                     _basis = chose;
                     _saidTilted = false;
                 }
