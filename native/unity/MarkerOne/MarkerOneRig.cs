@@ -485,6 +485,45 @@ namespace MarkerOne.Unity
             }
         }
 
+        /// <summary>
+        /// Delete everything this session can see.
+        ///
+        /// Every reading is confounded until this exists. The placements
+        /// currently in the store were written by a frame that was wrong in
+        /// ways since fixed, so they sit tens of metres from where they were
+        /// left — and a test that cannot tell a bad coordinate from a bad
+        /// renderer is not a test.
+        ///
+        /// The store's rules decide what is actually allowed to go; anything
+        /// refused is counted rather than hidden.
+        /// </summary>
+        public async void ClearAll()
+        {
+            if (Session == null) { return; }
+
+            var ids = new List<string>(_spawned.Keys);
+            int gone = 0;
+            int refused = 0;
+
+            foreach (string id in ids)
+            {
+                try
+                {
+                    await Session.RemoveAsync(id);
+                    gone++;
+                }
+                catch (Exception e)
+                {
+                    refused++;
+                    Debug.LogWarning("MarkerOne: could not remove " + id + " — " + e.Message);
+                }
+            }
+
+            string said = gone + " removed" + (refused > 0 ? ", " + refused + " refused" : "");
+            Debug.Log("MarkerOne: " + said);
+            Placed?.Invoke(refused == 0, said);
+        }
+
         public async void Remove(string id)
         {
             if (Session == null) { return; }

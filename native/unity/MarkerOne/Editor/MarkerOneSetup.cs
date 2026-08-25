@@ -49,6 +49,7 @@ namespace MarkerOne.EditorTools
 
             int wired = WireRig(made);
             int added = EnsureManagers() + EnsureAnchors() + EnsureExtensionsOrigin();
+            RetuneRig();
 
             AssetDatabase.SaveAssets();
 
@@ -136,6 +137,44 @@ namespace MarkerOne.EditorTools
             EditorUtility.SetDirty(rig);
             EditorSceneManager.MarkSceneDirty(rig.gameObject.scene);
             return 1;
+        }
+
+        /// <summary>
+        /// Put the rig's tuning back to what the code says.
+        ///
+        /// A public field on a MonoBehaviour is serialized into the scene the
+        /// first time the component is added, and the value in the scene wins
+        /// forever after. Changing a default in code therefore does nothing to
+        /// a component that already exists — silently, with the inspector
+        /// showing the old number and the source showing the new one.
+        ///
+        /// This cost two builds: the anchor agreement limit was raised from ten
+        /// metres to fifty, the device went on refusing anchors at ten, and the
+        /// log went on saying "past the 10m limit" while the source said 50.
+        /// </summary>
+        private static void RetuneRig()
+        {
+            var rig = Object.FindFirstObjectByType<MarkerOneRig>();
+            if (rig == null) { return; }
+
+            var fresh = new GameObject("defaults").AddComponent<MarkerOneRig>();
+            try
+            {
+                rig.AnchorAgreementM = fresh.AnchorAgreementM;
+                rig.DisagreementsAllowed = fresh.DisagreementsAllowed;
+                rig.MinFixes = fresh.MinFixes;
+                rig.ImprovementRatio = fresh.ImprovementRatio;
+                rig.RetryAfterS = fresh.RetryAfterS;
+            }
+            finally
+            {
+                Object.DestroyImmediate(fresh.gameObject);
+            }
+
+            EditorUtility.SetDirty(rig);
+            EditorSceneManager.MarkSceneDirty(rig.gameObject.scene);
+            Debug.Log("MarkerOne: rig tuning reset to code defaults — anchor agreement " +
+                      rig.AnchorAgreementM + "m");
         }
 
         /// <summary>ARCoreExtensions.Origin is read by exactly one thing —

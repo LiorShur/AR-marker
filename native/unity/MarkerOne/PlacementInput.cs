@@ -46,6 +46,7 @@ namespace MarkerOne.Unity
         private string _label = "";
         private string _said;
         private float _saidUntil;
+        private float _clearArmedUntil;
 
         private Vector3 _target;
         private bool _onSurface;
@@ -156,7 +157,7 @@ namespace MarkerOne.Unity
             GUI.DrawTexture(bar, _panel);
 
             float x = bar.x + pad;
-            float w = (bar.width - pad * 4) / 3;
+            float w = (bar.width - pad * 5) / 4;
             var row = new Rect(x, bar.y + pad * 0.5f, w, line);
 
             if (GUI.Button(row, SceneId() ?? "—", _button))
@@ -171,6 +172,24 @@ namespace MarkerOne.Unity
             if (GUI.Button(row, "Place", _button))
             {
                 Place();
+            }
+
+            // Two taps, because it deletes everything and a stray thumb on a
+            // phone held at arm's length is not a decision.
+            row.x += w + pad;
+            bool arming = Time.unscaledTime < _clearArmedUntil;
+            if (GUI.Button(row, arming ? "Sure?" : "Clear", _button))
+            {
+                if (arming)
+                {
+                    _clearArmedUntil = 0;
+                    if (_rig != null) { _rig.ClearAll(); }
+                    Say("clearing…");
+                }
+                else
+                {
+                    _clearArmedUntil = Time.unscaledTime + 4f;
+                }
             }
 
             // What the crosshair is over, and what just happened.
