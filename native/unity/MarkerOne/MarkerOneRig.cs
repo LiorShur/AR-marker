@@ -97,6 +97,11 @@ namespace MarkerOne.Unity
         /// fallback, it is a leak with a schedule.</summary>
         private readonly Dictionary<string, int> _disagreed = new Dictionary<string, int>();
 
+        /// <summary>The session-space height each placement belongs at: the
+        /// floor this session measured plus the offset it was left at. Held
+        /// against the anchor every frame, not set once — see Update.</summary>
+        private readonly Dictionary<string, float> _groundY = new Dictionary<string, float>();
+
         [Tooltip("Give up anchoring a placement after this many anchors land "
                + "too far from where the frame puts it.")]
         public int DisagreementsAllowed = 10;
@@ -194,6 +199,25 @@ namespace MarkerOne.Unity
             foreach (KeyValuePair<string, GameObject> entry in _spawned)
             {
                 if (entry.Value == null) { continue; }
+
+                // Hold the height against the anchor, every frame.
+                //
+                // Setting it once at attach was not enough: the object is a
+                // child of the anchor, so once ARCore starts refining that
+                // anchor's pose the height goes with it. Placements made where
+                // the altitude was poor came back sixteen metres in the air —
+                // horizontally right, and unreachable.
+                //
+                // Horizontally the anchor, vertically the floor, continuously.
+                if (entry.Value.transform.parent != PlacementRoot &&
+                    _groundY.TryGetValue(entry.Key, out float ground))
+                {
+                    Vector3 at = entry.Value.transform.position;
+                    if (Mathf.Abs(at.y - ground) > 0.01f)
+                    {
+                        entry.Value.transform.position = new Vector3(at.x, ground, at.z);
+                    }
+                }
 
                 Vector3 offset = entry.Value.transform.position - eye;
                 float distance = offset.sqrMagnitude;
@@ -477,6 +501,7 @@ namespace MarkerOne.Unity
 
                 _onGlobe[item.Id] = (item.Position.Lat, item.Position.Lon,
                                      item.Position.Height, item.HeadingDeg);
+                _groundY[item.Id] = (float)item.Local.Y;
 
                 // An anchored object is ARCore's to position. Writing the
                 // frame's answer over it every refresh would undo exactly the
@@ -508,6 +533,7 @@ namespace MarkerOne.Unity
                 Anchors?.Release(entry.Key);
                 _onGlobe.Remove(entry.Key);
                 _disagreed.Remove(entry.Key);
+                _groundY.Remove(entry.Key);
                 gone.Add(entry.Key);
             }
             foreach (string id in gone) { _spawned.Remove(id); }

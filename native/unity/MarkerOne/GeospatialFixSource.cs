@@ -500,43 +500,67 @@ namespace MarkerOne.Unity
             if (SessionCamera == null) { return null; }
 
             Quaternion camera = Quaternion.Inverse(SessionCamera.transform.rotation);
+            Quaternion best;
+            float bestTilt;
 
-            Quaternion best = Quaternion.identity;
-            float bestTilt = float.MaxValue;
-            int chose = -1;
-
-            for (int i = 0; i < Bases.Length; i++)
+            if (_basis >= 0)
             {
-                Quaternion candidate = pose.EunRotation * Bases[i] * camera;
-                float tilt = Vector3.Angle(candidate * Vector3.up, Vector3.up);
+                // Already established. The basis is a property of the device
+                // and its screen orientation, not of the moment, so it is not
+                // re-derived per sample — and must not be. A pose read while
+                // Earth's tracking is poor can be stale relative to the camera
+                // transform beside it, and searching again on that sample picks
+                // whichever candidate best fits a momentary disagreement. On
+                // the device the tilt ran 0.6° and then 38.9° in one session;
+                // re-searching would have quietly adopted a different basis
+                // rather than rejecting the reading.
+                best = pose.EunRotation * Bases[_basis] * camera;
+                bestTilt = Vector3.Angle(best * Vector3.up, Vector3.up);
+            }
+            else
+            {
+                best = Quaternion.identity;
+                bestTilt = float.MaxValue;
+                int chose = -1;
 
-                if (tilt >= bestTilt) { continue; }
+                for (int i = 0; i < Bases.Length; i++)
+                {
+                    Quaternion candidate = pose.EunRotation * Bases[i] * camera;
+                    float tilt = Vector3.Angle(candidate * Vector3.up, Vector3.up);
 
-                bestTilt = tilt;
-                best = candidate;
-                chose = i;
+                    if (tilt >= bestTilt) { continue; }
+
+                    bestTilt = tilt;
+                    best = candidate;
+                    chose = i;
+                }
+
+                // Locked in only on a convincing fit. A marginal one is more
+                // likely to be a bad sample than a real basis.
+                if (bestTilt <= 2f)
+                {
+                    _basis = chose;
+                    Debug.Log("MarkerOne: camera basis " + chose + " fits, tilt " +
+                              bestTilt.ToString("0.#") + "°");
+                }
             }
 
             SessionTiltDeg = bestTilt;
 
             if (bestTilt > 5f)
             {
+                // Per-sample quality, not a verdict on the basis. Reject the
+                // reading and wait for a better one; the core falls back to the
+                // walked baseline while there is nothing trustworthy.
                 if (!_saidTilted)
                 {
                     _saidTilted = true;
-                    Debug.LogWarning("MarkerOne: no camera basis makes the session-to-EUN " +
-                                     "rotation a pure yaw — the closest is still tilted by " +
-                                     bestTilt.ToString("0.#") + "°. Falling back to the " +
-                                     "walked baseline for heading; walk twenty metres or so.");
+                    Debug.LogWarning("MarkerOne: session-to-EUN rotation tilted by " +
+                                     bestTilt.ToString("0.#") + "° — the pose and the camera " +
+                                     "disagree, so this fix carries no heading. Falling back " +
+                                     "to the walked baseline; walk twenty metres or so.");
                 }
                 return null;
-            }
-
-            if (chose != _basis)
-            {
-                _basis = chose;
-                Debug.Log("MarkerOne: camera basis " + chose + " fits, tilt " +
-                          bestTilt.ToString("0.#") + "°");
             }
 
             // EUN: +X east, +Y up, +Z north. atan2(east, north) is a compass

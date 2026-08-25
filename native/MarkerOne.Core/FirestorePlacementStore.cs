@@ -246,27 +246,101 @@ namespace MarkerOne.Core
             }
         }
 
+        /// <summary>How many times to send a request before giving up.</summary>
+        public int Attempts { get; set; } = 3;
+
+        /// <summary>Milliseconds before the second attempt; doubled thereafter.</summary>
+        public int BackoffMs { get; set; } = 400;
+
+        /// <summary>
+        /// Send, and try again when the failure was the network rather than the
+        /// answer.
+        ///
+        /// A phone being carried around loses its connection constantly, and a
+        /// dropped request was costing a placement outright — "could not place"
+        /// on something the user had just aimed at and committed to. One retry
+        /// makes almost all of those succeed.
+        ///
+        /// Retryable means the transport failed, the request timed out, or the
+        /// server said 5xx or 429. A 400 or a 403 will say exactly the same
+        /// thing the second time, and repeating it only delays the report.
+        /// </summary>
         private async Task<Json> SendAsync(HttpRequestMessage request, CancellationToken cancel)
         {
-            HttpResponseMessage response = await _http.SendAsync(request, cancel).ConfigureAwait(false);
-            string text = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            // Everything needed to build the request again. A
+            // HttpRequestMessage cannot be sent twice, and its content stream
+            // is consumed by the first attempt.
+            HttpMethod method = request.Method;
+            Uri uri = request.RequestUri;
+            var headers = new List<KeyValuePair<string, IEnumerable<string>>>(request.Headers);
+            string body = request.Content == null
+                ? null
+                : await request.Content.ReadAsStringAsync().ConfigureAwait(false);
 
-            if (!response.IsSuccessStatusCode)
+            Exception last = null;
+
+            for (int attempt = 0; attempt < Math.Max(1, Attempts); attempt++)
             {
-                string detail = text;
+                if (attempt > 0)
+                {
+                    await Task.Delay(BackoffMs << (attempt - 1), cancel).ConfigureAwait(false);
+                }
+
+                using var send = new HttpRequestMessage(method, uri);
+                foreach (KeyValuePair<string, IEnumerable<string>> header in headers)
+                {
+                    send.Headers.TryAddWithoutValidation(header.Key, header.Value);
+                }
+                if (body != null)
+                {
+                    send.Content = new StringContent(body, Encoding.UTF8, "application/json");
+                }
+
+                HttpResponseMessage response;
                 try
                 {
-                    string message = Json.Parse(text)["error"]["message"].AsString;
-                    if (message != null) { detail = message; }
+                    response = await _http.SendAsync(send, cancel).ConfigureAwait(false);
                 }
-                catch { /* the body was not JSON; the status will do */ }
+                catch (HttpRequestException e)
+                {
+                    last = e;
+                    continue;
+                }
+                catch (TaskCanceledException e) when (!cancel.IsCancellationRequested)
+                {
+                    last = e;
+                    continue;
+                }
 
-                throw new HttpRequestException(
-                    $"{request.Method} {request.RequestUri?.AbsolutePath} failed: " +
-                    $"{(int)response.StatusCode} {detail}");
+                using (response)
+                {
+                    string text = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+                    if (response.IsSuccessStatusCode)
+                    {
+                        return Json.Parse(string.IsNullOrEmpty(text) ? "{}" : text);
+                    }
+
+                    string detail = text;
+                    try
+                    {
+                        string message = Json.Parse(text)["error"]["message"].AsString;
+                        if (message != null) { detail = message; }
+                    }
+                    catch { /* the body was not JSON; the status will do */ }
+
+                    var failed = new HttpRequestException(
+                        $"{method} {uri?.AbsolutePath} failed: " +
+                        $"{(int)response.StatusCode} {detail}");
+
+                    int status = (int)response.StatusCode;
+                    if (status < 500 && status != 429) { throw failed; }
+
+                    last = failed;
+                }
             }
 
-            return Json.Parse(string.IsNullOrEmpty(text) ? "{}" : text);
+            throw last ?? new HttpRequestException($"{method} {uri?.AbsolutePath} failed");
         }
 
         private static StringContent Body(Json value) =>
