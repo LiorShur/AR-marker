@@ -503,24 +503,30 @@ namespace MarkerOne.Unity
             Quaternion best;
             float bestTilt;
 
+            best = Quaternion.identity;
+            bestTilt = float.MaxValue;
+
             if (_basis >= 0)
             {
-                // Already established. The basis is a property of the device
-                // and its screen orientation, not of the moment, so it is not
-                // re-derived per sample — and must not be. A pose read while
-                // Earth's tracking is poor can be stale relative to the camera
-                // transform beside it, and searching again on that sample picks
-                // whichever candidate best fits a momentary disagreement. On
-                // the device the tilt ran 0.6° and then 38.9° in one session;
-                // re-searching would have quietly adopted a different basis
-                // rather than rejecting the reading.
                 best = pose.EunRotation * Bases[_basis] * camera;
                 bestTilt = Vector3.Angle(best * Vector3.up, Vector3.up);
             }
-            else
+
+            // Re-derive when the established basis stops working.
+            //
+            // It is a property of the device *and its screen orientation*, and
+            // the second half of that changes while the app runs. On the device
+            // the tilt read 0.9° and then 86.8° in one session — not a stale
+            // pose, a quarter turn, which is exactly what rotating the phone
+            // between portrait and landscape does to the camera's frame.
+            // Locking the basis on first fit meant every heading after a
+            // rotation was ninety degrees wrong.
+            //
+            // Searching again is safe because adopting is still gated on a
+            // convincing fit: a momentary disagreement leaves every candidate
+            // tilted and nothing is adopted.
+            if (_basis < 0 || bestTilt > 5f)
             {
-                best = Quaternion.identity;
-                bestTilt = float.MaxValue;
                 int chose = -1;
 
                 for (int i = 0; i < Bases.Length; i++)
@@ -535,13 +541,14 @@ namespace MarkerOne.Unity
                     chose = i;
                 }
 
-                // Locked in only on a convincing fit. A marginal one is more
+                // Adopted only on a convincing fit. A marginal one is more
                 // likely to be a bad sample than a real basis.
-                if (bestTilt <= 2f)
+                if (bestTilt <= 2f && chose != _basis)
                 {
-                    _basis = chose;
                     Debug.Log("MarkerOne: camera basis " + chose + " fits, tilt " +
-                              bestTilt.ToString("0.#") + "°");
+                              bestTilt.ToString("0.#") + "° (was " + _basis + ")");
+                    _basis = chose;
+                    _saidTilted = false;
                 }
             }
 

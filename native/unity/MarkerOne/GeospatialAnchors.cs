@@ -218,11 +218,19 @@ namespace MarkerOne.Unity
                 _made[id] = anchor;
                 _failures = 0;
 
-                // Made, but not yet worth using. A fresh anchor reports its
-                // pose before ARCore has resolved it, and that pose is the
-                // session origin — so attaching to it immediately teleports
-                // the object to wherever the session happened to start.
-                return anchor.trackingState == TrackingState.Tracking ? anchor.transform : null;
+                // Never on the tick it was created.
+                //
+                // A fresh anchor reports a pose before ARCore has posed it, and
+                // that pose is the session origin. trackingState is not enough
+                // of a guard: it can already read Tracking while the transform
+                // has not been written this frame. Measuring then made every
+                // anchor look like it had landed roughly as far away as the
+                // object was from where the session started — which is what
+                // twenty-five and forty-two metre disagreements were.
+                //
+                // Tracked() picks it up on the next pass, a second later, by
+                // which time ARCore has had frames to place it.
+                return null;
             }
             catch (Exception e)
             {
