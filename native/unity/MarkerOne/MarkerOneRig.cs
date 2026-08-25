@@ -34,11 +34,11 @@ namespace MarkerOne.Unity
                + "anchored by ARCore rather than positioned from our frame.")]
         public GeospatialAnchors Anchors;
 
-        [Tooltip("Refuse an anchor whose horizontal position lands further than "
-               + "this from where the frame says the object is. An anchor is "
-               + "meant to be a better answer than the frame, not a different "
-               + "one. Horizontal only — see Anchor().")]
-        public float AnchorAgreementM = 10f;
+        [Tooltip("Refuse an anchor that lands further than this from where the "
+               + "frame says the object is. Generous on purpose: the frame is "
+               + "the doubtful party, so this guards against an absurd anchor "
+               + "rather than adjudicating between two credible answers.")]
+        public float AnchorAgreementM = 50f;
 
         [Header("Placement")]
         [Tooltip("Metres of query radius. Loading a city to render the three "
@@ -453,10 +453,29 @@ namespace MarkerOne.Unity
 
             Floor?.Observe(localPoint.y);
 
+            var local = new Vec3(localPoint.x, localPoint.y, localPoint.z);
+            var rotation = Quaternion.Euler(0, (float)(yaw * Mathf.Rad2Deg), 0);
+
             try
             {
-                await Session.PlaceAsync(scene,
-                    new Vec3(localPoint.x, localPoint.y, localPoint.z), yaw, label);
+                // ARCore first. It converts this point to a latitude and
+                // longitude with the solution it is still refining; the frame
+                // converts it with one averaged out of a handful of fixes and
+                // then frozen. Coordinates are written once and are wrong
+                // forever, so this is the moment it matters most.
+                if (Anchors != null &&
+                    Anchors.TryGlobal(localPoint, rotation,
+                                      out double lat, out double lon,
+                                      out double height, out double headingDeg))
+                {
+                    await Session.PlaceAtAsync(scene, new GeoPoint(lat, lon, height),
+                                               headingDeg, local, label);
+                }
+                else
+                {
+                    await Session.PlaceAsync(scene, local, yaw, label);
+                }
+
                 Placed?.Invoke(true, scene);
             }
             catch (Exception e)

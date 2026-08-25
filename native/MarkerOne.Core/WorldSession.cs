@@ -343,13 +343,43 @@ namespace MarkerOne.Core
 
         // ── placing ──────────────────────────────────────────────
 
+        /// <summary>
+        /// Place at coordinates somebody else worked out.
+        ///
+        /// The frame is an estimate and the caller may have access to a better
+        /// one — on a device with Geospatial, ARCore will convert a session
+        /// point to a latitude and longitude using the solution it is
+        /// continuously refining, rather than the single rigid transform this
+        /// session averaged out of a handful of fixes and then froze.
+        ///
+        /// Such a placement is not added to the correction list. That list
+        /// exists to re-derive coordinates as the frame improves, and these
+        /// coordinates did not come from the frame — rewriting them with it
+        /// would replace a good answer with a worse one.
+        /// </summary>
+        public async Task<Placement> PlaceAtAsync(string scene, GeoPoint position,
+            double headingDeg, Vec3 localPoint, string label = "",
+            CancellationToken cancel = default)
+        {
+            return await WriteAsync(scene, position, headingDeg, localPoint, label,
+                                    fromFrame: false, cancel).ConfigureAwait(false);
+        }
+
         public async Task<Placement> PlaceAsync(string scene, Vec3 localPoint, double localYawRad,
             string label = "", CancellationToken cancel = default)
         {
             if (Frame == null) { throw new InvalidOperationException("not localized yet"); }
 
-            GeoPoint position = Frame.ToGlobal(localPoint);
-            double headingDeg = Frame.LocalYawToHeading(localYawRad);
+            return await WriteAsync(scene, Frame.ToGlobal(localPoint),
+                                    Frame.LocalYawToHeading(localYawRad), localPoint, label,
+                                    fromFrame: true, cancel).ConfigureAwait(false);
+        }
+
+        private async Task<Placement> WriteAsync(string scene, GeoPoint position,
+            double headingDeg, Vec3 localPoint, string label, bool fromFrame,
+            CancellationToken cancel)
+        {
+            if (Frame == null) { throw new InvalidOperationException("not localized yet"); }
 
             var placement = new Placement
             {
@@ -385,7 +415,10 @@ namespace MarkerOne.Core
             // Keep the local point. When the frame improves this is what lets
             // the saved coordinates improve with it rather than keeping the
             // error they were written with.
-            _mine.Add((saved.Id, localPoint, localYawRad, position));
+            if (fromFrame)
+            {
+                _mine.Add((saved.Id, localPoint, Frame.HeadingToLocalYaw(headingDeg), position));
+            }
 
             Reproject();
             return saved;

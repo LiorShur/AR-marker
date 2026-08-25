@@ -34,6 +34,7 @@ namespace MarkerOne.Unity
             new Dictionary<string, ARGeospatialAnchor>();
         private bool _complained;
         private bool _refused;
+        private bool _saidConvert;
         private int _failures;
 
         [Tooltip("Stop attempting anchors after this many consecutive failures. "
@@ -119,6 +120,64 @@ namespace MarkerOne.Unity
             extensions.Origin = origin;
             Debug.Log("MarkerOne: filled in the empty ARCoreExtensions Origin. Assign it in " +
                       "the inspector to stop relying on this.");
+        }
+
+        /// <summary>
+        /// Where a point in this session is on the globe, according to ARCore.
+        ///
+        /// This is the whole answer to a fortnight of drift. Our frame is an
+        /// estimate: a handful of fixes averaged into one rigid transform, held
+        /// for the life of the session. ARCore is not doing that — it keeps
+        /// re-solving against VPS, and when it re-localizes its answer moves.
+        /// A single rigid transform cannot track something that moves, so our
+        /// frame is wrong by however much ARCore has revised itself since the
+        /// samples were taken. On the device: Earth reporting ±0.9m ±2° while
+        /// the frame it produced was 9.5m out.
+        ///
+        /// Everything written with that frame is permanently wrong, and no
+        /// amount of anchoring afterwards recovers it, because the coordinates
+        /// themselves are the error. Asking ARCore instead means a placement is
+        /// stored as well as ARCore currently knows how — which is the best
+        /// anything on this device knows.
+        ///
+        /// The frame stays for reading back when Earth is not tracking, which
+        /// is the case this cannot serve.
+        /// </summary>
+        public bool TryGlobal(Vector3 worldPoint, Quaternion worldRotation,
+                              out double latitude, out double longitude,
+                              out double height, out double headingDeg)
+        {
+            latitude = longitude = height = headingDeg = 0;
+
+            if (_earth == null || !Ready) { return false; }
+
+            try
+            {
+                GeospatialPose at = _earth.Convert(new Pose(worldPoint, worldRotation));
+
+                latitude = at.Latitude;
+                longitude = at.Longitude;
+                height = at.Altitude;
+
+                // Convert documents Heading as zero on the returned pose, so it
+                // comes from the rotation. EUN: +X east, +Z north, and
+                // atan2(east, north) is a compass bearing.
+                Vector3 forward = at.EunRotation * Vector3.forward;
+                double heading = Mathf.Atan2(forward.x, forward.z) * Mathf.Rad2Deg;
+                headingDeg = (heading % 360 + 360) % 360;
+
+                return true;
+            }
+            catch (Exception e)
+            {
+                if (!_saidConvert)
+                {
+                    _saidConvert = true;
+                    Debug.LogWarning("MarkerOne: Earth.Convert failed — " + e.Message +
+                                     ". Placements will use the session frame instead.");
+                }
+                return false;
+            }
         }
 
         /// <summary>The anchor for a placement, made once and kept. Null means
