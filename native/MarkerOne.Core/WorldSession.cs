@@ -367,6 +367,17 @@ namespace MarkerOne.Core
                 }
             };
 
+            // Checked here rather than discovered at the server. Problems()
+            // has existed since the beginning and was never called, so an
+            // out-of-range placement was sent, refused, and reported as
+            // whatever the server chose to say about it.
+            IReadOnlyList<string> problems = placement.Problems();
+            if (problems.Count > 0)
+            {
+                throw new InvalidOperationException(
+                    "refusing to place: " + string.Join(", ", problems));
+            }
+
             Placement saved = await _store.PlaceAsync(placement, cancel).ConfigureAwait(false);
             saved.DistanceM = 0;
             _placements.Add(saved);

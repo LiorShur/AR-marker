@@ -78,6 +78,22 @@ namespace MarkerOne.Unity
         /// detail when there is one.</summary>
         public event Action<SessionState, string> StateChanged;
 
+        /// <summary>What actually happened to a placement, once the write has
+        /// been away and come back. Saying "placed" the instant the button is
+        /// pressed is a guess, and it was wrong every time the network was.</summary>
+        public event Action<bool, string> Placed;
+
+        /// <summary>
+        /// Whether something can be put down right now.
+        ///
+        /// Deliberately not "is the state Ready". Ready describes the last
+        /// read, and a dropped query turns it to Error — which says nothing
+        /// about whether this session knows where it is. Placing needs a frame
+        /// and nothing else, so a network blip was blocking placements it had
+        /// no bearing on.
+        /// </summary>
+        public bool CanPlace => Session != null && Session.Frame != null;
+
         private readonly Dictionary<string, GameObject> _spawned = new Dictionary<string, GameObject>();
         private readonly HashSet<string> _unknownScenes = new HashSet<string>();
 
@@ -419,9 +435,10 @@ namespace MarkerOne.Unity
         /// a hit test result, or the reticle's position.</summary>
         public async void Place(string scene, Vector3 localPoint, string label = "")
         {
-            if (Session == null || Session.State != SessionState.Ready)
+            if (!CanPlace)
             {
                 Debug.LogWarning("MarkerOne: not located yet");
+                Placed?.Invoke(false, "not located yet");
                 return;
             }
 
@@ -440,10 +457,12 @@ namespace MarkerOne.Unity
             {
                 await Session.PlaceAsync(scene,
                     new Vec3(localPoint.x, localPoint.y, localPoint.z), yaw, label);
+                Placed?.Invoke(true, scene);
             }
             catch (Exception e)
             {
                 Debug.LogError("MarkerOne: could not place — " + e.Message);
+                Placed?.Invoke(false, e.Message);
             }
         }
 

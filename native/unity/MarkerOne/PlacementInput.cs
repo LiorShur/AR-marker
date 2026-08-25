@@ -62,7 +62,11 @@ namespace MarkerOne.Unity
             if (_rescan <= 0 && (_rig == null || _raycaster == null || _camera == null))
             {
                 _rescan = 1f;
-                if (_rig == null) { _rig = FindFirstObjectByType<MarkerOneRig>(); }
+                if (_rig == null)
+                {
+                    _rig = FindFirstObjectByType<MarkerOneRig>();
+                    if (_rig != null) { _rig.Placed += OnPlaced; }
+                }
                 if (_raycaster == null) { _raycaster = FindFirstObjectByType<ARRaycastManager>(); }
                 if (_camera == null) { _camera = Camera.main; }
             }
@@ -100,19 +104,32 @@ namespace MarkerOne.Unity
         private void Place()
         {
             if (_rig == null) { Say("no rig in scene"); return; }
-            if (_rig.State != SessionState.Ready) { Say("not located yet — " + _rig.State); return; }
+            if (!_rig.CanPlace) { Say("not located yet — " + _rig.State); return; }
 
             string scene = SceneId();
             if (string.IsNullOrEmpty(scene)) { Say("no scenes configured on the rig"); return; }
 
             _rig.Place(scene, _target, _label);
-            Say("placed " + scene + (string.IsNullOrEmpty(_label) ? "" : " · " + _label));
+
+            // Not "placed" — the write has not been anywhere yet. OnPlaced says
+            // what happened when it comes back.
+            Say("placing " + scene + (string.IsNullOrEmpty(_label) ? "" : " · " + _label) + "…");
         }
 
         private string SceneId()
         {
             if (_rig == null || _rig.Scenes == null || _rig.Scenes.Count == 0) { return null; }
             return _rig.Scenes[_scene % _rig.Scenes.Count].Scene;
+        }
+
+        private void OnPlaced(bool ok, string detail)
+        {
+            Say(ok ? "placed " + detail : "could not place — " + detail);
+        }
+
+        private void OnDisable()
+        {
+            if (_rig != null) { _rig.Placed -= OnPlaced; }
         }
 
         private void Say(string message)
