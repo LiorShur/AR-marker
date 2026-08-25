@@ -246,11 +246,14 @@ namespace MarkerOne.Core
             }
         }
 
-        /// <summary>How many times to send a request before giving up.</summary>
-        public int Attempts { get; set; } = 3;
+        /// <summary>How many times to send a request before giving up. Four
+        /// attempts over about seven seconds, because the failures being
+        /// retried here are a phone on a weak cellular link, and those come in
+        /// runs of seconds rather than milliseconds.</summary>
+        public int Attempts { get; set; } = 4;
 
         /// <summary>Milliseconds before the second attempt; doubled thereafter.</summary>
-        public int BackoffMs { get; set; } = 400;
+        public int BackoffMs { get; set; } = 1000;
 
         /// <summary>
         /// Send, and try again when the failure was the network rather than the

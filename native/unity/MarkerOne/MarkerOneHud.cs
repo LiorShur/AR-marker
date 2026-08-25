@@ -172,6 +172,12 @@ namespace MarkerOne.Unity
 
             _text.Append("AR     ").Append(ARSession.state).Append('\n');
 
+            // What the phone thinks it has. Everything here needs the network —
+            // VPS resolution, the coverage check, every read and write — and
+            // "nothing is happening" looks identical whether the cause is the
+            // sky, the server or a switch in Settings.
+            _text.Append("Net    ").Append(Reachability()).Append('\n');
+
             if (_source == null)
             {
                 _text.Append("Earth  no GeospatialFixSource in scene\n");
@@ -261,6 +267,22 @@ namespace MarkerOne.Unity
             }
 
             return Append(_text).ToString();
+        }
+
+        private static string Reachability()
+        {
+            switch (Application.internetReachability)
+            {
+                case NetworkReachability.ReachableViaLocalAreaNetwork:
+                    return "wifi";
+                case NetworkReachability.ReachableViaCarrierDataNetwork:
+                    return "cellular";
+                default:
+                    // On iOS this is also what a per-app cellular switch turned
+                    // off looks like, which is not obviously a network problem
+                    // from inside the app.
+                    return "none — check Settings → Cellular → MarkerOne";
+            }
         }
 
         private StringBuilder Append(StringBuilder sb)
