@@ -46,6 +46,7 @@ namespace MarkerOne.Unity
 
         private MarkerOneRig _rig;
         private GeospatialFixSource _source;
+        private GoogleSignIn _signIn;
         private WorldSession _watched;
         private int _items;
         private float _rescan;
@@ -164,6 +165,8 @@ namespace MarkerOne.Unity
             {
                 Visible = false;
             }
+
+            Identity(new Rect(box.x, box.yMax + 6, lineHeight * 5, lineHeight * 1.5f));
         }
 
         private string Body()
@@ -214,7 +217,9 @@ namespace MarkerOne.Unity
 
             if (!string.IsNullOrEmpty(_rig.Uid))
             {
-                _text.Append("Uid    ").Append(_rig.Uid).Append('\n');
+                _text.Append("Uid    ").Append(_rig.Uid)
+                     .Append(string.IsNullOrEmpty(_rig.Signed) ? " (device)" : " (account)")
+                     .Append('\n');
             }
 
             _text.Append("Items  ").Append(_items)
@@ -272,6 +277,29 @@ namespace MarkerOne.Unity
             }
 
             return Append(_text).ToString();
+        }
+
+        /// <summary>Sign in, or say who is signed in and offer to stop.</summary>
+        private void Identity(Rect at)
+        {
+            if (_rig == null) { return; }
+
+            if (_signIn == null) { _signIn = FindFirstObjectByType<GoogleSignIn>(); }
+            if (_signIn == null) { return; }
+
+            string account = _rig.Signed;
+
+            if (!string.IsNullOrEmpty(account))
+            {
+                if (GUI.Button(at, "Sign out", _button)) { _rig.SignOut(); }
+                GUI.Label(new Rect(at.xMax + 8, at.y, at.width * 3, at.height), account, _style);
+                return;
+            }
+
+            if (GUI.Button(at, _signIn.Busy ? "…" : "Sign in", _button) && !_signIn.Busy)
+            {
+                _signIn.Begin();
+            }
         }
 
         private static string Reachability()

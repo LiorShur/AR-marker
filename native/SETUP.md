@@ -289,7 +289,42 @@ cat ProjectSettings/ARCoreExtensionsProjectSettings.json
 `IOSAuthenticationStrategySetting` should be `2` for API Key — iOS has no
 Keyless option.
 
-## 8. Knowing whether it works
+## 8. Signing in with Google
+
+Optional, and worth it. The device identity is kept across launches now, but it
+is still a device: reinstall the app or pick up a different phone and everything
+you placed belongs to somebody else. An account is the only thing that fixes
+that.
+
+Done without the Firebase Unity SDK, which would arrive with its own Firestore
+and its own auth to sit beside the REST client this project has already tested
+twice. Instead the OAuth flow runs directly — the system browser for consent,
+PKCE because a public client has no secret to prove itself with, a custom URL
+scheme for the way back, and `accounts:signInWithIdp` to trade the Google token
+for a Firebase one.
+
+1. **Google Cloud → APIs & Services → Credentials → Create credentials →
+   OAuth client ID → iOS.** Bundle id must match the app's.
+2. Copy the client id — `123-abc.apps.googleusercontent.com`.
+3. Paste it into **ClientId** on the `GoogleSignIn` component, beside the rig.
+4. **Firebase console → Authentication → Sign-in method → enable Google.**
+
+The redirect scheme is the client id with its parts reversed, and the build
+post-processor writes it into `Info.plist` on every build. That has to be
+automatic: Build and Run with *Replace* regenerates the Xcode project, so
+anything added by hand in Xcode is gone next time — and the failure it causes is
+silent. The browser opens, consent is given, and nothing ever comes back.
+
+The client id is read out of the scene file at build time rather than kept
+somewhere a second time. The field on the component is the one a person edits,
+so it is the one worth trusting; a build setting beside it would only be a thing
+to forget.
+
+⚠️ Signing in changes the uid, so placements made anonymously stay with the
+anonymous identity. That is correct — they were made by a device, not by you —
+but it does mean a developer override keyed to the old uid stops applying.
+
+## 9. Knowing whether it works
 
 Geospatial needs a view of the sky and VPS coverage to do its best work.
 Indoors it will localize and be honest that the result is poor. Which means

@@ -135,6 +135,10 @@ namespace MarkerOne.EditorTools
             if (rig == null || rig.GetComponent<GeospatialAnchors>() != null) { return 0; }
 
             rig.gameObject.AddComponent<GeospatialAnchors>();
+            if (rig.GetComponent<GoogleSignIn>() == null)
+            {
+                rig.gameObject.AddComponent<GoogleSignIn>();
+            }
             EditorUtility.SetDirty(rig);
             EditorSceneManager.MarkSceneDirty(rig.gameObject.scene);
             return 1;

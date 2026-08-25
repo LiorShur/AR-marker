@@ -112,6 +112,70 @@ namespace MarkerOne.Core
             return _idToken;
         }
 
+        /// <summary>
+        /// Exchange a Google identity for a Firebase one.
+        ///
+        /// The uid this produces belongs to the Google account rather than to
+        /// the device, which is the whole point: it is the same on the next
+        /// phone, and it survives reinstalling the app. Anonymous sign-in
+        /// cannot offer either, however carefully its token is kept.
+        ///
+        /// Everything downstream is unchanged. The rules ask who owns a
+        /// placement and get a better answer.
+        /// </summary>
+        public async Task<string> SignInWithGoogleAsync(string googleIdToken,
+            CancellationToken cancel = default)
+        {
+            if (string.IsNullOrEmpty(googleIdToken))
+            {
+                throw new ArgumentException("no Google id token", nameof(googleIdToken));
+            }
+
+            using var request = new HttpRequestMessage(HttpMethod.Post,
+                $"{Identity}/accounts:signInWithIdp?key={Uri.EscapeDataString(_apiKey)}")
+            {
+                Content = Body(Json.Object()
+                    .Set("postBody", Json.Of("id_token=" + googleIdToken +
+                                             "&providerId=google.com"))
+                    // Not used for anything by this flow, but the endpoint
+                    // insists on one.
+                    .Set("requestUri", Json.Of("http://localhost"))
+                    .Set("returnSecureToken", Json.Of(true)))
+            };
+
+            Json root = await SendAsync(request, cancel).ConfigureAwait(false);
+
+            _idToken = root["idToken"].AsString;
+            Uid = root["localId"].AsString;
+            WriteRefreshToken?.Invoke(root["refreshToken"].AsString);
+
+            double seconds = 3600;
+            string raw = root["expiresIn"].AsString;
+            if (raw != null && double.TryParse(raw, NumberStyles.Any,
+                    CultureInfo.InvariantCulture, out double parsed))
+            {
+                seconds = parsed;
+            }
+            _tokenExpires = DateTimeOffset.UtcNow.AddSeconds(seconds);
+
+            Signed = root["email"].AsString ?? "google";
+            return _idToken;
+        }
+
+        /// <summary>Who is signed in, for showing. Null while anonymous.</summary>
+        public string Signed { get; private set; }
+
+        /// <summary>Forget the identity entirely — the token, the uid and
+        /// whatever was persisted — so the next call signs in afresh.</summary>
+        public void SignOut()
+        {
+            _idToken = null;
+            Uid = null;
+            Signed = null;
+            _tokenExpires = DateTimeOffset.MinValue;
+            WriteRefreshToken?.Invoke("");
+        }
+
         /// <summary>Trade a saved refresh token for a live one, keeping the uid
         /// that came with it. False on any failure — a refresh token can be
         /// revoked or simply stale, and the remedy is a new anonymous user, not

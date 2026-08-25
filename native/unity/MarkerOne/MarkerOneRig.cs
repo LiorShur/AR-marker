@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using MarkerOne.Core;
 using UnityEngine;
 
@@ -97,6 +98,39 @@ namespace MarkerOne.Unity
         /// <summary>This device's anonymous uid, shown so it can be pasted into
         /// a rule. Stable across launches now that the refresh token is kept.</summary>
         public string Uid => _store?.Uid;
+
+        /// <summary>The account signed in, or null while anonymous.</summary>
+        public string Signed => (_store as FirestorePlacementStore)?.Signed;
+
+        /// <summary>Trade a Google identity for a Firebase one. The uid changes,
+        /// so what the session is holding is no longer this user's.</summary>
+        public async Task<string> SignInWithGoogleAsync(string googleIdToken)
+        {
+            if (!(_store is FirestorePlacementStore store))
+            {
+                throw new InvalidOperationException("no Firestore store to sign in");
+            }
+
+            await store.SignInWithGoogleAsync(googleIdToken);
+
+            if (Session != null) { await Session.RefreshAsync(); }
+            return store.Signed;
+        }
+
+        public async void SignOut()
+        {
+            if (!(_store is FirestorePlacementStore store)) { return; }
+
+            store.SignOut();
+            try
+            {
+                if (Session != null) { await Session.RefreshAsync(); }
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning("MarkerOne: could not refresh after signing out — " + e.Message);
+            }
+        }
 
         private readonly Dictionary<string, GameObject> _spawned = new Dictionary<string, GameObject>();
         private readonly HashSet<string> _unknownScenes = new HashSet<string>();
