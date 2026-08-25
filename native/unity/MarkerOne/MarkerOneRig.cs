@@ -201,10 +201,49 @@ namespace MarkerOne.Unity
             }
         }
 
+        /// <summary>
+        /// Put an unanchored placement where ARCore says it is.
+        ///
+        /// Returns false when ARCore cannot say, which is when the frame is
+        /// still the best available answer. Horizontally ARCore, vertically the
+        /// floor — the same division the anchored path uses, for the same
+        /// reason: altitude is the weakest thing Geospatial produces and the
+        /// floor is measured.
+        /// </summary>
+        private bool Reposition(string id, GameObject go)
+        {
+            if (Anchors == null || go == null) { return false; }
+            if (go.transform.parent != PlacementRoot) { return true; }
+            if (!_onGlobe.TryGetValue(id, out var at)) { return false; }
+
+            if (!Anchors.TryLocal(at.Lat, at.Lon, at.Height,
+                                  out Vector3 where, out float northYawDeg))
+            {
+                return false;
+            }
+
+            float y = _groundY.TryGetValue(id, out float ground) ? ground : where.y;
+            go.transform.position = new Vector3(where.x, y, where.z);
+
+            // Heading runs clockwise from north, and northYawDeg is where north
+            // is in this session, so the sum is the object's yaw here.
+            go.transform.rotation = Quaternion.Euler(0, northYawDeg + (float)at.Heading, 0);
+            return true;
+        }
+
         private void Update()
         {
             Retry();
             Anchor();
+
+            // Placements that ARCore can locate but has not yet anchored are
+            // kept current: its solution moves as it re-localizes, and an
+            // object left where the last conversion put it drifts by exactly
+            // the amount that re-localization corrected.
+            foreach (KeyValuePair<string, GameObject> entry in _spawned)
+            {
+                Reposition(entry.Key, entry.Value);
+            }
 
             HasNearest = false;
             if (SessionCamera == null) { return; }
@@ -579,6 +618,10 @@ namespace MarkerOne.Unity
                 _onGlobe[item.Id] = (item.Position.Lat, item.Position.Lon,
                                      item.Position.Height, item.HeadingDeg);
                 _groundY[item.Id] = (float)item.Local.Y;
+
+                // ARCore first, every refresh. The frame below is what this
+                // falls back to when Earth is not tracking, and only then.
+                if (Reposition(item.Id, go)) { continue; }
 
                 // An anchored object is ARCore's to position. Writing the
                 // frame's answer over it every refresh would undo exactly the

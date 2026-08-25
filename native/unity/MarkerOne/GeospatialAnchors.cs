@@ -180,6 +180,72 @@ namespace MarkerOne.Unity
             }
         }
 
+        /// <summary>
+        /// Where a placement is in this session, according to ARCore.
+        ///
+        /// The reverse of TryGlobal, and the other half of the same fix.
+        /// Placing was moved onto ARCore's solution while drawing was left on
+        /// the frame, so a placement was stored correctly and then rendered
+        /// through the transform that is twenty metres wrong — put something
+        /// down two metres away and watch it appear forty-six metres off, in
+        /// the same session, seconds later.
+        ///
+        /// The heading is returned as the session-space yaw of true north
+        /// rather than applied here, and it is obtained by converting a second
+        /// point one ten-thousandth of a degree north and taking the direction
+        /// between them. That is two conversions instead of one and it is worth
+        /// it: it needs no opinion about what EunRotation means, which is the
+        /// assumption that has been wrong three times.
+        /// </summary>
+        public bool TryLocal(double latitude, double longitude, double height,
+                             out Vector3 position, out float northYawDeg)
+        {
+            position = Vector3.zero;
+            northYawDeg = 0;
+
+            if (_earth == null || !Ready) { return false; }
+
+            try
+            {
+                Pose here = _earth.Convert(Geo(latitude, longitude, height));
+
+                // About eleven metres north. Far enough that the difference is
+                // not lost in the conversion, near enough that the curvature
+                // between them is irrelevant.
+                Pose north = _earth.Convert(Geo(latitude + 0.0001, longitude, height));
+
+                Vector3 toNorth = north.position - here.position;
+                toNorth.y = 0;
+
+                if (toNorth.sqrMagnitude < 1e-4f) { return false; }
+
+                position = here.position;
+                northYawDeg = Mathf.Atan2(toNorth.x, toNorth.z) * Mathf.Rad2Deg;
+                return true;
+            }
+            catch (Exception e)
+            {
+                if (!_saidConvert)
+                {
+                    _saidConvert = true;
+                    Debug.LogWarning("MarkerOne: Earth.Convert failed — " + e.Message +
+                                     ". Falling back to the session frame.");
+                }
+                return false;
+            }
+        }
+
+        private static GeospatialPose Geo(double latitude, double longitude, double height)
+        {
+            return new GeospatialPose
+            {
+                Latitude = latitude,
+                Longitude = longitude,
+                Altitude = height,
+                EunRotation = Quaternion.identity
+            };
+        }
+
         /// <summary>The anchor for a placement, made once and kept. Null means
         /// the caller should position it itself.</summary>
         public Transform Acquire(string id, double latitude, double longitude,
