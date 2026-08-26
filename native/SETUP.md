@@ -358,6 +358,14 @@ arm's length, and a fixed reticle can say what it is over *before* anything is
 committed. A tap that silently lands on nothing is the most confusing thing an
 AR app can do.
 
+`PlacementCompass` installs itself too, and points at what you cannot see. A
+phone's field of view is about sixty degrees, so five sixths of the world is
+behind you at any moment; finding an anchored object meant turning slowly on
+the spot and hoping. Off-screen placements get an arrow at the edge of the
+screen with the distance beside it, on-screen ones just the distance, and each
+arrow takes the colour of the thing it points at — "the orange one is behind
+me" is a thought you can have, where "one of the four is behind me" is not.
+
 The first two lines localize the common failures without a debugger:
 
 | Line | Means |
