@@ -69,8 +69,11 @@ namespace MarkerOne.Core
         Task<IReadOnlyList<Placement>> NearbyAsync(double lat, double lon, double radiusM,
             CancellationToken cancel = default);
         Task<Placement> PlaceAsync(Placement placement, CancellationToken cancel = default);
+        /// <summary>Move a placement. When claim is true the caller also takes
+        /// ownership and marks the pose as no longer coming from a map, which
+        /// is what correcting a map seed in the field amounts to.</summary>
         Task MoveAsync(string id, GeoPoint position, double headingDeg, double groundOffset,
-            CancellationToken cancel = default);
+            bool claim = false, CancellationToken cancel = default);
         Task RemoveAsync(string id, CancellationToken cancel = default);
     }
 }

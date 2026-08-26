@@ -31,7 +31,7 @@ namespace MarkerOne.Conformance
         }
 
         public Task MoveAsync(string id, GeoPoint position, double headingDeg,
-            double groundOffset, CancellationToken cancel = default)
+            double groundOffset, bool claim = false, CancellationToken cancel = default)
         {
             Moved.Add((id, position));
             return Task.CompletedTask;

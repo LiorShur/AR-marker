@@ -48,6 +48,15 @@ namespace MarkerOne.Unity
         private float _saidUntil;
         private float _clearArmedUntil;
 
+        /// <summary>What the crosshair is nearest to, and whether we are in the
+        /// middle of moving it.</summary>
+        private string _selected;
+        private bool _adjusting;
+
+        [Tooltip("How far off the crosshair a placement can be and still count "
+               + "as the thing being aimed at, in degrees.")]
+        public float SelectWithinDeg = 12f;
+
         private Vector3 _target;
         private bool _onSurface;
         private float _range;
@@ -73,6 +82,46 @@ namespace MarkerOne.Unity
             }
 
             Aim();
+            Select();
+        }
+
+        /// <summary>
+        /// Whatever the crosshair is nearest to, by angle rather than by
+        /// distance.
+        ///
+        /// Angle is what aiming means: a cube two metres away and one thirty
+        /// metres away are both "that one" if they are under the crosshair, and
+        /// picking by distance would always take the near one. Nothing is
+        /// raycast because placements deliberately carry no colliders — one on
+        /// every placement would start intercepting the placement raycast, and
+        /// then aiming past an object to put something behind it would stop
+        /// working.
+        /// </summary>
+        private void Select()
+        {
+            if (_adjusting || _rig == null || _camera == null) { return; }
+
+            Vector3 eye = _camera.transform.position;
+            Vector3 look = _camera.transform.forward;
+
+            string best = null;
+            float bestAngle = SelectWithinDeg;
+
+            foreach (KeyValuePair<string, GameObject> entry in _rig.Objects)
+            {
+                if (entry.Value == null || !entry.Value.activeSelf) { continue; }
+
+                Vector3 to = entry.Value.transform.position - eye;
+                if (to.sqrMagnitude < 0.01f) { continue; }
+
+                float angle = Vector3.Angle(look, to);
+                if (angle >= bestAngle) { continue; }
+
+                bestAngle = angle;
+                best = entry.Key;
+            }
+
+            _selected = best;
         }
 
         /// <summary>Where the crosshair is pointing, in world space — which is
@@ -172,6 +221,23 @@ namespace MarkerOne.Unity
             float w = (bar.width - pad * 5) / 4;
             var row = new Rect(x, bar.y + pad * 0.5f, w, line);
 
+            // Adjusting takes over the bar. Being able to place a new thing
+            // while halfway through moving an old one is a way to end up with
+            // both and mean neither.
+            if (_adjusting)
+            {
+                if (GUI.Button(row, "Cancel", _button)) { _adjusting = false; }
+
+                row.x += w + pad;
+                row.width = w * 2 + pad;
+                if (GUI.Button(row, "Put it here", _button))
+                {
+                    _rig.Adjust(_selected, _target, Facing());
+                    _adjusting = false;
+                }
+                return;
+            }
+
             if (GUI.Button(row, SceneId() ?? "—", _button))
             {
                 _scene++;
@@ -181,7 +247,19 @@ namespace MarkerOne.Unity
             _label = GUI.TextField(row, _label, 40, _text);
 
             row.x += w + pad;
-            if (GUI.Button(row, "Place", _button))
+
+            // The button becomes Adjust when the crosshair is on something.
+            // Aiming at a placement and pressing Place would otherwise put a
+            // second one on top of the first, which is never what was meant.
+            if (_selected != null)
+            {
+                if (GUI.Button(row, _rig.IsSeed(_selected) ? "Correct" : "Move", _button))
+                {
+                    _adjusting = true;
+                    Say("aim at where it really belongs");
+                }
+            }
+            else if (GUI.Button(row, "Place", _button))
             {
                 Place();
             }
@@ -216,6 +294,16 @@ namespace MarkerOne.Unity
             {
                 status = "no AR Raycast Manager — everything lands in mid-air";
             }
+            else if (_adjusting)
+            {
+                status = "aim at where it really belongs, then Put it here";
+            }
+            else if (_selected != null)
+            {
+                status = _rig != null && _rig.IsSeed(_selected)
+                    ? "from a map — aim at the real spot and Correct it"
+                    : "aiming at a placement";
+            }
             else
             {
                 // The accuracy is what the placement will be stored at, so it
@@ -233,6 +321,16 @@ namespace MarkerOne.Unity
             GUI.Label(note, status, _text);
         }
 
+        /// <summary>Which way the object should face: back towards whoever is
+        /// putting it there, as with a new placement.</summary>
+        private float Facing()
+        {
+            if (_camera == null) { return 0; }
+
+            Vector3 forward = _camera.transform.forward;
+            return Mathf.Atan2(-forward.x, -forward.z) * Mathf.Rad2Deg;
+        }
+
         private void Crosshair()
         {
             float size = Mathf.Max(2, Screen.height * 0.0022f);
@@ -240,8 +338,10 @@ namespace MarkerOne.Unity
             float cx = Screen.width * 0.5f;
             float cy = Screen.height * 0.5f;
 
-            GUI.color = _onSurface ? new Color(0.4f, 1f, 0.55f, 0.95f)
-                                   : new Color(1f, 1f, 1f, 0.6f);
+            GUI.color = _adjusting || _selected != null
+                ? new Color(1f, 0.85f, 0.3f, 0.95f)
+                : _onSurface ? new Color(0.4f, 1f, 0.55f, 0.95f)
+                             : new Color(1f, 1f, 1f, 0.6f);
             GUI.DrawTexture(new Rect(cx - arm, cy - size * 0.5f, arm * 2, size), _mark);
             GUI.DrawTexture(new Rect(cx - size * 0.5f, cy - arm, size, arm * 2), _mark);
             GUI.color = Color.white;

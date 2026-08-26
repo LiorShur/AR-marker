@@ -45,10 +45,31 @@ service cloud.firestore {
 
       // The owner may move or retire their own placement, but never hand it to
       // someone else, and never edit its geohash out of step with its position.
+      //
+      // The second branch is for map seeds. A placement dropped from a map is
+      // owned by whoever ran the script — in practice an anonymous identity
+      // that existed for one write and will never be seen again — and is
+      // accurate to whatever the satellite imagery was worth. It is a note
+      // saying "something belongs about here", and the only person who can
+      // improve it is somebody standing in front of the actual thing.
+      //
+      // So the first person to correct one takes it. That is deliberately open:
+      // anyone signed in can claim any unclaimed seed, and the protection is
+      // that they can only claim it by replacing its coordinates with theirs,
+      // once, after which it is an ordinary owned placement. Seeds are meant to
+      // be claimed; a seed nobody may touch is just a permanently wrong
+      // placement.
       allow update: if request.auth != null
-                    && resource.data.owner == request.auth.uid
-                    && request.resource.data.owner == resource.data.owner
-                    && isWellFormed(request.resource.data);
+                    && isWellFormed(request.resource.data)
+                    && (
+                         (resource.data.owner == request.auth.uid
+                          && request.resource.data.owner == resource.data.owner)
+                         ||
+                         (resource.data.fix.provider == 'map'
+                          && request.resource.data.owner == request.auth.uid
+                          && request.resource.data.scene == resource.data.scene
+                          && request.resource.data.fix.provider != 'map')
+                       );
 
       allow delete: if request.auth != null
                     && (resource.data.owner == request.auth.uid || isDeveloper());

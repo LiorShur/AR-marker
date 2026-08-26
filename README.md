@@ -600,6 +600,30 @@ that exists only for that write. Nothing can delete it afterwards — not the
 app, not the script — unless that uid goes into `isDeveloper()` in
 `firestore.rules`. It is printed for that purpose.
 
+### Correcting one where it stands
+
+A map placement is accurate to whatever the satellite imagery was worth, and no
+amount of localizing improves that: the error is in the record, not in the
+device. What you clicked was a roof standing in for a doorway, or a canopy
+standing in for a trunk. Somewhere between one and five metres, before a phone
+is involved at all.
+
+So the app lets you fix it in front of the real thing. Aim at a placement and
+the **Place** button becomes **Correct**; aim at where it truly belongs and
+press **Put it here**. The coordinates are rewritten through ARCore at the
+accuracy of wherever you are standing, and the placement stops being a seed.
+
+Correcting also claims it. A seed is owned by whoever ran the script — an
+identity that existed for one write — so leaving it in that name would mean
+nobody could ever correct it again. The rules allow any signed-in caller to
+claim a seed, once, and only by replacing its coordinates with their own. That
+is deliberately open: seeds exist to be claimed, and a seed nobody may touch is
+just a permanently wrong placement.
+
+Which makes the two methods complementary rather than competing. Seed a hundred
+places from a desk in an afternoon, each roughly right; correct each one to half
+a metre the first time somebody stands there.
+
 ## Weight
 
 | | |

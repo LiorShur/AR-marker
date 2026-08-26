@@ -40,6 +40,12 @@ namespace MarkerOne.Core
         /// <summary>Metres above the floor it was left on. What a terrain
         /// anchor wants, and more trustworthy than any altitude.</summary>
         public double GroundOffset;
+
+        /// <summary>How the pose was obtained. "map" means somebody dropped it
+        /// on satellite imagery from a desk and it is accurate to whatever that
+        /// was worth — which is the one case where a stranger walking past is
+        /// better informed than the record.</summary>
+        public string Provider;
     }
 
     /// <summary>
@@ -333,7 +339,8 @@ namespace MarkerOne.Core
                     YawRad = Frame.HeadingToLocalYaw(headingDeg),
                     Position = p.Position,
                     HeadingDeg = headingDeg,
-                    GroundOffset = p.GroundOffset
+                    GroundOffset = p.GroundOffset,
+                    Provider = p.Fix?.Provider
                 };
             }).ToList();
 
@@ -447,7 +454,8 @@ namespace MarkerOne.Core
 
                 try
                 {
-                    await _store.MoveAsync(id, position, headingDeg, offset, cancel).ConfigureAwait(false);
+                    await _store.MoveAsync(id, position, headingDeg, offset, false, cancel)
+                                .ConfigureAwait(false);
 
                     Placement stored = _placements.FirstOrDefault(p => p.Id == id);
                     if (stored != null)
@@ -471,9 +479,9 @@ namespace MarkerOne.Core
         /// which re-derives from the frame; this takes an answer from outside.
         /// </summary>
         public async Task RepositionAsync(string id, GeoPoint position, double headingDeg,
-            double groundOffset, CancellationToken cancel = default)
+            double groundOffset, bool claim = false, CancellationToken cancel = default)
         {
-            await _store.MoveAsync(id, position, headingDeg, groundOffset, cancel)
+            await _store.MoveAsync(id, position, headingDeg, groundOffset, claim, cancel)
                         .ConfigureAwait(false);
 
             Placement stored = _placements.FirstOrDefault(p => p.Id == id);

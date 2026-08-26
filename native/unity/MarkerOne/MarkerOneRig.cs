@@ -179,6 +179,10 @@ namespace MarkerOne.Unity
         /// against the anchor every frame, not set once — see Update.</summary>
         private readonly Dictionary<string, float> _groundY = new Dictionary<string, float>();
 
+        /// <summary>How each placement's pose was obtained. Only "map" matters:
+        /// those are seeds anybody may correct.</summary>
+        private readonly Dictionary<string, string> _provider = new Dictionary<string, string>();
+
         [Tooltip("Give up anchoring a placement after this many anchors land "
                + "too far from where the frame puts it.")]
         public int DisagreementsAllowed = 10;
@@ -786,6 +790,64 @@ namespace MarkerOne.Unity
             Placed?.Invoke(refused == 0, said);
         }
 
+        /// <summary>Whether this placement came off a map and is waiting for
+        /// somebody to stand in front of the real thing.</summary>
+        public bool IsSeed(string id) =>
+            _provider.TryGetValue(id, out string p) && p == "map";
+
+        /// <summary>The placements currently rendered, by id. Order is not
+        /// promised — the caller decides what near means.</summary>
+        public IEnumerable<KeyValuePair<string, GameObject>> Objects => _spawned;
+
+        /// <summary>
+        /// Move a placement to where it actually belongs.
+        ///
+        /// A map seed says "something is about here" to within whatever the
+        /// satellite imagery was worth, and no amount of localizing improves
+        /// that — the error is in the record, not in the device. The only
+        /// thing that can fix it is somebody standing in front of the real
+        /// thing, which is what this is.
+        ///
+        /// Claiming goes with it. A seed is owned by whoever ran the script,
+        /// in practice an identity that existed for one write, so correcting
+        /// one and leaving it in that name would mean nobody could ever correct
+        /// it again.
+        /// </summary>
+        public async void Adjust(string id, Vector3 worldPoint, float yawDeg)
+        {
+            if (Session == null || Anchors == null) { return; }
+
+            var rotation = Quaternion.Euler(0, yawDeg, 0);
+
+            if (!Anchors.TryGlobal(worldPoint, rotation, out double lat, out double lon,
+                                   out double height, out double headingDeg))
+            {
+                Placed?.Invoke(false, "ARCore cannot say where that is yet");
+                return;
+            }
+
+            double floor = Floor != null ? Floor.Floor : 0;
+            bool seed = IsSeed(id);
+
+            try
+            {
+                await Session.RepositionAsync(id, new GeoPoint(lat, lon, height),
+                                              headingDeg, worldPoint.y - floor, seed);
+
+                // Now it improves like anything else placed here.
+                _mine[id] = (worldPoint, rotation, worldPoint.y, Anchors.AccuracyM);
+                _provider[id] = "geospatial";
+                Anchors.Release(id);
+
+                Placed?.Invoke(true, seed ? "corrected and claimed" : "moved");
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning("MarkerOne: could not adjust " + id + " — " + e.Message);
+                Placed?.Invoke(false, e.Message);
+            }
+        }
+
         public async void Remove(string id)
         {
             if (Session == null) { return; }
@@ -841,6 +903,7 @@ namespace MarkerOne.Unity
                 _onGlobe[item.Id] = (item.Position.Lat, item.Position.Lon,
                                      item.Position.Height, item.HeadingDeg);
                 _groundY[item.Id] = (float)item.Local.Y;
+                _provider[item.Id] = item.Provider;
 
                 // ARCore first, every refresh.
                 if (Reposition(item.Id, go)) { continue; }
@@ -893,6 +956,7 @@ namespace MarkerOne.Unity
                 _disagreed.Remove(entry.Key);
                 _groundY.Remove(entry.Key);
                 _mine.Remove(entry.Key);
+                _provider.Remove(entry.Key);
                 gone.Add(entry.Key);
             }
             foreach (string id in gone) { _spawned.Remove(id); }

@@ -322,7 +322,7 @@ namespace MarkerOne.Core
         /// was not. PATCH with an updateMask, so the owner, the label and the
         /// time it was left all stay as they were.</summary>
         public async Task MoveAsync(string id, GeoPoint position, double headingDeg,
-            double groundOffset, CancellationToken cancel = default)
+            double groundOffset, bool claim = false, CancellationToken cancel = default)
         {
             await SignInAsync(cancel).ConfigureAwait(false);
 
@@ -333,6 +333,24 @@ namespace MarkerOne.Core
                 .Set("geopose", GeoPose(position, Geodesy.HeadingToQuaternion(headingDeg)))
                 .Set("geohash", Wrap(Geodesy.Geohash(position.Lat, position.Lon, 10)))
                 .Set("groundOffset", Wrap(groundOffset));
+
+            if (claim)
+            {
+                // Ownership and provider have to travel with the position, and
+                // in the same request. The rules judge the document that would
+                // result, so a mask that leaves the owner out leaves it as
+                // whoever wrote the seed — and the write is then refused for
+                // being an edit to somebody else's placement, which is exactly
+                // what it is not.
+                mask += "&updateMask.fieldPaths=owner&updateMask.fieldPaths=fix";
+
+                fields.Set("owner", Wrap(Uid))
+                      .Set("fix", Json.Object().Set("mapValue", Json.Object().Set("fields",
+                          Json.Object()
+                              .Set("provider", Wrap("geospatial"))
+                              .Set("positionM", Wrap(0.0))
+                              .Set("headingDeg", Wrap(0.0)))));
+            }
 
             using var request = new HttpRequestMessage(
                 new HttpMethod("PATCH"),
