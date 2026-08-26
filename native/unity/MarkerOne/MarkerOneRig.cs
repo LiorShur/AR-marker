@@ -861,7 +861,11 @@ namespace MarkerOne.Unity
             try
             {
                 await Session.SeedAsync(scene, new GeoPoint(lat, lon), 0, label);
-                Placed?.Invoke(true, string.Format("pinned {0} at {1:F5}, {2:F5}",
+                // Six places, because that is what a map gives and what the
+                // user typed. Six is about a tenth of a metre at these
+                // latitudes, so reporting five was quietly showing them
+                // something ten metres coarser than what was actually stored.
+                Placed?.Invoke(true, string.Format("pinned {0} at {1:F6}, {2:F6}",
                                                    scene, lat, lon));
             }
             catch (Exception e)

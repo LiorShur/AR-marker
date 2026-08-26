@@ -37,6 +37,7 @@ namespace MarkerOne.Unity
         private string _label = "";
         private int _scene;
         private string _said = "";
+        private bool _pinning;
 
         private GUIStyle _text;
         private GUIStyle _field;
@@ -50,7 +51,37 @@ namespace MarkerOne.Unity
             {
                 _rescan = 1f;
                 _rig = FindFirstObjectByType<MarkerOneRig>();
+                if (_rig != null) { _rig.Placed += OnPinned; }
             }
+        }
+
+        private void OnDisable()
+        {
+            if (_rig != null) { _rig.Placed -= OnPinned; }
+        }
+
+        /// <summary>
+        /// What became of the write.
+        ///
+        /// Without this the panel said "pinning…" for ever: the rig raises the
+        /// outcome as an event and only the placement bar was listening, so a
+        /// pin that succeeded and a pin that failed looked identical and both
+        /// looked like nothing happening.
+        ///
+        /// The fields are cleared here rather than when the button is pressed,
+        /// because a failed write should leave what was typed alone — the whole
+        /// point of the message is that somebody might want to try again.
+        /// </summary>
+        private void OnPinned(bool ok, string detail)
+        {
+            if (!_pinning) { return; }
+            _pinning = false;
+
+            _said = detail;
+            if (!ok) { return; }
+
+            _coordinates = "";
+            _label = "";
         }
 
         private void OnGUI()
@@ -77,7 +108,7 @@ namespace MarkerOne.Unity
             GUI.Label(row, "Latitude, longitude", _text);
 
             row.y += line;
-            _coordinates = GUI.TextField(row, _coordinates, 64, _field);
+            _coordinates = GUI.TextField(row, _coordinates, 128, _field);
 
             row.y += line * 1.2f;
             GUI.Label(row, "Name", _text);
@@ -119,9 +150,9 @@ namespace MarkerOne.Unity
                 return;
             }
 
-            _rig.Seed(scene, lat, lon, _label);
+            _pinning = true;
             _said = "pinning…";
-            _coordinates = "";
+            _rig.Seed(scene, lat, lon, _label);
         }
 
         private string SceneId()

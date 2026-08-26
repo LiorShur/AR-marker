@@ -33,6 +33,15 @@ namespace MarkerOne.Conformance
             Good(check, "18.4241, -33.9249", 18.4241, -33.9249,
                  "a reversed pair that is also somewhere real");
 
+            // Six decimal places is what a map hands you and roughly a tenth
+            // of a metre on the ground. A double carries about fifteen
+            // significant digits, so the limit is nowhere near this — but it is
+            // the precision somebody will actually paste, and worth pinning
+            // down rather than assuming.
+            Good(check, "-33.924900, 18.424100", -33.9249, 18.4241, "six decimal places");
+            Good(check, "-33.9249005, 18.4241005", -33.9249005, 18.4241005,
+                 "seven, which is finer than any of this deserves");
+
             Bad(check, "", "nothing at all");
             Bad(check, "-33.9249", "one number is not a pair");
             Bad(check, "-33.9249, 18.4241, 5", "three is not a pair either");
