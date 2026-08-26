@@ -162,6 +162,10 @@ namespace MarkerOne.Unity
                + "ARCore's current answer.")]
         public float RecheckAfterS = 5f;
 
+        [Tooltip("Drop and rebuild an anchor that has ended up further than "
+               + "this from where ARCore now converts its own coordinates.")]
+        public float AnchorStaleOverM = 1.5f;
+
         /// <summary>How many times each placement's anchor has been refused for
         /// disagreeing with the frame. Counted rather than flagged so the
         /// retrying stops: indoors every attempt disagrees, and creating and
@@ -347,6 +351,33 @@ namespace MarkerOne.Unity
             }
         }
 
+        /// <summary>Rebuild an anchor that no longer agrees with what ARCore
+        /// makes of the same coordinates now.</summary>
+        private void Refresh(string id, GameObject go)
+        {
+            if (!_onGlobe.TryGetValue(id, out var at)) { return; }
+
+            if (!Anchors.TryLocal(at.Lat, at.Lon, at.Height,
+                                  out Vector3 now, out float _))
+            {
+                return;
+            }
+
+            Vector3 held = go.transform.position;
+            float apart = Vector2.Distance(new Vector2(held.x, held.z),
+                                           new Vector2(now.x, now.z));
+
+            if (apart < AnchorStaleOverM) { return; }
+
+            Debug.Log(string.Format("MarkerOne: anchor for {0} is {1:0.#}m from where ARCore " +
+                                    "now puts those coordinates — rebuilding.", id, apart));
+
+            // Back onto the frame path, which Reposition immediately takes over
+            // with ARCore's current answer, and a new anchor next pass.
+            go.transform.SetParent(PlacementRoot, true);
+            Anchors.Release(id);
+        }
+
         private async void Correct(string id, double lat, double lon, double height,
                                    double headingDeg, double groundOffset)
         {
@@ -498,8 +529,19 @@ namespace MarkerOne.Unity
             {
                 if (entry.Value == null) { continue; }
 
-                // Already attached — the anchor governs it now.
-                if (entry.Value.transform.parent != PlacementRoot) { continue; }
+                // Already attached. Still worth checking: an anchor is made
+                // once, from the solution ARCore had at that moment, and it
+                // then holds that position steadily while ARCore revises
+                // everything around it. On a fresh launch the revision is the
+                // convergence from GPS to VPS, and an anchor built before it
+                // keeps the whole set ten metres east of where it belongs —
+                // rigidly, in formation, which is what a shifted origin looks
+                // like and what a heading error does not.
+                if (entry.Value.transform.parent != PlacementRoot)
+                {
+                    Refresh(entry.Key, entry.Value);
+                    continue;
+                }
 
                 if (!_onGlobe.TryGetValue(entry.Key, out var at)) { continue; }
 

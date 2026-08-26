@@ -245,6 +245,14 @@ namespace MarkerOne.Unity
 
             if (_source != null && _rig.Anchors != null)
             {
+                double good = _rig.Anchors.AccuracyM;
+                if (good < 0 && !_rig.Anchors.GaveUp)
+                {
+                    _text.Append("Anchor waiting for a better fix than ±")
+                         .Append(_rig.Anchors.AnchorWhenBetterThanM.ToString("0.#"))
+                         .Append("m\n");
+                }
+
                 _text.Append("Anchor ").Append(_rig.Anchors.Count).Append('/').Append(_rig.Rendered)
                      .Append(_rig.Anchors.GaveUp ? " (gave up — see log)"
                              : _rig.Anchors.Ready ? " (arcore)" : " (earth not tracking)")

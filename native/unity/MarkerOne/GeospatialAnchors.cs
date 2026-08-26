@@ -77,12 +77,41 @@ namespace MarkerOne.Unity
                 if (_anchors == null || _earth == null || GaveUp) { return false; }
                 if (ARSession.state != ARSessionState.SessionTracking) { return false; }
 
-                try { return _earth.EarthTrackingState == TrackingState.Tracking; }
+                try
+                {
+                    if (_earth.EarthTrackingState != TrackingState.Tracking) { return false; }
+
+                    // Waiting for a decent solution before committing to one.
+                    // On a fresh launch ARCore starts from GPS and converges to
+                    // VPS over some seconds; an anchor made in that window is
+                    // built on the GPS answer, and it then holds that answer
+                    // steadily and convincingly while everything else improves
+                    // around it.
+                    double accuracy = _earth.CameraGeospatialPose.HorizontalAccuracy;
+                    return accuracy > 0 && accuracy <= AnchorWhenBetterThanM;
+                }
                 catch (Exception) { return false; }
             }
         }
 
+        [Tooltip("Do not create anchors while ARCore's own position is worse "
+               + "than this. An anchor made from a poor solution holds a poor "
+               + "position, and holds it convincingly.")]
+        public double AnchorWhenBetterThanM = 5;
+
         public bool Has(string id) => _made.TryGetValue(id, out ARGeospatialAnchor a) && a != null;
+
+        /// <summary>How good ARCore currently thinks its position is, or -1.
+        /// An anchor inherits this at the moment it is made.</summary>
+        public double AccuracyM
+        {
+            get
+            {
+                if (_earth == null || !Ready) { return -1; }
+                try { return _earth.CameraGeospatialPose.HorizontalAccuracy; }
+                catch (Exception) { return -1; }
+            }
+        }
 
         /// <summary>An anchor already made but not yet resolved. Acquire hands
         /// back its transform once it starts tracking.</summary>
