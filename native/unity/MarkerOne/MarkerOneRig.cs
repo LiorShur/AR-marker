@@ -149,8 +149,9 @@ namespace MarkerOne.Unity
         /// they were aimed at. ARKit holds that spot steady in session
         /// coordinates all session; what moves underneath it is ARCore's idea
         /// of where the session is on the globe.</summary>
-        private readonly Dictionary<string, (Vector3 Point, Quaternion Rotation, float Ground)>
-            _mine = new Dictionary<string, (Vector3, Quaternion, float)>();
+        private readonly Dictionary<string, (Vector3 Point, Quaternion Rotation, float Ground,
+                                            double Accuracy)>
+            _mine = new Dictionary<string, (Vector3, Quaternion, float, double)>();
 
         [Tooltip("Rewrite a placement's coordinates when re-converting the spot "
                + "it was aimed at moves by more than this. ARCore revises its "
@@ -345,9 +346,25 @@ namespace MarkerOne.Unity
             if (_recheck > 0) { return; }
             _recheck = RecheckAfterS;
 
-            foreach (KeyValuePair<string, (Vector3 Point, Quaternion Rotation, float Ground)> mine
-                     in new List<KeyValuePair<string, (Vector3, Quaternion, float)>>(_mine))
+            double now = Anchors.AccuracyM;
+
+            foreach (var mine in new List<KeyValuePair<string, (Vector3 Point,
+                     Quaternion Rotation, float Ground, double Accuracy)>>(_mine))
             {
+                // Only overwrite with something better.
+                //
+                // The first version of this rewrote whenever the answer had
+                // moved, which is only right if the newer answer is the better
+                // one — and ARCore's accuracy goes down as well as up. Reported
+                // ±0.4m in a driveway and ±4.4m under trees forty metres away,
+                // so walking from one to the other would have replaced a
+                // half-metre coordinate with a four-metre one, confidently, and
+                // called it a correction.
+                if (now <= 0 || (mine.Value.Accuracy > 0 && now >= mine.Value.Accuracy))
+                {
+                    continue;
+                }
+
                 if (!Anchors.TryGlobal(mine.Value.Point, mine.Value.Rotation,
                                        out double lat, out double lon,
                                        out double height, out double headingDeg))
@@ -361,8 +378,12 @@ namespace MarkerOne.Unity
                                                  new GeoPoint(lat, lon));
                 if (moved < RewriteOverM) { continue; }
 
-                Debug.Log(string.Format("MarkerOne: ARCore has moved {0} by {1:0.#}m since it " +
-                                        "was placed — rewriting.", mine.Key, moved));
+                Debug.Log(string.Format(
+                    "MarkerOne: ARCore now knows this place to ±{0:0.#}m against the ±{1:0.#}m " +
+                    "it was placed at, and puts {2} {3:0.#}m away — rewriting.",
+                    now, mine.Value.Accuracy, mine.Key, moved));
+
+                _mine[mine.Key] = (mine.Value.Point, mine.Value.Rotation, mine.Value.Ground, now);
 
                 Correct(mine.Key, lat, lon, height, headingDeg,
                         mine.Value.Ground - (float)(Floor != null ? Floor.Floor : 0));
@@ -708,7 +729,8 @@ namespace MarkerOne.Unity
 
                     if (written?.Id != null)
                     {
-                        _mine[written.Id] = (localPoint, rotation, (float)localPoint.y);
+                        _mine[written.Id] = (localPoint, rotation, (float)localPoint.y,
+                                             Anchors.AccuracyM);
                     }
                 }
                 else

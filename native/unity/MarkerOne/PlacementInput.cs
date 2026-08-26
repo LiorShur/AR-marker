@@ -110,6 +110,18 @@ namespace MarkerOne.Unity
             string scene = SceneId();
             if (string.IsNullOrEmpty(scene)) { Say("no scenes configured on the rig"); return; }
 
+            // A coordinate is written once and is wrong for ever. Waiting a few
+            // seconds for ARCore to be sure costs nothing next to that, and
+            // below this threshold no anchor would be created anyway — so a
+            // placement made now would be stored badly and drawn from the
+            // frame, which is the combination that has wasted the most time.
+            double accuracy = _rig.Anchors != null ? _rig.Anchors.AccuracyM : -1;
+            if (_rig.Anchors != null && accuracy <= 0)
+            {
+                Say("waiting for ARCore to be sure where it is");
+                return;
+            }
+
             _rig.Place(scene, _target, _label);
 
             // Not "placed" — the write has not been anywhere yet. OnPlaced says
@@ -206,8 +218,17 @@ namespace MarkerOne.Unity
             }
             else
             {
-                status = string.Format("{0} · {1:0.0}m",
-                                       _onSurface ? "surface" : "mid-air", _range);
+                // The accuracy is what the placement will be stored at, so it
+                // belongs where somebody about to press Place can see it.
+                double accuracy = _rig != null && _rig.Anchors != null
+                    ? _rig.Anchors.AccuracyM
+                    : -1;
+
+                status = string.Format("{0} · {1:0.0}m{2}",
+                                       _onSurface ? "surface" : "mid-air", _range,
+                                       accuracy > 0
+                                           ? string.Format("  ·  places at ±{0:0.#}m", accuracy)
+                                           : "  ·  waiting for a fix");
             }
             GUI.Label(note, status, _text);
         }
