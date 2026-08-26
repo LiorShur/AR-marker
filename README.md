@@ -569,6 +569,37 @@ that costs is snapshot listeners: "someone else just placed something" needs a
 poll. When shared sessions need to be live rather than merely shared, that is
 the moment to vendor the SDK — not before.
 
+### Placing from a map
+
+Aiming at a spot is the right way to place something when you are standing
+there, and hopeless when you are not. `scripts/place.mjs` is the other way:
+
+```bash
+node scripts/place.mjs --lat -33.9249 --lon 18.4241 \
+                       --scene beacon --label "the old oak" \
+                       --project markerone1965 --key AIza...
+```
+
+In Google Maps, right-click the spot; the first item in the menu is the
+latitude and longitude, and clicking it copies both.
+
+It asks for no altitude and uses none. Vertical position comes from
+`groundOffset`, which is metres above the floor of whatever session is looking,
+so zero means *on the ground, wherever the ground turns out to be* — the only
+sensible answer when the height of a point on a map is unknown, and better than
+a number from an elevation service that would have to agree with a phone's idea
+of the floor to be worth anything.
+
+The placement's `fix.provider` is `map`, so one dropped from a map stays
+distinguishable from one somebody stood in front of and aimed at. Its accuracy
+is whatever the map was worth, which nobody knows, so it is left at zero rather
+than invented.
+
+⚠️ The script signs in anonymously, so the placement's owner is an identity
+that exists only for that write. Nothing can delete it afterwards — not the
+app, not the script — unless that uid goes into `isDeveloper()` in
+`firestore.rules`. It is printed for that purpose.
+
 ## Weight
 
 | | |
