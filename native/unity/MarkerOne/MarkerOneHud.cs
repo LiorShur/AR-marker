@@ -222,6 +222,16 @@ namespace MarkerOne.Unity
                      .Append('\n');
             }
 
+            // Anything beyond this is clipped rather than missing, and the
+            // two are indistinguishable from the outside.
+            Camera eye = _rig.SessionCamera;
+            if (eye != null && _rig.NearestM > eye.farClipPlane)
+            {
+                _text.Append("Clip   nearest is past the ")
+                     .Append(eye.farClipPlane.ToString("0"))
+                     .Append("m far plane\n");
+            }
+
             int waiting = _rig.Waiting;
             _text.Append("Items  ").Append(_items)
                  .Append(" found, ").Append(_rig.Rendered - waiting).Append(" shown");

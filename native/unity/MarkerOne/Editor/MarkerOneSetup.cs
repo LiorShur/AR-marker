@@ -51,6 +51,7 @@ namespace MarkerOne.EditorTools
             int added = EnsureManagers() + EnsureAnchors() + EnsureExtensionsOrigin();
             RetuneRig();
             ZeroOrigin();
+            SeeFarEnough();
 
             AssetDatabase.SaveAssets();
 
@@ -142,6 +143,36 @@ namespace MarkerOne.EditorTools
             EditorUtility.SetDirty(rig);
             EditorSceneManager.MarkSceneDirty(rig.gameObject.scene);
             return 1;
+        }
+
+        /// <summary>
+        /// Let the camera see as far as the rig queries.
+        ///
+        /// Unity's AR template sets the far clipping plane to twenty metres,
+        /// which is a sensible default for AR you can reach out and touch and
+        /// a poor one for content anchored to the globe. The rig fetches
+        /// placements within three hundred metres; everything past twenty of
+        /// them was clipped away and never drawn, which looks precisely like a
+        /// placement that failed to appear.
+        /// </summary>
+        private static void SeeFarEnough()
+        {
+            var rig = Object.FindFirstObjectByType<MarkerOneRig>();
+            Camera camera = rig != null && rig.SessionCamera != null
+                ? rig.SessionCamera
+                : Camera.main;
+
+            if (camera == null) { return; }
+
+            float wanted = Mathf.Max(1000f, (float)((rig != null ? rig.RadiusM : 300) * 1.2));
+            if (camera.farClipPlane >= wanted) { return; }
+
+            Debug.Log("MarkerOne: camera far clip was " + camera.farClipPlane +
+                      "m, which would have hidden anything further — set to " + wanted + "m.");
+            camera.farClipPlane = wanted;
+
+            EditorUtility.SetDirty(camera);
+            EditorSceneManager.MarkSceneDirty(camera.gameObject.scene);
         }
 
         /// <summary>
