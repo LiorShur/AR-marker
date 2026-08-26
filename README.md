@@ -600,6 +600,27 @@ that exists only for that write. Nothing can delete it afterwards — not the
 app, not the script — unless that uid goes into `isDeveloper()` in
 `firestore.rules`. It is printed for that purpose.
 
+### What it achieves, measured
+
+Cape Town, on an iPhone 12 Pro, placements checked across app restarts:
+
+| Where | Between sessions |
+|---|---|
+| Downtown, dense buildings | **0.5–1 m** |
+| Suburban driveway | 2–4 m |
+| Mountainside, trees, no facades | 5–15 m, and often no visual fix at all |
+| From a map pin, before correction | 10–15 m |
+
+The spread is Street View coverage, and nothing else. VPS matches what the
+camera sees against imagery Google already has, so a street full of shopfronts
+localizes to half a metre and a hillside of fynbos localizes to whatever GPS
+managed. No amount of work on this end changes that ordering; the web version's
+5–10 m was the same physics with worse inputs.
+
+Which is why both placement methods exist. Downtown, aim at the thing. On the
+mountain, drop a pin from a desk and correct it the first time somebody stands
+there.
+
 ### Correcting one where it stands
 
 A map placement is accurate to whatever the satellite imagery was worth, and no
