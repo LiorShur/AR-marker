@@ -167,6 +167,17 @@ namespace MarkerOne.Unity
             }
 
             Identity(new Rect(box.x, box.yMax + 6, lineHeight * 5, lineHeight * 1.5f));
+
+            // Dropping a pin is not placing: it writes a coordinate somebody
+            // read off a map, and needs no localization at all. So it lives
+            // here rather than in the placement bar, which is about the thing
+            // in front of you.
+            var pin = new Rect(box.x + lineHeight * 5.4f, box.yMax + 6,
+                               lineHeight * 4, lineHeight * 1.5f);
+            if (GUI.Button(pin, MapPin.Open ? "Hide pin" : "Drop pin", _button))
+            {
+                MapPin.Open = !MapPin.Open;
+            }
         }
 
         private string Body()

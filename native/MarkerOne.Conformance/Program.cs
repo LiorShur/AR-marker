@@ -59,6 +59,9 @@ internal static class Program
         JsonTests.Run(Check);
         Console.WriteLine($"    checked against System.Text.Json");
 
+        Console.WriteLine("\n  coordinate field");
+        CoordinateTests.Run(Check);
+
         Console.WriteLine("\n  placement store");
         await StoreTests.Run(Check);
 

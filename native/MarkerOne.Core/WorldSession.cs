@@ -372,6 +372,52 @@ namespace MarkerOne.Core
                                     fromFrame: false, cancel).ConfigureAwait(false);
         }
 
+        /// <summary>
+        /// Put something at a coordinate nobody is standing at.
+        ///
+        /// No local point, because there is no local: the caller read a pair of
+        /// numbers off a map, possibly from another city. That also means no
+        /// frame is needed — this is a write, not a placement — so it works
+        /// before the device has localized, or somewhere it never will.
+        ///
+        /// The ground offset is zero and the provider is "map". Zero means "on
+        /// the ground, wherever the ground turns out to be", which is the only
+        /// honest answer for the height of a point on a map; and the provider
+        /// marks it as a seed, accurate to whatever the imagery was worth, for
+        /// somebody standing in front of the real thing to correct.
+        /// </summary>
+        public async Task<Placement> SeedAsync(string scene, GeoPoint position,
+            double headingDeg = 0, string label = "", CancellationToken cancel = default)
+        {
+            var placement = new Placement
+            {
+                Scene = scene,
+                Position = position,
+                Orientation = Geodesy.HeadingToQuaternion(headingDeg),
+                GroundOffset = 0,
+                Label = label ?? "",
+                Scale = 1,
+                Fix = new FixQuality { Provider = "map", PositionM = 0, HeadingDeg = 0 }
+            };
+
+            IReadOnlyList<string> problems = placement.Problems();
+            if (problems.Count > 0)
+            {
+                throw new InvalidOperationException(
+                    "refusing to place: " + string.Join(", ", problems));
+            }
+
+            Placement saved = await _store.PlaceAsync(placement, cancel).ConfigureAwait(false);
+            _placements.Add(saved);
+
+            // Only draws if this session happens to be near it and located.
+            // Dropping a pin on somewhere far away is a perfectly good thing to
+            // do and produces nothing to look at.
+            if (Frame != null) { Reproject(); }
+
+            return saved;
+        }
+
         public async Task<Placement> PlaceAsync(string scene, Vec3 localPoint, double localYawRad,
             string label = "", CancellationToken cancel = default)
         {

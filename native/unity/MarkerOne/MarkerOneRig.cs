@@ -848,6 +848,29 @@ namespace MarkerOne.Unity
             }
         }
 
+        /// <summary>Drop a pin at a coordinate. Needs no localization — the
+        /// device may be nowhere near it.</summary>
+        public async void Seed(string scene, double lat, double lon, string label)
+        {
+            if (Session == null)
+            {
+                Placed?.Invoke(false, "no session — check Project Id and Api Key");
+                return;
+            }
+
+            try
+            {
+                await Session.SeedAsync(scene, new GeoPoint(lat, lon), 0, label);
+                Placed?.Invoke(true, string.Format("pinned {0} at {1:F5}, {2:F5}",
+                                                   scene, lat, lon));
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning("MarkerOne: could not pin — " + e.Message);
+                Placed?.Invoke(false, e.Message);
+            }
+        }
+
         public async void Remove(string id)
         {
             if (Session == null) { return; }
