@@ -222,8 +222,13 @@ namespace MarkerOne.Unity
                      .Append('\n');
             }
 
+            int waiting = _rig.Waiting;
             _text.Append("Items  ").Append(_items)
-                 .Append(" found, ").Append(_rig.Rendered).Append(" shown");
+                 .Append(" found, ").Append(_rig.Rendered - waiting).Append(" shown");
+            if (waiting > 0)
+            {
+                _text.Append(", ").Append(waiting).Append(" waiting for arcore");
+            }
             if (_rig.NearestM >= 0)
             {
                 _text.Append(", nearest ").Append(_rig.NearestM.ToString("0.#")).Append('m');

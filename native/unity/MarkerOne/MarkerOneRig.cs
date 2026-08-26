@@ -188,6 +188,22 @@ namespace MarkerOne.Unity
         /// content of "it says two and I can see none".</summary>
         public int Rendered => _spawned.Count;
 
+        /// <summary>How many are held back because ARCore cannot place them
+        /// yet. Not an error, and worth distinguishing from a world that is
+        /// genuinely empty.</summary>
+        public int Waiting
+        {
+            get
+            {
+                int waiting = 0;
+                foreach (KeyValuePair<string, GameObject> entry in _spawned)
+                {
+                    if (entry.Value != null && !entry.Value.activeSelf) { waiting++; }
+                }
+                return waiting;
+            }
+        }
+
         /// <summary>Metres to the closest known placement, or -1 with none.
         /// Something two hundred metres away is not missing, it is far.</summary>
         public double NearestM { get; private set; } = -1;
@@ -293,6 +309,8 @@ namespace MarkerOne.Unity
             {
                 return false;
             }
+
+            if (!go.activeSelf) { go.SetActive(true); }
 
             float y = _groundY.TryGetValue(id, out float ground) ? ground : where.y;
             go.transform.position = new Vector3(where.x, y, where.z);
@@ -802,9 +820,24 @@ namespace MarkerOne.Unity
                                      item.Position.Height, item.HeadingDeg);
                 _groundY[item.Id] = (float)item.Local.Y;
 
-                // ARCore first, every refresh. The frame below is what this
-                // falls back to when Earth is not tracking, and only then.
+                // ARCore first, every refresh.
                 if (Reposition(item.Id, go)) { continue; }
+
+                // ARCore cannot place it yet. On a device with Geospatial that
+                // is a wait, not a reason to guess: the frame is known to be
+                // ten or twenty metres out and, when the camera basis is
+                // ambiguous, ninety degrees out as well — which is exactly the
+                // whole formation appearing rotated flat on its side. Drawing
+                // from it while waiting does not degrade gracefully, it invents
+                // an arrangement and presents it with confidence.
+                //
+                // Where there is no Geospatial at all the frame is the only
+                // answer there is, and then it is used.
+                if (Anchors != null)
+                {
+                    if (go.activeSelf) { go.SetActive(false); }
+                    continue;
+                }
 
                 // An anchored object is ARCore's to position. Writing the
                 // frame's answer over it every refresh would undo exactly the
