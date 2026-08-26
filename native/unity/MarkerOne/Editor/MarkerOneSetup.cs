@@ -116,6 +116,17 @@ namespace MarkerOne.EditorTools
                 return 0;
             }
 
+            // Assigned rather than left to Awake's FindFirstObjectByType.
+            // Both end up the same at runtime, but an inspector reading "None"
+            // beside a field the whole anchoring path depends on is a question
+            // nobody should have to answer twice.
+            if (rig.Anchors == null)
+            {
+                rig.Anchors = Object.FindFirstObjectByType<GeospatialAnchors>();
+            }
+            if (rig.Floor == null) { rig.Floor = Object.FindFirstObjectByType<FloorProbe>(); }
+            if (rig.SessionCamera == null) { rig.SessionCamera = Camera.main; }
+
             rig.Scenes.Clear();
             foreach ((string id, GameObject prefab) in made)
             {
@@ -192,6 +203,16 @@ namespace MarkerOne.EditorTools
         /// </summary>
         private static void ZeroOrigin()
         {
+            // The AR Session's transform means nothing — the session is not
+            // placed in the scene — but a non-zero one invites the reader to
+            // wonder whether it does.
+            var session = Object.FindFirstObjectByType<ARSession>();
+            if (session != null && session.transform.localPosition.sqrMagnitude > 0.0001f)
+            {
+                session.transform.localPosition = Vector3.zero;
+                EditorUtility.SetDirty(session);
+            }
+
             var origin = Object.FindFirstObjectByType<XROrigin>();
             if (origin == null) { return; }
 
