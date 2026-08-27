@@ -366,6 +366,37 @@ screen with the distance beside it, on-screen ones just the distance, and each
 arrow takes the colour of the thing it points at — "the orange one is behind
 me" is a thought you can have, where "one of the four is behind me" is not.
 
+### How it looks
+
+Four things, all added by *Set up scene* and none of them needing content that
+does not exist yet:
+
+**Occlusion.** An `AROcclusionManager` on the camera, at the best depth mode the
+device offers. Without it a placement draws over everything, so something left
+behind a wall is visible through the wall — the clearest possible signal that
+what you are looking at is not really there. The iPhone 12 Pro has LiDAR and
+gives a depth image for the whole scene.
+
+**Lighting from the camera.** `SceneLighting` drives the directional light and
+the ambient from what ARKit reports of the real light — average brightness and
+colour temperature, eased rather than applied so the scene does not pulse as the
+camera adjusts its own exposure. An object lit at midday brightness against a
+photograph of dusk is wrong before anybody looks at its geometry.
+
+**Contact shadows.** A real shadow needs something to fall on, and there is no
+ground here — only a camera image. So `Grounding` lays a soft dark ellipse at
+each object's base, sized to its footprint and kept level in world space. The
+oldest trick there is, and still the one that does most of the work: the eye
+takes contact with the ground from the shadow rather than from the geometry.
+
+The directional light's own shadows are turned off deliberately. Its direction
+is a guess unless the device reports one, and a shadow falling the wrong way
+reads worse than none at all.
+
+**Arriving rather than blinking.** `Appear` grows a new placement in over a
+quarter of a second. A thing that exists between one frame and the next is read
+as a glitch, because the eye has no account of where it came from.
+
 The first two lines localize the common failures without a debugger:
 
 | Line | Means |

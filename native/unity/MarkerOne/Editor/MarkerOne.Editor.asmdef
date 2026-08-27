@@ -6,7 +6,8 @@
         "MarkerOne.Unity",
         "Unity.XR.ARFoundation",
         "Unity.XR.CoreUtils",
-        "Google.XR.ARCoreExtensions"
+        "Google.XR.ARCoreExtensions",
+        "Unity.XR.ARSubsystems"
     ],
     "includePlatforms": [
         "Editor"

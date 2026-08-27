@@ -941,6 +941,11 @@ namespace MarkerOne.Unity
                     go = prefab != null
                         ? Instantiate(prefab, PlacementRoot)
                         : Placeholder();
+
+                    // Added here rather than baked into every prefab, so
+                    // whatever content arrives later gets them for free.
+                    if (go.GetComponent<Grounding>() == null) { go.AddComponent<Grounding>(); }
+                    if (go.GetComponent<Appear>() == null) { go.AddComponent<Appear>(); }
                     go.name = $"{item.Scene}:{item.Id}";
                     _spawned[item.Id] = go;
 
@@ -993,7 +998,13 @@ namespace MarkerOne.Unity
                         Quaternion.Euler(0, (float)(item.YawRad * Mathf.Rad2Deg), 0);
                 }
 
-                go.transform.localScale = Vector3.one * (float)item.Scale;
+                // Left alone while it is growing in. Writing the final scale
+                // every refresh would cancel the animation on the frame after
+                // it started, which looks exactly like no animation at all.
+                if (go.GetComponent<Appear>() == null)
+                {
+                    go.transform.localScale = Vector3.one * (float)item.Scale;
+                }
             }
 
             var gone = new List<string>();

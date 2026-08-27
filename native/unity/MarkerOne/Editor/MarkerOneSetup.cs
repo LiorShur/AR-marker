@@ -6,6 +6,7 @@ using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.XR.ARFoundation;
+using UnityEngine.XR.ARSubsystems;
 using Google.XR.ARCoreExtensions;
 
 namespace MarkerOne.EditorTools
@@ -52,6 +53,8 @@ namespace MarkerOne.EditorTools
             RetuneRig();
             ZeroOrigin();
             SeeFarEnough();
+            added += EnsureDepth();
+            EnsureLighting();
 
             AssetDatabase.SaveAssets();
 
@@ -154,6 +157,66 @@ namespace MarkerOne.EditorTools
             EditorUtility.SetDirty(rig);
             EditorSceneManager.MarkSceneDirty(rig.gameObject.scene);
             return 1;
+        }
+
+        /// <summary>
+        /// Occlusion: let the world hide what is behind it.
+        ///
+        /// Without this a placement draws over everything, so a cube left
+        /// behind a wall is visible through the wall — which is the single
+        /// clearest signal to a viewer that what they are looking at is not
+        /// really there. The iPhone 12 Pro has LiDAR and ARKit will hand over a
+        /// depth image for the whole scene; AR Foundation composites against it
+        /// once an AROcclusionManager exists to ask.
+        ///
+        /// Requested at the highest quality: the manager falls back on its own
+        /// where a device cannot do it, and asking for less on a device that
+        /// can is leaving the best part on the table.
+        /// </summary>
+        private static int EnsureDepth()
+        {
+            var rig = Object.FindFirstObjectByType<MarkerOneRig>();
+            Camera camera = rig != null && rig.SessionCamera != null ? rig.SessionCamera : Camera.main;
+            if (camera == null) { return 0; }
+
+            var occlusion = camera.GetComponent<AROcclusionManager>();
+            if (occlusion == null) { occlusion = camera.gameObject.AddComponent<AROcclusionManager>(); }
+
+            occlusion.requestedEnvironmentDepthMode = EnvironmentDepthMode.Best;
+            occlusion.requestedOcclusionPreferenceMode = OcclusionPreferenceMode.PreferEnvironmentOcclusion;
+
+            EditorUtility.SetDirty(occlusion);
+            EditorSceneManager.MarkSceneDirty(camera.gameObject.scene);
+            Debug.Log("MarkerOne: occlusion requested at " +
+                      occlusion.requestedEnvironmentDepthMode);
+            return 1;
+        }
+
+        /// <summary>Drive the scene's light from what the camera can see of the
+        /// real one. An object lit at midday brightness against a photograph of
+        /// dusk is wrong before anybody looks at its geometry.</summary>
+        private static void EnsureLighting()
+        {
+            Light sun = null;
+            foreach (Light light in Object.FindObjectsByType<Light>(FindObjectsSortMode.None))
+            {
+                if (light.type != LightType.Directional) { continue; }
+                sun = light;
+                break;
+            }
+
+            if (sun == null || sun.GetComponent<SceneLighting>() != null) { return; }
+
+            sun.gameObject.AddComponent<SceneLighting>();
+
+            // Shadows from a light whose direction is a guess land in the wrong
+            // place, and a wrong shadow reads worse than none. Grounding draws
+            // a contact shadow that does not depend on knowing where the sun is.
+            sun.shadows = LightShadows.None;
+
+            EditorUtility.SetDirty(sun);
+            EditorSceneManager.MarkSceneDirty(sun.gameObject.scene);
+            Debug.Log("MarkerOne: scene lighting follows the camera now.");
         }
 
         /// <summary>
