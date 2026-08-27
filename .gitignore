@@ -31,6 +31,20 @@ native/**/obj/
 *.pdb.meta
 sysinfo.txt
 
+# The Unity projects themselves.
+#
+# native/unity/MarkerOne/ is the source this repository owns — the components
+# and the assembly definitions that install.sh copies out. Everything else
+# under native/unity/ is a Unity project it gets copied *into*, and those
+# belong to the machine rather than to the repository.
+#
+# Ignored rather than merely untracked, because they hold the Firebase api key,
+# the Google OAuth client id and, before long, a Niantic access token — all of
+# them serialized into scene and settings files. One `git add -A` is the whole
+# distance between that and a public repository.
+native/unity/*/
+!native/unity/MarkerOne/
+
 # Xcode output from a Unity iOS build
 iOSBuild/
 *.xcworkspace/xcuserdata/
