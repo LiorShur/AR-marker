@@ -35,7 +35,35 @@ line and warn that others "can introduce conflicts"; that is not the same as
 "will not work", and downgrading Unity has its own cost — this project already
 lost a day to a Unity version fight. Try 82f1, keep 74f1 as the fallback.
 
-## The one that decides it
+## Answered: they coexist
+
+Tested on an iPhone 12 Pro, AR Foundation 6.4.1, Unity 6000.0.82f1, NSDK
+installed with its XR loader left off.
+
+    Items   8 found, 8 shown, nearest 2.5m
+    Anchor  8/8 (arcore)
+    Earth   tracking ±0.5m ±2.1°
+    MarkerOne: converting the placement point
+    MarkerOne: converted — writing
+
+Everything works: reads, writes, Geospatial, anchors, Convert. The version gap
+in the table below is real on paper and cost nothing in practice.
+
+An earlier run of this same experiment appeared to show the opposite — reads
+returning nothing, writes vanishing, and the interface freezing on Place — and
+produced three separate theories about duplicate TLS libraries, protobuf symbol
+collisions and Firebase swizzling NSURLSession. All three were wrong, and each
+was checked and refuted by a single command against the built binary. The
+framework exports no TLS symbols, is dynamically rather than statically linked,
+and contains no Firebase at all; the Firebase in the app comes from ARCore's own
+iOS SDK and always did.
+
+What the failing build actually was is not established. The most likely
+explanation is that the copy had not had install.sh run into it and was
+compiling older sources. Worth remembering: three plausible mechanisms, argued
+from real evidence, and the answer was none of them.
+
+## The one that decided it, before it was decided
 
 NSDK's XR loader is "Niantic Spatial Development Kit + Apple ARKit" — a
 combined loader that inserts NSDK as the AR provider. ARCore Extensions also
@@ -43,7 +71,7 @@ sits on ARKit and starts a session of its own. Both want to own it. If they
 cannot share, this stops being "add a provider" and becomes "maintain two
 applications", which is a different project.
 
-## How to find out cheaply
+## How it was found out cheaply
 
 In a copy of the Unity project, which is gitignored and costs only disk:
 
