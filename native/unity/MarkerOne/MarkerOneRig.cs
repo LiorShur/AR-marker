@@ -473,6 +473,12 @@ namespace MarkerOne.Unity
             {
                 if (entry.Value == null) { continue; }
 
+                // Something held back because ARCore cannot place it yet is not
+                // near anything — it has no position worth reporting, and
+                // saying it was 1.6m away while nothing was drawn there was a
+                // small lie of its own.
+                if (!entry.Value.activeSelf) { continue; }
+
                 // Hold the height against the anchor, every frame.
                 //
                 // Setting it once at attach was not enough: the object is a

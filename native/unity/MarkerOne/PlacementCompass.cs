@@ -103,6 +103,13 @@ namespace MarkerOne.Unity
 
             Vector3 projected = _camera.WorldToScreenPoint(go.transform.position);
 
+            // A NaN here poisons everything downstream, and the guard below
+            // does not catch it: the comparison it makes is false for NaN, so
+            // NaN sails past a test written to reject small numbers and ends up
+            // in a rectangle handed to CoreGraphics, which complains once per
+            // draw call for the rest of the session.
+            if (!Finite(projected)) { return; }
+
             // Screen space counts up from the bottom and IMGUI counts down from
             // the top.
             var at = new Vector2(projected.x, Screen.height - projected.y);
@@ -157,7 +164,7 @@ namespace MarkerOne.Unity
 
             // Off screen: put it against the edge, pointing outwards.
             Vector2 direction = (at - centre).normalized;
-            if (direction.sqrMagnitude < 0.001f) { direction = Vector2.up; }
+            if (!Finite(direction) || direction.sqrMagnitude < 0.001f) { direction = Vector2.up; }
 
             Vector2 edge = Clamp(centre, direction, inside);
             float angle = Mathf.Atan2(direction.y, direction.x) * Mathf.Rad2Deg + 90;
@@ -187,6 +194,21 @@ namespace MarkerOne.Unity
             _text.normal.textColor = colour;
             GUI.Label(box, what, _text);
         }
+
+        /// <summary>
+        /// Whether every component is a real number.
+        ///
+        /// Written out rather than done with a comparison, because comparisons
+        /// against NaN are all false — so `if (x < limit)` lets NaN through
+        /// while looking exactly like a check that would have caught it.
+        /// </summary>
+        private static bool Finite(Vector3 v) =>
+            !float.IsNaN(v.x) && !float.IsNaN(v.y) && !float.IsNaN(v.z) &&
+            !float.IsInfinity(v.x) && !float.IsInfinity(v.y) && !float.IsInfinity(v.z);
+
+        private static bool Finite(Vector2 v) =>
+            !float.IsNaN(v.x) && !float.IsNaN(v.y) &&
+            !float.IsInfinity(v.x) && !float.IsInfinity(v.y);
 
         /// <summary>The colour of what it points at, so several are telling
         /// apart. Falls back to white rather than guessing.</summary>
