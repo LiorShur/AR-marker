@@ -46,6 +46,18 @@ namespace MarkerOne.Core
             _projectId = projectId ?? throw new ArgumentNullException(nameof(projectId));
             _apiKey = apiKey ?? throw new ArgumentNullException(nameof(apiKey));
             _http = http ?? new HttpClient();
+
+            // A request that never returns is indistinguishable from one that
+            // has not been sent, and both look like an empty world. The default
+            // is a hundred seconds, which on a phone is a hang: the read comes
+            // back with nothing, the write lands nowhere, the state stays
+            // Ready, and nothing anywhere says so. Fifteen seconds is longer
+            // than any of these calls should take on a bad connection and short
+            // enough that a stall becomes an error somebody can read.
+            //
+            // Only set when the client was made here; one passed in belongs to
+            // the caller.
+            if (http == null) { _http.Timeout = TimeSpan.FromSeconds(15); }
             _collection = collection;
             _appCheck = appCheck;
         }

@@ -725,6 +725,11 @@ namespace MarkerOne.Unity
             var local = new Vec3(localPoint.x, localPoint.y, localPoint.z);
             var rotation = Quaternion.Euler(0, (float)(yaw * Mathf.Rad2Deg), 0);
 
+            // Bracketing the one synchronous native call in this path. If the
+            // app stops here, the log says which side of it — which beats
+            // attaching a debugger to find out.
+            Debug.Log("MarkerOne: converting the placement point");
+
             try
             {
                 // ARCore first. It converts this point to a latitude and
@@ -732,10 +737,14 @@ namespace MarkerOne.Unity
                 // converts it with one averaged out of a handful of fixes and
                 // then frozen. Coordinates are written once and are wrong
                 // forever, so this is the moment it matters most.
-                if (Anchors != null &&
-                    Anchors.TryGlobal(localPoint, rotation,
-                                      out double lat, out double lon,
-                                      out double height, out double headingDeg))
+                bool converted = Anchors != null &&
+                                 Anchors.TryGlobal(localPoint, rotation,
+                                                   out double lat, out double lon,
+                                                   out double height, out double headingDeg);
+
+                Debug.Log("MarkerOne: converted — " + (converted ? "writing" : "using the frame"));
+
+                if (converted)
                 {
                     Placement written = await Session.PlaceAtAsync(
                         scene, new GeoPoint(lat, lon, height), headingDeg, local, label);
