@@ -737,10 +737,14 @@ namespace MarkerOne.Unity
                 // converts it with one averaged out of a handful of fixes and
                 // then frozen. Coordinates are written once and are wrong
                 // forever, so this is the moment it matters most.
+                // Declared before the call rather than inline: with the
+                // short-circuiting && above, the compiler cannot prove they
+                // were assigned when Anchors is null, and it is right not to.
+                double lat = 0, lon = 0, height = 0, headingDeg = 0;
+
                 bool converted = Anchors != null &&
                                  Anchors.TryGlobal(localPoint, rotation,
-                                                   out double lat, out double lon,
-                                                   out double height, out double headingDeg);
+                                                   out lat, out lon, out height, out headingDeg);
 
                 Debug.Log("MarkerOne: converted — " + (converted ? "writing" : "using the frame"));
 
