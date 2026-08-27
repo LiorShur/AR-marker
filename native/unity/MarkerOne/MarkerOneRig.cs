@@ -209,8 +209,15 @@ namespace MarkerOne.Unity
             }
         }
 
-        /// <summary>Metres to the closest known placement, or -1 with none.
-        /// Something two hundred metres away is not missing, it is far.</summary>
+        /// <summary>
+        /// Metres to the closest placement on screen, measured now.
+        ///
+        /// It used to come from the store's DistanceM, which is the distance at
+        /// the moment the query ran. Walk twenty metres and it still says
+        /// twenty — so the readout claimed the nearest thing was 19.9m away
+        /// while the object beside it sat 2.6m from the camera. Both numbers
+        /// were true and only one of them was being asked for.
+        /// </summary>
         public double NearestM { get; private set; } = -1;
 
         /// <summary>Where the closest rendered object actually is, relative to
@@ -456,6 +463,7 @@ namespace MarkerOne.Unity
             }
 
             HasNearest = false;
+            NearestM = -1;
             if (SessionCamera == null) { return; }
 
             Vector3 eye = SessionCamera.transform.position;
@@ -490,6 +498,7 @@ namespace MarkerOne.Unity
 
                 best = distance;
                 NearestOffset = offset;
+                NearestM = offset.magnitude;
                 HasNearest = true;
             }
         }
@@ -889,11 +898,6 @@ namespace MarkerOne.Unity
         {
             var seen = new HashSet<string>();
 
-            NearestM = -1;
-            foreach (PlacedItem near in items)
-            {
-                if (NearestM < 0 || near.DistanceM < NearestM) { NearestM = near.DistanceM; }
-            }
 
             foreach (PlacedItem item in items)
             {

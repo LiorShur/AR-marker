@@ -57,6 +57,10 @@ namespace MarkerOne.Unity
                + "as the thing being aimed at, in degrees.")]
         public float SelectWithinDeg = 12f;
 
+        /// <summary>The control bar, so the compass does not label its arrows
+        /// on top of the buttons.</summary>
+        public static Rect Occupied;
+
         private Vector3 _target;
         private bool _onSurface;
         private float _range;
@@ -215,6 +219,7 @@ namespace MarkerOne.Unity
             float barHeight = line * 2.6f;
             var bar = new Rect(safe.x + pad, bottom - barHeight - pad,
                                safe.width - pad * 2, barHeight);
+            Occupied = bar;
             GUI.DrawTexture(bar, _panel);
 
             float x = bar.x + pad;

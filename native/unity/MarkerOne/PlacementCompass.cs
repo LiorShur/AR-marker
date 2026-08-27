@@ -115,10 +115,27 @@ namespace MarkerOne.Unity
             if (behind) { at = centre + (centre - at); }
 
             float margin = _text.fontSize * 2.4f;
-            var inside = new Rect(safe.x + margin,
-                                  Screen.height - (safe.y + safe.height) + margin,
-                                  safe.width - margin * 2,
-                                  safe.height - margin * 2);
+
+            float top = Screen.height - (safe.y + safe.height) + margin;
+            float floor = top + safe.height - margin * 2;
+
+            // Keep clear of the readout and the control bar. An arrow drawn
+            // over a button is worse than useless twice: it is unreadable, and
+            // it makes the button look like it has something written on it.
+            if (MarkerOneHud.Occupied.height > 0)
+            {
+                top = Mathf.Max(top, MarkerOneHud.Occupied.yMax + margin);
+            }
+            if (PlacementInput.Occupied.height > 0)
+            {
+                floor = Mathf.Min(floor, PlacementInput.Occupied.yMin - margin);
+            }
+
+            // A phone held in landscape with the panel open leaves very little
+            // between the two. Better a cramped band than an inverted one.
+            if (floor - top < margin * 2) { floor = top + margin * 2; }
+
+            var inside = new Rect(safe.x + margin, top, safe.width - margin * 2, floor - top);
 
             Color colour = ColourOf(go);
             string label = distance < 10

@@ -28,6 +28,10 @@ namespace MarkerOne.Unity
         /// hide the diagnostic without holding a reference to it.</summary>
         public static bool Visible = true;
 
+        /// <summary>What this is covering, so nothing else draws underneath it.
+        /// Empty while hidden.</summary>
+        public static Rect Occupied;
+
 #if !MARKERONE_NO_HUD
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Install()
@@ -128,10 +132,10 @@ namespace MarkerOne.Unity
 
             if (!Visible)
             {
-                if (GUI.Button(new Rect(left, top, lineHeight * 4, lineHeight * 1.6f), "▸ state", _button))
-                {
-                    Visible = true;
-                }
+                var collapsed = new Rect(left, top, lineHeight * 4, lineHeight * 1.6f);
+                Occupied = collapsed;
+
+                if (GUI.Button(collapsed, "▸ state", _button)) { Visible = true; }
                 return;
             }
 
@@ -157,6 +161,10 @@ namespace MarkerOne.Unity
                                      lines * lineHeight) + 16;
 
             var box = new Rect(left, top, width, height);
+
+            // Plus the row of buttons that sits under it.
+            Occupied = new Rect(box.x, box.y, box.width, box.height + lineHeight * 1.5f + 6);
+
             GUI.DrawTexture(box, _panel);
             GUI.Label(new Rect(box.x + 8, box.y + 8, box.width - 16, box.height - 16), body, _style);
 
