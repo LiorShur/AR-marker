@@ -880,14 +880,46 @@ namespace MarkerOne.Unity
         /// </summary>
         public async void Adjust(string id, Vector3 worldPoint, float yawDeg)
         {
-            if (Session == null || Anchors == null) { return; }
+            if (Session == null) { return; }
 
             var rotation = Quaternion.Euler(0, yawDeg, 0);
 
-            if (!Anchors.TryGlobal(worldPoint, rotation, out double lat, out double lon,
-                                   out double height, out double headingDeg))
+            double lat, lon, height, headingDeg;
+            double accuracy = Anchors != null ? Anchors.AccuracyM : -1;
+
+            if (Anchors != null &&
+                Anchors.TryGlobal(worldPoint, rotation, out lat, out lon, out height,
+                                  out headingDeg))
             {
-                Placed?.Invoke(false, "ARCore cannot say where that is yet");
+                // ARCore knows where this is. Half a metre.
+            }
+            else if (Session.Frame != null)
+            {
+                // It does not, and out here it is not going to. Correcting a
+                // placement is the thing most worth doing where a seed was
+                // dropped from a map — and seeds get dropped precisely on the
+                // places nobody has walked. Refusing to let anyone fix one
+                // because the fixing needs a visual localization the place
+                // cannot provide is the same mistake Place had, arrived at from
+                // the other side.
+                var local = new Vec3(worldPoint.x, worldPoint.y, worldPoint.z);
+                GeoPoint from = Session.Frame.ToGlobal(local);
+
+                lat = from.Lat;
+                lon = from.Lon;
+                height = from.Height;
+                headingDeg = Session.Frame.LocalYawToHeading(yawDeg * Mathf.Deg2Rad);
+
+                // Recorded as the frame's own accuracy rather than left unknown,
+                // so the rewrite pass can tell later whether ARCore's eventual
+                // answer is an improvement on it.
+                accuracy = Session.Frame.Fix != null
+                    ? Session.Frame.Fix.PositionAccuracyM
+                    : 30;
+            }
+            else
+            {
+                Placed?.Invoke(false, "not located yet");
                 return;
             }
 
@@ -899,12 +931,17 @@ namespace MarkerOne.Unity
                 await Session.RepositionAsync(id, new GeoPoint(lat, lon, height),
                                               headingDeg, worldPoint.y - floor, seed);
 
-                // Now it improves like anything else placed here.
-                _mine[id] = (worldPoint, rotation, worldPoint.y, Anchors.AccuracyM);
+                // Now it improves like anything else placed here — including
+                // the frame-derived case, which the rewrite pass will replace
+                // the moment ARCore can do better.
+                _mine[id] = (worldPoint, rotation, worldPoint.y, accuracy);
                 _provider[id] = "geospatial";
-                Anchors.Release(id);
+                Anchors?.Release(id);
 
-                Placed?.Invoke(true, seed ? "corrected and claimed" : "moved");
+                Placed?.Invoke(true, (seed ? "corrected" : "moved") +
+                                     (Anchors != null && Anchors.AccuracyM > 0
+                                         ? ""
+                                         : " from GPS — roughly here"));
             }
             catch (Exception e)
             {
