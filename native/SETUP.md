@@ -134,6 +134,18 @@ Run this menu item once. It creates a prefab and a material per scene id in
 `Assets/MarkerOne/Prefabs`, fills in the rig's *Scenes* list, and adds
 **AR Raycast Manager** and **AR Plane Manager** to the XR Origin.
 
+Aiming raycasts against planes, the depth image and feature points, in that
+order of preference. Plane detection wants flat, textured, man-made surfaces
+and finds almost nothing on grass, gravel or a brick step — which is most of
+where this gets used. A placement that finds no plane hangs two metres up,
+intersects the ground when you walk round it, and with occlusion on reads as
+the object breaking apart rather than as the object being in the wrong place.
+
+The nearest hit is deliberately not the one taken. Results arrive sorted by
+distance and the nearest is often a feature point floating slightly in front of
+the surface everything else agrees on. A plane is a considered answer, depth is
+a measurement, and a feature point is a guess that happened to be close.
+
 All of that can be done by hand, and each step has a way of appearing to
 succeed without succeeding. A prefab field can be set to a *scene object*
 rather than an asset — it looks identical in the inspector and empties itself

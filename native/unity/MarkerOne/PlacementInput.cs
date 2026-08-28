@@ -70,6 +70,7 @@ namespace MarkerOne.Unity
 
         private Vector3 _target;
         private bool _onSurface;
+        private string _surface = "mid-air";
         private float _range;
 
         private GUIStyle _text;
@@ -146,21 +147,40 @@ namespace MarkerOne.Unity
 
             var centre = new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
 
-            if (_raycaster != null &&
-                _raycaster.Raycast(centre, _hits, TrackableType.PlaneWithinPolygon))
+            // Planes first, then the depth image, then feature points.
+            //
+            // Plane detection wants flat, textured, man-made surfaces and finds
+            // almost nothing on grass, gravel or a brick step — which is most of
+            // where this is used, and why the bar kept reading "mid-air". An
+            // object left hanging two metres up then intersects the ground when
+            // you walk round it, and with occlusion on that reads as the object
+            // breaking apart rather than as the object being in the wrong place.
+            //
+            // The device has LiDAR and AR Foundation will raycast against the
+            // depth image, which hits real ground almost anywhere. Feature
+            // points are the last resort: sparse and noisy, but a point on the
+            // actual surface beats a guess at two metres.
+            const TrackableType anything = TrackableType.PlaneWithinPolygon
+                                         | TrackableType.Depth
+                                         | TrackableType.FeaturePoint;
+
+            if (_raycaster != null && _raycaster.Raycast(centre, _hits, anything))
             {
-                _target = _hits[0].pose.position;
+                ARRaycastHit best = Best(_hits);
+
+                _target = best.pose.position;
                 _onSurface = true;
+                _surface = Describe(best.hitType);
                 _range = Vector3.Distance(_camera.transform.position, _target);
                 return;
             }
 
-            // No plane. Still allow it — waist-high in mid-air is a legitimate
-            // place to leave something, and refusing to place anything until a
-            // plane is found makes the app feel broken on grass and gravel,
-            // which is most of where this is meant to work.
+            // Nothing at all to stand on. Still allowed: waist-high in mid-air
+            // is a legitimate place to leave something, and refusing until a
+            // surface is found would make the app useless facing open ground.
             _target = _camera.transform.position + _camera.transform.forward * FallbackDistanceM;
             _onSurface = false;
+            _surface = "mid-air";
             _range = FallbackDistanceM;
         }
 
@@ -349,10 +369,50 @@ namespace MarkerOne.Unity
                     quality = "  ·  no visual fix — will place from GPS";
                 }
 
-                status = string.Format("{0} · {1:0.0}m{2}",
-                                       _onSurface ? "surface" : "mid-air", _range, quality);
+                status = string.Format("{0} · {1:0.0}m{2}", _surface, _range, quality);
             }
             GUI.Label(note, status, _text);
+        }
+
+        /// <summary>
+        /// The most trustworthy hit, not the nearest.
+        ///
+        /// Raycast results come back sorted by distance, and the nearest is
+        /// often a feature point floating slightly in front of the surface
+        /// everything else agrees on. A plane is a considered answer, depth is
+        /// a measurement, and a feature point is a guess that happened to be
+        /// close — so they are preferred in that order regardless of which
+        /// arrived first.
+        /// </summary>
+        private static ARRaycastHit Best(List<ARRaycastHit> hits)
+        {
+            ARRaycastHit best = hits[0];
+            int rank = Rank(best.hitType);
+
+            foreach (ARRaycastHit hit in hits)
+            {
+                int r = Rank(hit.hitType);
+                if (r <= rank) { continue; }
+
+                rank = r;
+                best = hit;
+            }
+
+            return best;
+        }
+
+        private static int Rank(TrackableType type)
+        {
+            if ((type & TrackableType.PlaneWithinPolygon) != 0) { return 3; }
+            if ((type & TrackableType.Depth) != 0) { return 2; }
+            return 1;
+        }
+
+        private static string Describe(TrackableType type)
+        {
+            if ((type & TrackableType.PlaneWithinPolygon) != 0) { return "surface"; }
+            if ((type & TrackableType.Depth) != 0) { return "ground"; }
+            return "a point";
         }
 
         /// <summary>Which way the object should face: back towards whoever is
