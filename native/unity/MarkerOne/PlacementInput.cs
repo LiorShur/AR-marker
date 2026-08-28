@@ -57,6 +57,13 @@ namespace MarkerOne.Unity
                + "as the thing being aimed at, in degrees.")]
         public float SelectWithinDeg = 12f;
 
+        [Tooltip("Seconds to wait for ARCore before allowing a placement to be "
+               + "made from GPS instead. Somewhere remote this wait never ends "
+               + "on its own.")]
+        public float WaitForArcoreS = 20f;
+
+        private float _firstAimedAt;
+
         /// <summary>The control bar, so the compass does not label its arrows
         /// on top of the buttons.</summary>
         public static Rect Occupied;
@@ -72,6 +79,8 @@ namespace MarkerOne.Unity
 
         private void Update()
         {
+            if (_firstAimedAt <= 0) { _firstAimedAt = Time.unscaledTime; }
+
             _rescan -= Time.unscaledDeltaTime;
             if (_rescan <= 0 && (_rig == null || _raycaster == null || _camera == null))
             {
@@ -163,15 +172,22 @@ namespace MarkerOne.Unity
             string scene = SceneId();
             if (string.IsNullOrEmpty(scene)) { Say("no scenes configured on the rig"); return; }
 
-            // A coordinate is written once and is wrong for ever. Waiting a few
-            // seconds for ARCore to be sure costs nothing next to that, and
-            // below this threshold no anchor would be created anyway — so a
-            // placement made now would be stored badly and drawn from the
-            // frame, which is the combination that has wasted the most time.
+            // Refusing while ARCore is still settling is right. Refusing where
+            // ARCore will never arrive is not.
+            //
+            // Out past the last of the Street View coverage, Earth does not
+            // track and is not going to, and an app that will not let you leave
+            // a marker in a place precisely because it is remote has the logic
+            // exactly backwards. So the wait is bounded: after it the placement
+            // goes through the frame — five or fifteen metres rather than half
+            // a metre — and the bar says which it was rather than pretending
+            // they are the same thing.
             double accuracy = _rig.Anchors != null ? _rig.Anchors.AccuracyM : -1;
-            if (_rig.Anchors != null && accuracy <= 0)
+            bool precise = accuracy > 0;
+
+            if (!precise && Time.unscaledTime < _firstAimedAt + WaitForArcoreS)
             {
-                Say("waiting for ARCore to be sure where it is");
+                Say("waiting for ARCore — it will place from GPS shortly");
                 return;
             }
 
@@ -179,7 +195,7 @@ namespace MarkerOne.Unity
 
             // Not "placed" — the write has not been anywhere yet. OnPlaced says
             // what happened when it comes back.
-            Say("placing " + scene + (string.IsNullOrEmpty(_label) ? "" : " · " + _label) + "…");
+            Say("placing " + scene + (precise ? "" : " from GPS — roughly here") + "…");
         }
 
         private string SceneId()
@@ -317,11 +333,24 @@ namespace MarkerOne.Unity
                     ? _rig.Anchors.AccuracyM
                     : -1;
 
+                string quality;
+                if (accuracy > 0)
+                {
+                    quality = string.Format("  ·  places at ±{0:0.#}m", accuracy);
+                }
+                else if (Time.unscaledTime < _firstAimedAt + WaitForArcoreS)
+                {
+                    quality = "  ·  waiting for a fix";
+                }
+                else
+                {
+                    // No visual fix here, and there is not going to be. Say
+                    // what will happen rather than what is missing.
+                    quality = "  ·  no visual fix — will place from GPS";
+                }
+
                 status = string.Format("{0} · {1:0.0}m{2}",
-                                       _onSurface ? "surface" : "mid-air", _range,
-                                       accuracy > 0
-                                           ? string.Format("  ·  places at ±{0:0.#}m", accuracy)
-                                           : "  ·  waiting for a fix");
+                                       _onSurface ? "surface" : "mid-air", _range, quality);
             }
             GUI.Label(note, status, _text);
         }

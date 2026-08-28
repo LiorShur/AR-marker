@@ -163,6 +163,12 @@ namespace MarkerOne.Unity
                + "ARCore's current answer.")]
         public float RecheckAfterS = 5f;
 
+        [Tooltip("How long to wait for ARCore before drawing a placement from "
+               + "the session frame instead. Somewhere with no VPS coverage "
+               + "this wait never ends, and hiding things for ever is not a "
+               + "graceful way to say so.")]
+        public float PatienceS = 10f;
+
         [Tooltip("Drop and rebuild an anchor that has ended up further than "
                + "this from where ARCore now converts its own coordinates.")]
         public float AnchorStaleOverM = 1.5f;
@@ -182,6 +188,14 @@ namespace MarkerOne.Unity
         /// <summary>How each placement's pose was obtained. Only "map" matters:
         /// those are seeds anybody may correct.</summary>
         private readonly Dictionary<string, string> _provider = new Dictionary<string, string>();
+
+        /// <summary>When each placement first failed to be positioned by
+        /// ARCore, so patience can run out.</summary>
+        private readonly Dictionary<string, float> _waitingSince = new Dictionary<string, float>();
+
+        /// <summary>How many are currently drawn from the frame rather than
+        /// from ARCore, which is worth admitting on screen.</summary>
+        public int Approximate { get; private set; }
 
         [Tooltip("Give up anchoring a placement after this many anchors land "
                + "too far from where the frame puts it.")]
@@ -323,6 +337,7 @@ namespace MarkerOne.Unity
             }
 
             if (!go.activeSelf) { go.SetActive(true); }
+            _waitingSince.Remove(id);
 
             float y = _groundY.TryGetValue(id, out float ground) ? ground : where.y;
             go.transform.position = new Vector3(where.x, y, where.z);
@@ -447,6 +462,19 @@ namespace MarkerOne.Unity
             }
         }
 
+        /// <summary>Whether this placement has waited long enough for ARCore
+        /// that the frame is now the better of two poor answers.</summary>
+        private bool PatienceRunOut(string id)
+        {
+            if (!_waitingSince.TryGetValue(id, out float since))
+            {
+                _waitingSince[id] = Time.unscaledTime;
+                return false;
+            }
+
+            return Time.unscaledTime - since > PatienceS;
+        }
+
         private void Update()
         {
             Retry();
@@ -464,6 +492,7 @@ namespace MarkerOne.Unity
 
             HasNearest = false;
             NearestM = -1;
+            Approximate = 0;
             if (SessionCamera == null) { return; }
 
             Vector3 eye = SessionCamera.transform.position;
@@ -478,6 +507,14 @@ namespace MarkerOne.Unity
                 // saying it was 1.6m away while nothing was drawn there was a
                 // small lie of its own.
                 if (!entry.Value.activeSelf) { continue; }
+
+                // Drawn from the frame: no anchor, and ARCore could not place
+                // it either.
+                if (entry.Value.transform.parent == PlacementRoot &&
+                    _waitingSince.ContainsKey(entry.Key))
+                {
+                    Approximate++;
+                }
 
                 // Hold the height against the anchor, every frame.
                 //
@@ -963,21 +1000,24 @@ namespace MarkerOne.Unity
                 // ARCore first, every refresh.
                 if (Reposition(item.Id, go)) { continue; }
 
-                // ARCore cannot place it yet. On a device with Geospatial that
-                // is a wait, not a reason to guess: the frame is known to be
-                // ten or twenty metres out and, when the camera basis is
-                // ambiguous, ninety degrees out as well — which is exactly the
-                // whole formation appearing rotated flat on its side. Drawing
-                // from it while waiting does not degrade gracefully, it invents
-                // an arrangement and presents it with confidence.
+                // ARCore cannot place it. For a few seconds that is a wait
+                // worth honouring — the frame is much worse and drawing from it
+                // immediately produces a wrong arrangement presented with
+                // confidence.
                 //
-                // Where there is no Geospatial at all the frame is the only
-                // answer there is, and then it is used.
-                if (Anchors != null)
+                // But out where there is no VPS coverage the wait never ends,
+                // and hiding everything for ever is not a graceful way to say
+                // so: it is indistinguishable from an empty world, in exactly
+                // the places somebody most wants to leave a marker. So patience
+                // runs out, and then the frame — five or fifteen metres, and
+                // honestly labelled — beats nothing at all.
+                if (Anchors != null && !PatienceRunOut(item.Id))
                 {
                     if (go.activeSelf) { go.SetActive(false); }
                     continue;
                 }
+
+                if (!go.activeSelf) { go.SetActive(true); }
 
                 // An anchored object is ARCore's to position. Writing the
                 // frame's answer over it every refresh would undo exactly the
@@ -1018,6 +1058,7 @@ namespace MarkerOne.Unity
                 _groundY.Remove(entry.Key);
                 _mine.Remove(entry.Key);
                 _provider.Remove(entry.Key);
+                _waitingSince.Remove(entry.Key);
                 gone.Add(entry.Key);
             }
             foreach (string id in gone) { _spawned.Remove(id); }

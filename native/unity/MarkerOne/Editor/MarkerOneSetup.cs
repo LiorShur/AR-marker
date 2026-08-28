@@ -185,6 +185,13 @@ namespace MarkerOne.EditorTools
             occlusion.requestedEnvironmentDepthMode = EnvironmentDepthMode.Best;
             occlusion.requestedOcclusionPreferenceMode = OcclusionPreferenceMode.PreferEnvironmentOcclusion;
 
+            // Raw LiDAR depth is noisy at edges and jitters frame to frame, so
+            // an object standing against a surface gets chewed at its outline
+            // and appears to break apart. Temporal smoothing averages the depth
+            // over time and costs almost nothing; without it occlusion looks
+            // less like depth and more like damage.
+            occlusion.environmentDepthTemporalSmoothingRequested = true;
+
             EditorUtility.SetDirty(occlusion);
             EditorSceneManager.MarkSceneDirty(camera.gameObject.scene);
             Debug.Log("MarkerOne: occlusion requested at " +

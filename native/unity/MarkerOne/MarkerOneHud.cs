@@ -3,6 +3,7 @@ using System.Text;
 using MarkerOne.Core;
 using UnityEngine;
 using UnityEngine.XR.ARFoundation;
+using UnityEngine.XR.ARSubsystems;
 
 namespace MarkerOne.Unity
 {
@@ -51,6 +52,7 @@ namespace MarkerOne.Unity
         private MarkerOneRig _rig;
         private GeospatialFixSource _source;
         private GoogleSignIn _signIn;
+        private AROcclusionManager _occlusion;
         private WorldSession _watched;
         private int _items;
         private float _rescan;
@@ -186,6 +188,14 @@ namespace MarkerOne.Unity
             {
                 MapPin.Open = !MapPin.Open;
             }
+
+            // Occlusion is a judgement rather than a setting: it makes a
+            // placement behind a wall correctly invisible, and it also eats the
+            // edges of one standing in front of a surface. Which of those
+            // matters more depends on where you are, so it belongs on a button
+            // rather than in a file.
+            Occlusion(new Rect(pin.xMax + lineHeight * 0.4f, box.yMax + 6,
+                               lineHeight * 4.4f, lineHeight * 1.5f));
         }
 
         private string Body()
@@ -257,6 +267,10 @@ namespace MarkerOne.Unity
             if (waiting > 0)
             {
                 _text.Append(", ").Append(waiting).Append(" waiting for arcore");
+            }
+            if (_rig.Approximate > 0)
+            {
+                _text.Append(", ").Append(_rig.Approximate).Append(" from gps");
             }
             if (_rig.NearestM >= 0)
             {
@@ -342,6 +356,21 @@ namespace MarkerOne.Unity
             {
                 _signIn.Begin();
             }
+        }
+
+        private void Occlusion(Rect at)
+        {
+            if (_occlusion == null) { _occlusion = FindFirstObjectByType<AROcclusionManager>(); }
+            if (_occlusion == null) { return; }
+
+            bool on = _occlusion.requestedOcclusionPreferenceMode !=
+                      OcclusionPreferenceMode.NoOcclusion;
+
+            if (!GUI.Button(at, on ? "Depth on" : "Depth off", _button)) { return; }
+
+            _occlusion.requestedOcclusionPreferenceMode = on
+                ? OcclusionPreferenceMode.NoOcclusion
+                : OcclusionPreferenceMode.PreferEnvironmentOcclusion;
         }
 
         private static string Reachability()
