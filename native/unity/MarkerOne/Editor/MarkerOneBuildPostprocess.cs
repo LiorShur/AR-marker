@@ -65,6 +65,14 @@ namespace MarkerOne.EditorTools
         /// unique to that component, so reading it back is a line of regex
         /// rather than a reason to load a scene during a build.
         /// </summary>
+        /// <summary>The reversed client id, which is the scheme both platforms
+        /// have to claim. Shared so Android and iOS cannot disagree about it.</summary>
+        internal static string RedirectScheme()
+        {
+            string clientId = FindClientId();
+            return string.IsNullOrEmpty(clientId) ? null : Reversed(clientId);
+        }
+
         private static string FindClientId()
         {
             foreach (string guid in AssetDatabase.FindAssets("t:Scene"))

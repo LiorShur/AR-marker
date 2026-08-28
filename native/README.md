@@ -73,6 +73,14 @@ floor probe, the rig that joins them to the core, and two assembly definitions.
 The Core one sets `noEngineReferences`, so the compiler refuses an accidental
 `using UnityEngine` in the half that is meant to stay testable.
 
+## Android
+
+Same code, same scene, same Firestore — the differences are platform plumbing
+and are written up in [ANDROID.md](ANDROID.md). `MarkerOne → Configure Android`
+sets the player settings and a build post-processor writes the manifest, for the
+same reason those steps are scripted on iOS: each one of them has a failure mode
+with no error message attached.
+
 ## What carries over from the web app
 
 | Carries over | Does not |

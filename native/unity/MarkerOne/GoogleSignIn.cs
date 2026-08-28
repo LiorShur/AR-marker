@@ -40,6 +40,13 @@ namespace MarkerOne.Unity
 
         public bool Busy { get; private set; }
 
+        [Tooltip("Seconds to wait for the browser to come back before giving up. "
+               + "A redirect that never arrives leaves the button saying it is "
+               + "working for ever, which is the least useful thing it could say.")]
+        public float ReturnTimeoutS = 180f;
+
+        private float _startedAt;
+
         private string _verifier;
         private string _state;
         private MarkerOneRig _rig;
@@ -77,6 +84,18 @@ namespace MarkerOne.Unity
             Application.deepLinkActivated -= OnRedirect;
         }
 
+        private void Update()
+        {
+            if (!Busy || Time.unscaledTime < _startedAt + ReturnTimeoutS) { return; }
+
+            // The commonest cause is the redirect scheme not being claimed —
+            // the Info.plist entry on iOS, the intent filter on Android. Both
+            // are written by a build post-processor, and when either is missing
+            // the browser opens, consent is given, and nothing ever comes back.
+            Fail("no answer from the browser. If this keeps happening, the app " +
+                 "is probably not registered for the redirect scheme.");
+        }
+
         public void Begin()
         {
             if (Busy) { return; }
@@ -88,6 +107,7 @@ namespace MarkerOne.Unity
             }
 
             Busy = true;
+            _startedAt = Time.unscaledTime;
             _verifier = Random(64);
             _state = Random(16);
 
