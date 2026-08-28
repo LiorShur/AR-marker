@@ -17,6 +17,12 @@ Then, in the project:
     MarkerOne → Configure Android
     File → Build Profiles → Android → Switch Platform
 
+It also creates `Assets/Plugins/Android`, because Google's Android Resolver
+copies a Gradle template in there with `File.Copy`, which does not create
+directories. On a project that has never built for Android the folder does not
+exist and the resolver throws a `DirectoryNotFoundException` from inside itself
+— accurate, and no help at all in saying the fix is one empty folder.
+
 The menu item sets four things:
 
 | | Value | Why |

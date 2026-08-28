@@ -1,3 +1,4 @@
+using System.IO;
 using UnityEditor;
 using UnityEngine;
 
@@ -14,6 +15,20 @@ namespace MarkerOne.EditorTools
         [MenuItem("MarkerOne/Configure Android")]
         public static void Run()
         {
+            // Google's Android Resolver copies a Gradle template in here and
+            // uses File.Copy, which does not create directories. On a project
+            // that has never built for Android the folder does not exist, and
+            // the resolver reports a DirectoryNotFoundException from inside
+            // itself — accurate, and no help at all in saying that the fix is
+            // one empty folder.
+            string plugins = Path.Combine(Application.dataPath, "Plugins", "Android");
+            if (!Directory.Exists(plugins))
+            {
+                Directory.CreateDirectory(plugins);
+                AssetDatabase.Refresh();
+                Debug.Log("MarkerOne: created Assets/Plugins/Android for the Android resolver.");
+            }
+
             // ARCore does not support Vulkan on every device, and Unity puts
             // Vulkan first by default. Leaving it there gives a black camera
             // feed with no error at all — the same failure the iOS notes warn
