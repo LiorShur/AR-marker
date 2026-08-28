@@ -38,19 +38,44 @@ namespace MarkerOne.EditorTools
             PlayerSettings.SetGraphicsAPIs(BuildTarget.Android,
                                            new[] { UnityEngine.Rendering.GraphicsDeviceType.OpenGLES3 });
 
-            // ARCore's own floor. Newer editors reject 24 outright, so this
-            // asks for the lowest the installed editor will accept at or above
-            // it rather than insisting on a number that may not exist.
-            PlayerSettings.Android.minSdkVersion = (AndroidSdkVersions)24;
+            // ARCore's floor, by name rather than by cast. A cast to an enum
+            // value the editor does not define is not an error — it produces an
+            // out-of-range enum that a setter may quietly refuse, which is
+            // exactly what happened here: Vulkan came out of the list and the
+            // SDK version stayed at 23, and the build failed for a setting the
+            // console had already claimed to have set.
+            PlayerSettings.Android.minSdkVersion = AndroidSdkVersions.AndroidApiLevel24;
 
             PlayerSettings.SetScriptingBackend(NamedBuildTarget.Android, ScriptingImplementation.IL2CPP);
             PlayerSettings.Android.targetArchitectures = AndroidArchitecture.ARM64;
 
-            Debug.Log("MarkerOne: Android configured — OpenGLES3 only, min SDK " +
-                      (int)PlayerSettings.Android.minSdkVersion +
-                      ", IL2CPP, ARM64. Graphics API matters most: ARCore does not " +
-                      "support Vulkan everywhere and a Vulkan build shows a black " +
-                      "camera with no error.");
+            // Read back rather than reported. Every one of these is a setter
+            // that can decline, and a message describing what was asked for is
+            // worth nothing next to one describing what is now true.
+            var apis = PlayerSettings.GetGraphicsAPIs(BuildTarget.Android);
+            int minSdk = (int)PlayerSettings.Android.minSdkVersion;
+
+            Debug.Log(string.Format(
+                "MarkerOne: Android is now — graphics {0}, min SDK {1}, {2}, {3}.",
+                string.Join(" ", apis), minSdk,
+                PlayerSettings.GetScriptingBackend(NamedBuildTarget.Android),
+                PlayerSettings.Android.targetArchitectures));
+
+            if (minSdk < 24)
+            {
+                Debug.LogWarning("MarkerOne: the minimum SDK did not take — it is still " +
+                                 minSdk + " and ARCore needs 24. Set it by hand in Player " +
+                                 "Settings → Other Settings → Identification.");
+            }
+
+            foreach (var api in apis)
+            {
+                if (api != UnityEngine.Rendering.GraphicsDeviceType.Vulkan) { continue; }
+
+                Debug.LogWarning("MarkerOne: Vulkan is still in the graphics API list. " +
+                                 "ARCore does not support it on every device and a Vulkan " +
+                                 "build shows a black camera feed with no error at all.");
+            }
 
             if (EditorUserBuildSettings.activeBuildTarget != BuildTarget.Android)
             {
