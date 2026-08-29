@@ -63,6 +63,32 @@ explanation is that the copy had not had install.sh run into it and was
 compiling older sources. Worth remembering: three plausible mechanisms, argued
 from real evidence, and the answer was none of them.
 
+## Android is a different answer
+
+They share a binary on iOS. On Android they do not:
+
+    Namespace 'com.google.ar.core' is used in multiple modules and/or libraries:
+      :arcore_client:, :unityandroidpermissions:
+
+NSDK bundles its own copy of ARCore's client library, Unity's ARCore XR plugin
+provides one as well, and modern Android Gradle Plugin requires namespaces to be
+unique and refuses to merge. The build fails at
+`:launcher:processReleaseMainManifest`.
+
+Two things worth saying about it. It is a build error rather than a silent
+runtime failure, which makes it the good kind of incompatibility — nobody ships
+a broken app by accident. And it is Niantic's packaging rather than anything
+this project does: their own documentation names "Niantic Spatial Development
+Kit + Google ARCore" as the supported Android loader, so ARCore being present is
+the configuration they expect.
+
+Which means the fix is theirs, and the options here are workarounds: excluding
+one of the two AARs through a Gradle template, or building Android without NSDK.
+
+The second is what this project does. Android ships from the project that has no
+NSDK in it, and NSDK stays an iOS experiment until either Niantic resolves the
+packaging or a scan proves Lightship worth the trouble.
+
 ## The one that decided it, before it was decided
 
 NSDK's XR loader is "Niantic Spatial Development Kit + Apple ARKit" — a

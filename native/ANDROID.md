@@ -107,6 +107,16 @@ Two differences worth knowing:
   and depth raycasts are a little less reliable on featureless ground than they
   are on the iPhone.
 
+## Not with NSDK
+
+Building Android from a project that also has the Niantic SDK installed fails:
+
+    Namespace 'com.google.ar.core' is used in multiple modules and/or libraries:
+      :arcore_client:, :unityandroidpermissions:
+
+NSDK ships its own ARCore client library and Unity's ARCore plugin provides one
+too. See [NSDK.md](NSDK.md). Build Android from the project without NSDK.
+
 ## What is not done
 
 **Google sign-in is untested on Android.** The redirect filter is written and
