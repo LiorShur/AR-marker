@@ -80,11 +80,36 @@ Settled by building a copy of the working project with AR Foundation raised to
 So the incompatibility is between ARCore Extensions and `com.unity.xr.arcore` at
 6.4.1 — Google's and Unity's, with Niantic nowhere in it.
 
-That is worse news than blaming Niantic would have been. NSDK requires AR
-Foundation 6.3.0 or newer, and 6.4.1 cannot build for Android; if 6.3.0 fails
-the same way, then adopting NSDK costs Android entirely rather than costing a
-workaround. Which version first breaks is the next thing worth measuring, and it
-is one more build in the same copy.
+6.3.0 fails the same way. Which settles the shape of the problem:
+
+| AR Foundation | Android build |
+|---|---|
+| 6.0.8 | works |
+| 6.3.0 | fails |
+| 6.4.1 | fails |
+
+NSDK requires 6.3.0 or newer. Android requires 6.2 or older. **With ARCore
+Extensions in the project, Lightship and Android are mutually exclusive.**
+
+One caveat on the 6.3.0 result: Gradle reported "3 executed, 64 up-to-date" and
+failed in two seconds, and the AAR transform came from the same cache path as
+the 6.4.1 attempt. The manifest task itself did re-run, so the failure is real,
+but a build with `Library/Bee` and the Gradle cache cleared would be a stronger
+statement than this one.
+
+## What could still be done about it
+
+The collision is between two copies of the same library: ARCore Extensions ships
+`arcore_client.aar` and so does `com.unity.xr.arcore`. Only one is needed.
+
+Extensions lives in the package cache and cannot be edited there, but a UPM
+package can be embedded — copied into `Packages/` — and edited afterwards.
+Deleting the duplicate `.aar` from an embedded copy is a real repair rather than
+a hack, and it survives until the package is updated.
+
+Worth doing only if Lightship turns out to be worth having on Android, which a
+scan has yet to establish. Reporting it to Google costs nothing and may be
+quicker: two packages of theirs, meant to be used together, that cannot be.
 
 ## Superseded: the guess that it was NSDK
 
