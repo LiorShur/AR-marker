@@ -117,8 +117,16 @@ Both AARs come from Google and Unity — ARCore Extensions ships one
 `unityandroidpermissions.aar`. Newer Android Gradle Plugin requires unique
 namespaces and refuses to merge them.
 
-Seen on AR Foundation 6.4.1 and not on 6.0.8. See [NSDK.md](NSDK.md) for what is
-and is not established about why.
+Seen on AR Foundation **6.4.1** and not on **6.0.8**, in a project with no
+Niantic SDK in it — so this is Google's and Unity's, and nothing to do with
+NSDK. See [NSDK.md](NSDK.md).
+
+**Android builds on 6.0.8.** That is the version this project ships Android
+from. iOS is unaffected either way.
+
+Worth raising with Google: ARCore Extensions ships an `arcore_client.aar` whose
+namespace collides with the `unityandroidpermissions.aar` inside newer
+`com.unity.xr.arcore`, and the two are meant to be used together.
 
 ## What is not done
 

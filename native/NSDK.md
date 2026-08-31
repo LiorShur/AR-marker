@@ -63,7 +63,30 @@ explanation is that the copy had not had install.sh run into it and was
 compiling older sources. Worth remembering: three plausible mechanisms, argued
 from real evidence, and the answer was none of them.
 
-## Android fails to build, and NSDK is probably innocent
+## Android fails to build, and NSDK is innocent
+
+Settled by building a copy of the working project with AR Foundation raised to
+6.4.1 and **no NSDK installed at all**. Identical failure:
+
+    Namespace 'com.google.ar.core' is used in multiple modules and/or libraries:
+      :arcore_client:, :unityandroidpermissions:
+
+| | AR Foundation | NSDK | Android build |
+|---|---|---|---|
+| MarkerOneApp | 6.0.8 | no | works |
+| MarkerOneAF641 | 6.4.1 | **no** | fails |
+| MarkerOneNSDK | 6.4.1 | yes | fails |
+
+So the incompatibility is between ARCore Extensions and `com.unity.xr.arcore` at
+6.4.1 — Google's and Unity's, with Niantic nowhere in it.
+
+That is worse news than blaming Niantic would have been. NSDK requires AR
+Foundation 6.3.0 or newer, and 6.4.1 cannot build for Android; if 6.3.0 fails
+the same way, then adopting NSDK costs Android entirely rather than costing a
+workaround. Which version first breaks is the next thing worth measuring, and it
+is one more build in the same copy.
+
+## Superseded: the guess that it was NSDK
 
     Namespace 'com.google.ar.core' is used in multiple modules and/or libraries:
       :arcore_client:, :unityandroidpermissions:
