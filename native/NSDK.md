@@ -63,31 +63,37 @@ explanation is that the copy had not had install.sh run into it and was
 compiling older sources. Worth remembering: three plausible mechanisms, argued
 from real evidence, and the answer was none of them.
 
-## Android is a different answer
-
-They share a binary on iOS. On Android they do not:
+## Android fails to build, and NSDK is probably innocent
 
     Namespace 'com.google.ar.core' is used in multiple modules and/or libraries:
       :arcore_client:, :unityandroidpermissions:
 
-NSDK bundles its own copy of ARCore's client library, Unity's ARCore XR plugin
-provides one as well, and modern Android Gradle Plugin requires namespaces to be
-unique and refuses to merge. The build fails at
-`:launcher:processReleaseMainManifest`.
+The build stops at `:launcher:processReleaseMainManifest`. Both of those AARs
+come from Google and Unity:
 
-Two things worth saying about it. It is a build error rather than a silent
-runtime failure, which makes it the good kind of incompatibility — nobody ships
-a broken app by accident. And it is Niantic's packaging rather than anything
-this project does: their own documentation names "Niantic Spatial Development
-Kit + Google ARCore" as the supported Android loader, so ARCore being present is
-the configuration they expect.
+    com.google.ar.core.arfoundation.extensions/Runtime/Plugins/arcore_client.aar
+    com.unity.xr.arcore/Runtime/Android/arcore_client.aar
+    com.unity.xr.arcore/Runtime/Android/unityandroidpermissions.aar
 
-Which means the fix is theirs, and the options here are workarounds: excluding
-one of the two AARs through a Gradle template, or building Android without NSDK.
+NSDK ships neither. It was named as the culprit here on the strength of being
+the new thing in the project, which is the same reasoning that produced three
+wrong theories about the iOS symptoms, and it deserves no more weight now than
+it did then.
 
-The second is what this project does. Android ships from the project that has no
-NSDK in it, and NSDK stays an iOS experiment until either Niantic resolves the
-packaging or a scan proves Lightship worth the trouble.
+The controlled comparison points elsewhere. Two projects differ in two ways, and
+only one of the two differences is in the modules the error names:
+
+| | AR Foundation | NSDK | Android build |
+|---|---|---|---|
+| MarkerOneApp | 6.0.8 | no | works |
+| MarkerOneNSDK | 6.4.1 | yes | fails |
+
+Upgrading MarkerOneApp to 6.4.1 and building Android separates them in one
+build. Until somebody does that, the honest statement is that Android fails in
+the project that has both changes, and which change causes it is unestablished.
+
+Android ships from MarkerOneApp meanwhile, which needs no resolution either
+way.
 
 ## The one that decided it, before it was decided
 

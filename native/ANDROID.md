@@ -107,15 +107,18 @@ Two differences worth knowing:
   and depth raycasts are a little less reliable on featureless ground than they
   are on the iPhone.
 
-## Not with NSDK
-
-Building Android from a project that also has the Niantic SDK installed fails:
+## A namespace clash on newer AR Foundation
 
     Namespace 'com.google.ar.core' is used in multiple modules and/or libraries:
       :arcore_client:, :unityandroidpermissions:
 
-NSDK ships its own ARCore client library and Unity's ARCore plugin provides one
-too. See [NSDK.md](NSDK.md). Build Android from the project without NSDK.
+Both AARs come from Google and Unity — ARCore Extensions ships one
+`arcore_client.aar` and `com.unity.xr.arcore` ships another alongside
+`unityandroidpermissions.aar`. Newer Android Gradle Plugin requires unique
+namespaces and refuses to merge them.
+
+Seen on AR Foundation 6.4.1 and not on 6.0.8. See [NSDK.md](NSDK.md) for what is
+and is not established about why.
 
 ## What is not done
 
