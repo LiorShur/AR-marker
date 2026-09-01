@@ -156,9 +156,25 @@ nothing and says nothing.
 The menu item is not a shortcut past understanding the scene. It is a refusal
 to keep losing to the same ambiguity.
 
-Afterwards, *Scenes* on the rig should list one entry per id in `content.json`,
-each pointing at something under `Assets/`. Verify from a terminal if the
-inspector has misled you before:
+It also builds the shapes: `beacon`, `rotary-phone`, `pin`, `signpost`,
+`plaque`, `arrow`, `cairn`. Built from primitives rather than modelled, and
+generated rather than imported, for the same reason as everything else here — an
+asset in a repository is a thing to lose, and one a person makes by hand is a
+step that gets done differently twice.
+
+They are deliberately plain. A marker's job is to be seen from across a garden
+and recognised, and at three metres through a phone camera a silhouette does
+that where a detailed model does not. `beacon` and `rotary-phone` stay cubes on
+purpose: changing what an id looks like would change things people have already
+placed.
+
+Adding one is a line in `MarkerOneShapes.Catalogue` and a method beside the
+others. The scene id is what the store holds, so it outlives the shape and is
+worth choosing deliberately.
+
+Afterwards, *Scenes* on the rig should list one entry per shape, each pointing at
+something under `Assets/`. Verify from a terminal if the inspector has misled you
+before:
 
 ```bash
 ls Assets/MarkerOne/Prefabs

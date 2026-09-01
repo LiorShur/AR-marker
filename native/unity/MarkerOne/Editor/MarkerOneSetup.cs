@@ -26,27 +26,10 @@ namespace MarkerOne.EditorTools
     /// </summary>
     public static class MarkerOneSetup
     {
-        private const string Folder = "Assets/MarkerOne/Prefabs";
-
-        /// <summary>Matches the scene ids in content.json, so the native app
-        /// and the web app render the same placements.</summary>
-        private static readonly (string Id, Color Colour)[] Scenes =
-        {
-            ("rotary-phone", new Color(0.95f, 0.45f, 0.2f)),
-            ("beacon",       new Color(0.25f, 0.7f, 1f)),
-        };
-
         [MenuItem("MarkerOne/Set up scene")]
         public static void Run()
         {
-            Directory.CreateDirectory(Folder);
-            AssetDatabase.Refresh();
-
-            var made = new List<(string Id, GameObject Prefab)>();
-            foreach ((string id, Color colour) in Scenes)
-            {
-                made.Add((id, PrefabFor(id, colour)));
-            }
+            List<(string Id, GameObject Prefab)> made = MarkerOneShapes.All();
 
             int wired = WireRig(made);
             int added = EnsureManagers() + EnsureAnchors() + EnsureExtensionsOrigin();
@@ -58,55 +41,8 @@ namespace MarkerOne.EditorTools
 
             AssetDatabase.SaveAssets();
 
-            Debug.Log($"MarkerOne: {made.Count} prefabs in {Folder}, " +
+            Debug.Log($"MarkerOne: {made.Count} shapes in {MarkerOneShapes.Folder}, " +
                       $"{wired} wired to the rig, {added} AR managers added.");
-        }
-
-        /// <summary>Built here rather than dragged, so the reference is to an
-        /// asset on disk and cannot be invalidated by anything done in the
-        /// hierarchy afterwards.</summary>
-        private static GameObject PrefabFor(string id, Color colour)
-        {
-            string path = $"{Folder}/{id}.prefab";
-
-            var existing = AssetDatabase.LoadAssetAtPath<GameObject>(path);
-            if (existing != null) { return existing; }
-
-            var root = new GameObject(id);
-
-            GameObject cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            cube.transform.SetParent(root.transform, false);
-            cube.transform.localScale = Vector3.one * 0.3f;
-
-            // Nothing raycasts against placements yet, and a collider on every
-            // one of them would start intercepting the placement raycast.
-            Object.DestroyImmediate(cube.GetComponent<Collider>());
-
-            cube.GetComponent<Renderer>().sharedMaterial = MaterialFor(id, colour);
-
-            GameObject saved = PrefabUtility.SaveAsPrefabAsset(root, path);
-            Object.DestroyImmediate(root);
-            return saved;
-        }
-
-        private static Material MaterialFor(string id, Color colour)
-        {
-            string path = $"{Folder}/{id}.mat";
-
-            var existing = AssetDatabase.LoadAssetAtPath<Material>(path);
-            if (existing != null) { return existing; }
-
-            // CreatePrimitive's default material is the built-in one, which a
-            // URP project draws as magenta.
-            Shader shader = Shader.Find("Universal Render Pipeline/Lit");
-            bool urp = shader != null;
-            if (!urp) { shader = Shader.Find("Standard"); }
-
-            var material = new Material(shader);
-            material.SetColor(urp ? "_BaseColor" : "_Color", colour);
-
-            AssetDatabase.CreateAsset(material, path);
-            return material;
         }
 
         private static int WireRig(List<(string Id, GameObject Prefab)> made)
