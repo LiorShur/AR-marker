@@ -414,11 +414,34 @@ namespace MarkerOne.Unity
             catch (Exception) { return "unreadable"; }
         }
 
+        /// <summary>
+        /// Drop an anchor, without taking what is standing on it.
+        ///
+        /// Placements are parented to their anchor, and destroying a GameObject
+        /// destroys its children — so releasing an anchor deleted the very
+        /// placement the caller was in the middle of moving. It came back only
+        /// on the next full refresh, which is minutes away or never, and the
+        /// symptom was a correction that silently did nothing until the app was
+        /// restarted.
+        ///
+        /// Detached to wherever the anchor itself was parented, which is the
+        /// trackables root — near enough that the caller's next reposition puts
+        /// it right, and not the scene root, where it would be orphaned.
+        /// </summary>
         public void Release(string id)
         {
             if (!_made.TryGetValue(id, out ARGeospatialAnchor anchor)) { return; }
             _made.Remove(id);
-            if (anchor != null) { Destroy(anchor.gameObject); }
+
+            if (anchor == null) { return; }
+
+            Transform above = anchor.transform.parent;
+            for (int i = anchor.transform.childCount - 1; i >= 0; i--)
+            {
+                anchor.transform.GetChild(i).SetParent(above, true);
+            }
+
+            Destroy(anchor.gameObject);
         }
 
         private void OnDestroy()

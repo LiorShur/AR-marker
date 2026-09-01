@@ -327,7 +327,13 @@ namespace MarkerOne.Unity
         private bool Reposition(string id, GameObject go)
         {
             if (Anchors == null || go == null) { return false; }
-            if (go.transform.parent != PlacementRoot) { return true; }
+
+            // Anchored, so ARCore is positioning it and nothing here should.
+            // Asked of the anchor rather than inferred from the hierarchy: a
+            // placement can be detached from its anchor for several reasons and
+            // reading the parent gets that wrong in both directions.
+            if (Anchors.Has(id)) { return true; }
+
             if (!_onGlobe.TryGetValue(id, out var at)) { return false; }
 
             if (!Anchors.TryLocal(at.Lat, at.Lon, at.Height,
@@ -416,6 +422,24 @@ namespace MarkerOne.Unity
             }
         }
 
+        /// <summary>
+        /// Drop a placement's anchor and put the placement back under the
+        /// placement root, in that order.
+        ///
+        /// One helper rather than the same two lines at each call site, because
+        /// getting the order wrong destroys the placement and the failure shows
+        /// up minutes later as a correction that did not take.
+        /// </summary>
+        private void Detach(string id)
+        {
+            if (_spawned.TryGetValue(id, out GameObject go) && go != null)
+            {
+                go.transform.SetParent(PlacementRoot, true);
+            }
+
+            Anchors?.Release(id);
+        }
+
         /// <summary>Rebuild an anchor that no longer agrees with what ARCore
         /// makes of the same coordinates now.</summary>
         private void Refresh(string id, GameObject go)
@@ -439,8 +463,7 @@ namespace MarkerOne.Unity
 
             // Back onto the frame path, which Reposition immediately takes over
             // with ARCore's current answer, and a new anchor next pass.
-            go.transform.SetParent(PlacementRoot, true);
-            Anchors.Release(id);
+            Detach(id);
         }
 
         private async void Correct(string id, double lat, double lon, double height,
@@ -454,7 +477,7 @@ namespace MarkerOne.Unity
                 // The anchor was made from the old coordinates and is now
                 // holding the wrong place. Dropped so the next pass makes one
                 // from the new ones.
-                Anchors.Release(id);
+                Detach(id);
             }
             catch (Exception e)
             {
@@ -936,7 +959,7 @@ namespace MarkerOne.Unity
                 // the moment ARCore can do better.
                 _mine[id] = (worldPoint, rotation, worldPoint.y, accuracy);
                 _provider[id] = "geospatial";
-                Anchors?.Release(id);
+                Detach(id);
 
                 Placed?.Invoke(true, (seed ? "corrected" : "moved") +
                                      (Anchors != null && Anchors.AccuracyM > 0
