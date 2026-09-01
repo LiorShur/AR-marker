@@ -47,6 +47,7 @@ namespace MarkerOne.Unity
         private string _said;
         private float _saidUntil;
         private float _clearArmedUntil;
+        private float _deleteArmedUntil;
 
         /// <summary>What the crosshair is nearest to, and whether we are in the
         /// middle of moving it.</summary>
@@ -184,6 +185,37 @@ namespace MarkerOne.Unity
             _range = FallbackDistanceM;
         }
 
+        /// <summary>
+        /// Delete the thing being aimed at, twice-confirmed.
+        ///
+        /// Offered for what this device owns, and for anything at all to an
+        /// admin. A map seed belongs to whoever ran the script and is meant to
+        /// be claimed by correcting it rather than removed, so deleting one is
+        /// an admin's business.
+        /// </summary>
+        private void Remove(Rect at, float w, float pad)
+        {
+            bool mine = _rig.IsMine(_selected);
+            if (!mine && !_rig.IsAdmin)
+            {
+                GUI.Label(new Rect(at.x, at.y, w * 2, at.height), "someone else's", _text);
+                return;
+            }
+
+            bool arming = Time.unscaledTime < _deleteArmedUntil;
+            if (!GUI.Button(at, arming ? "Sure?" : "Delete", _button)) { return; }
+
+            if (!arming)
+            {
+                _deleteArmedUntil = Time.unscaledTime + 4f;
+                return;
+            }
+
+            _deleteArmedUntil = 0;
+            _rig.Remove(_selected);
+            Say("removing…");
+        }
+
         private void Place()
         {
             if (_rig == null) { Say("no rig in scene"); return; }
@@ -279,6 +311,22 @@ namespace MarkerOne.Unity
                 return;
             }
 
+            // Aiming at something changes what the bar is for. Aiming at a
+            // placement and pressing Place would otherwise put a second one on
+            // top of the first, which is never what was meant.
+            if (_selected != null)
+            {
+                if (GUI.Button(row, _rig.IsSeed(_selected) ? "Correct" : "Move", _button))
+                {
+                    _adjusting = true;
+                    Say("aim at where it really belongs");
+                }
+
+                row.x += w + pad;
+                Remove(row, w, pad);
+                return;
+            }
+
             if (GUI.Button(row, SceneId() ?? "—", _button))
             {
                 _scene++;
@@ -288,33 +336,26 @@ namespace MarkerOne.Unity
             _label = GUI.TextField(row, _label, 40, _text);
 
             row.x += w + pad;
-
-            // The button becomes Adjust when the crosshair is on something.
-            // Aiming at a placement and pressing Place would otherwise put a
-            // second one on top of the first, which is never what was meant.
-            if (_selected != null)
-            {
-                if (GUI.Button(row, _rig.IsSeed(_selected) ? "Correct" : "Move", _button))
-                {
-                    _adjusting = true;
-                    Say("aim at where it really belongs");
-                }
-            }
-            else if (GUI.Button(row, "Place", _button))
+            if (GUI.Button(row, "Place", _button))
             {
                 Place();
             }
 
-            // Two taps, because it deletes everything and a stray thumb on a
+            // Only offered to somebody it would work for. The rules refuse it
+            // otherwise, and a button whose only outcome is a refusal is worse
+            // than no button.
+            if (!_rig.IsAdmin) { return; }
+
+            // Two taps, because it erases a shared world and a stray thumb on a
             // phone held at arm's length is not a decision.
             row.x += w + pad;
             bool arming = Time.unscaledTime < _clearArmedUntil;
-            if (GUI.Button(row, arming ? "Sure?" : "Clear", _button))
+            if (GUI.Button(row, arming ? "Erase all?" : "Clear", _button))
             {
                 if (arming)
                 {
                     _clearArmedUntil = 0;
-                    if (_rig != null) { _rig.ClearAll(); }
+                    _rig.ClearAll();
                     Say("clearing…");
                 }
                 else
@@ -341,9 +382,7 @@ namespace MarkerOne.Unity
             }
             else if (_selected != null)
             {
-                status = _rig != null && _rig.IsSeed(_selected)
-                    ? "from a map — aim at the real spot and Correct it"
-                    : "aiming at a placement";
+                status = Describe(_selected);
             }
             else
             {
@@ -413,6 +452,45 @@ namespace MarkerOne.Unity
             if ((type & TrackableType.PlaneWithinPolygon) != 0) { return "surface"; }
             if ((type & TrackableType.Depth) != 0) { return "ground"; }
             return "a point";
+        }
+
+        /// <summary>
+        /// What is known about the thing being aimed at, in one line.
+        ///
+        /// Name, who left it, when, and whether it came off a map — the last
+        /// being the one that changes what somebody should do about it, since a
+        /// seed is asking to be corrected and an aimed placement is not.
+        /// </summary>
+        private string Describe(string id)
+        {
+            PlacedItem item = _rig.Info(id);
+            if (item == null) { return "aiming at a placement"; }
+
+            var said = new System.Text.StringBuilder();
+
+            said.Append(_rig.IsSeed(id) ? "⌖ " : "◆ ");
+            said.Append(string.IsNullOrEmpty(item.Label) ? item.Scene : item.Label);
+
+            if (!string.IsNullOrEmpty(item.Author))
+            {
+                said.Append("  ·  by ").Append(item.Author);
+            }
+
+            string when = Day(item.CreatedAt);
+            if (when != null) { said.Append("  ·  ").Append(when); }
+
+            if (_rig.IsSeed(id)) { said.Append("  ·  from a map, Correct it here"); }
+
+            return said.ToString();
+        }
+
+        /// <summary>The date out of an ISO timestamp, without parsing it. A
+        /// wrong date is worse than no date, and the first ten characters are
+        /// the date in every string this writes.</summary>
+        private static string Day(string createdAt)
+        {
+            if (string.IsNullOrEmpty(createdAt) || createdAt.Length < 10) { return null; }
+            return createdAt.Substring(0, 10);
         }
 
         /// <summary>Which way the object should face: back towards whoever is

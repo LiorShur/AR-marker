@@ -19,6 +19,7 @@ namespace MarkerOne.Core
         public double DistanceM;
         public string Owner;
         public string Label;
+        public string Author;
         public string CreatedAt;
         public Vec3 Local;
         public double YawRad;
@@ -98,6 +99,10 @@ namespace MarkerOne.Core
         /// a steel door reads twenty degrees wrong very consistently.</summary>
         public double? CompassHeadingDeg { get; set; }
         public double CompassSpreadDeg { get; set; } = 25;
+
+        /// <summary>The name to credit on anything placed from here. Set by
+        /// whoever knows who is signed in; empty is honest when nobody is.</summary>
+        public string Author { get; set; } = "";
 
         public WorldSession(IPlacementStore store, Func<double> floor = null)
         {
@@ -334,6 +339,7 @@ namespace MarkerOne.Core
                     DistanceM = p.DistanceM,
                     Owner = p.Owner,
                     Label = p.Label,
+                    Author = p.Author,
                     CreatedAt = p.CreatedAt,
                     Local = local,
                     YawRad = Frame.HeadingToLocalYaw(headingDeg),
@@ -396,6 +402,7 @@ namespace MarkerOne.Core
                 Orientation = Geodesy.HeadingToQuaternion(headingDeg),
                 GroundOffset = 0,
                 Label = label ?? "",
+                Author = Author ?? "",
                 Scale = 1,
                 Fix = new FixQuality { Provider = "map", PositionM = 0, HeadingDeg = 0 }
             };
@@ -441,6 +448,7 @@ namespace MarkerOne.Core
                 Orientation = Geodesy.HeadingToQuaternion(headingDeg),
                 GroundOffset = localPoint.Y - Floor(),
                 Label = label ?? "",
+                Author = Author ?? "",
                 Scale = 1,
                 Fix = new FixQuality
                 {

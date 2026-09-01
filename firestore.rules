@@ -92,7 +92,7 @@ service cloud.firestore {
   function isWellFormed(data) {
     return data.keys().hasOnly([
              'geopose', 'geohash', 'scene', 'scale', 'fix', 'groundOffset',
-             'label', 'visibility', 'owner', 'createdAt'
+             'label', 'author', 'visibility', 'owner', 'createdAt'
            ])
            && data.keys().hasAll(['geopose', 'geohash', 'scene', 'scale', 'visibility', 'owner'])
            && isGeoPose(data.geopose)
@@ -109,7 +109,13 @@ service cloud.firestore {
            // it — so the only thing worth enforcing is that it cannot be used
            // as free storage.
            && data.label is string
-           && data.label.size() <= 40;
+           && data.label.size() <= 40
+           // Who to credit, as opposed to owner, which is who may edit. Also a
+           // courtesy and also unverified — nothing stops somebody claiming to
+           // be anyone — so the only thing worth enforcing is the same: that it
+           // cannot be used as free storage.
+           && (!('author' in data.keys()) ||
+               (data.author is string && data.author.size() <= 40));
   }
 
   function isGeoPose(pose) {

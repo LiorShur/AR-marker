@@ -31,7 +31,23 @@ namespace MarkerOne.Core
         /// air, and either is invisible.</summary>
         public double GroundOffset;
 
+        /// <summary>What the thing is called. "the old oak", not a person.</summary>
         public string Label = "";
+
+        /// <summary>
+        /// Who left it, as a name rather than as a uid.
+        ///
+        /// Owner is an identity and answers "may this be edited". This answers
+        /// "who should be credited", which is a different question and cannot
+        /// be derived from the first: a uid is meaningless to everybody except
+        /// the person it belongs to, and looking one up would mean a directory
+        /// of users that this does not have and does not want.
+        ///
+        /// So it is written down at the time, by the only party who knows it.
+        /// Unverified, like the label — nothing stops somebody claiming to be
+        /// anyone, and nothing here pretends otherwise.
+        /// </summary>
+        public string Author = "";
         public string Owner;
         public string CreatedAt;
         public string Visibility = "public";
@@ -52,6 +68,7 @@ namespace MarkerOne.Core
             if (string.IsNullOrEmpty(Scene)) { bad.Add("scene is required"); }
             if (Scene != null && Scene.Length > 64) { bad.Add("scene name too long"); }
             if (double.IsNaN(Scale) || Scale <= 0 || Scale > 1000) { bad.Add("scale"); }
+            if (Author != null && Author.Length > 40) { bad.Add("author too long"); }
             if (Math.Abs(GroundOffset) > 100) { bad.Add("ground offset"); }
 
             double length = Math.Sqrt(

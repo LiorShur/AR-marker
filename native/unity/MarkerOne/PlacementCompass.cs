@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using MarkerOne.Core;
 using UnityEngine;
 
 namespace MarkerOne.Unity
@@ -65,7 +66,10 @@ namespace MarkerOne.Unity
 
         private void OnGUI()
         {
-            if (_rig == null || _camera == null || !MarkerOneHud.Visible) { return; }
+            // Independent of the readout. The arrows are how somebody finds a
+            // placement, which is a thing to do rather than a thing to inspect,
+            // and hiding the diagnostic should not take the navigation with it.
+            if (_rig == null || _camera == null) { return; }
 
             EnsureStyles();
             Gather();
@@ -129,7 +133,10 @@ namespace MarkerOne.Unity
             // Keep clear of the readout and the control bar. An arrow drawn
             // over a button is worse than useless twice: it is unreadable, and
             // it makes the button look like it has something written on it.
-            if (MarkerOneHud.Occupied.height > 0)
+            // Only while the readout is actually on screen. It publishes the
+            // rectangle it last drew, and reserving that space after it is
+            // hidden would squeeze the arrows into a band for no reason.
+            if (MarkerOneHud.Visible && MarkerOneHud.Occupied.height > 0)
             {
                 top = Mathf.Max(top, MarkerOneHud.Occupied.yMax + margin);
             }
@@ -145,9 +152,9 @@ namespace MarkerOne.Unity
             var inside = new Rect(safe.x + margin, top, safe.width - margin * 2, floor - top);
 
             Color colour = ColourOf(go);
-            string label = distance < 10
+            string label = Name(go) + (distance < 10
                 ? distance.ToString("0.0") + "m"
-                : distance.ToString("0") + "m";
+                : distance.ToString("0") + "m");
 
             if (!behind && inside.Contains(at))
             {
@@ -209,6 +216,41 @@ namespace MarkerOne.Unity
         private static bool Finite(Vector2 v) =>
             !float.IsNaN(v.x) && !float.IsNaN(v.y) &&
             !float.IsInfinity(v.x) && !float.IsInfinity(v.y);
+
+        /// <summary>
+        /// What to call it on the arrow, and where it came from.
+        ///
+        /// A diamond for something somebody stood in front of and aimed at, a
+        /// crosshair for a seed dropped on a map. The distinction matters to
+        /// whoever is walking towards it: one is where it belongs and the other
+        /// is asking to be corrected.
+        ///
+        /// The name only when it is short. An arrow at the edge of the screen
+        /// competes with several others and a long name pushes the distance —
+        /// the thing actually being asked — off the edge.
+        /// </summary>
+        private string Name(GameObject go)
+        {
+            string id = IdOf(go);
+            if (id == null) { return ""; }
+
+            string badge = _rig.IsSeed(id) ? "⌖ " : "◆ ";
+
+            PlacedItem item = _rig.Info(id);
+            string called = item != null ? item.Label : null;
+
+            if (string.IsNullOrEmpty(called) || called.Length > 14) { return badge; }
+            return badge + called + " ";
+        }
+
+        private string IdOf(GameObject go)
+        {
+            foreach (KeyValuePair<string, GameObject> entry in _rig.Objects)
+            {
+                if (entry.Value == go) { return entry.Key; }
+            }
+            return null;
+        }
 
         /// <summary>The colour of what it points at, so several are telling
         /// apart. Falls back to white rather than guessing.</summary>

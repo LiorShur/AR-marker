@@ -531,6 +531,7 @@ namespace MarkerOne.Core
                 .Set("scale", Wrap(p.Scale))
                 .Set("groundOffset", Wrap(p.GroundOffset))
                 .Set("label", Wrap(p.Label ?? ""))
+                .Set("author", Wrap(p.Author ?? ""))
                 .Set("visibility", Wrap(p.Visibility))
                 .Set("owner", Wrap(p.Owner))
                 .Set("createdAt", Wrap(p.CreatedAt))
@@ -579,6 +580,7 @@ namespace MarkerOne.Core
                 Scale = Num(fields, "scale", 1),
                 GroundOffset = Num(fields, "groundOffset", 0),
                 Label = Str(fields, "label") ?? "",
+                Author = Str(fields, "author") ?? "",
                 Owner = Str(fields, "owner"),
                 CreatedAt = Str(fields, "createdAt"),
                 Visibility = Str(fields, "visibility") ?? "public"

@@ -189,6 +189,16 @@ namespace MarkerOne.Unity
         /// those are seeds anybody may correct.</summary>
         private readonly Dictionary<string, string> _provider = new Dictionary<string, string>();
 
+        /// <summary>The last known record for each placement, kept so an
+        /// interface can say what a thing is without another read.</summary>
+        private readonly Dictionary<string, PlacedItem> _info = new Dictionary<string, PlacedItem>();
+
+        [Header("Who may clear everything")]
+        [Tooltip("Uids allowed to remove other people's placements. Empty means "
+               + "nobody, which is the right default: the button erases a shared "
+               + "world and the rules will refuse it anyway.")]
+        public List<string> Admins = new List<string>();
+
         /// <summary>When each placement first failed to be positioned by
         /// ARCore, so patience can run out.</summary>
         private readonly Dictionary<string, float> _waitingSince = new Dictionary<string, float>();
@@ -500,6 +510,12 @@ namespace MarkerOne.Unity
 
         private void Update()
         {
+            // Whoever is signed in gets the credit on anything placed from
+            // here. Kept current rather than read once, because signing in
+            // happens mid-session and the placements made afterwards should
+            // carry the name.
+            if (Session != null) { Session.Author = Called(); }
+
             Retry();
             Rewrite();
             Anchor();
@@ -883,6 +899,23 @@ namespace MarkerOne.Unity
         public bool IsSeed(string id) =>
             _provider.TryGetValue(id, out string p) && p == "map";
 
+        /// <summary>What is known about a placement, or null.</summary>
+        public PlacedItem Info(string id) =>
+            _info.TryGetValue(id, out PlacedItem item) ? item : null;
+
+        /// <summary>Whether this device may remove other people's placements.
+        /// The rules decide in the end; this only decides what to offer.</summary>
+        public bool IsAdmin => !string.IsNullOrEmpty(Uid) && Admins.Contains(Uid);
+
+        /// <summary>Whether this device placed the thing, and may therefore
+        /// remove it. A seed belongs to whoever ran the script and is claimable
+        /// by correction rather than by deletion.</summary>
+        public bool IsMine(string id)
+        {
+            PlacedItem item = Info(id);
+            return item != null && !string.IsNullOrEmpty(Uid) && item.Owner == Uid;
+        }
+
         /// <summary>The placements currently rendered, by id. Order is not
         /// promised — the caller decides what near means.</summary>
         public IEnumerable<KeyValuePair<string, GameObject>> Objects => _spawned;
@@ -1000,6 +1033,24 @@ namespace MarkerOne.Unity
             }
         }
 
+        /// <summary>
+        /// A short name for whoever is signed in.
+        ///
+        /// The email's local part rather than the whole address: it is enough
+        /// to recognise a person by, it fits in a label, and publishing a full
+        /// address on every placement a person leaves in the world is more than
+        /// they agreed to when they signed in.
+        /// </summary>
+        private string Called()
+        {
+            string signed = Signed;
+            if (string.IsNullOrEmpty(signed)) { return ""; }
+
+            int at = signed.IndexOf('@');
+            string name = at > 0 ? signed.Substring(0, at) : signed;
+            return name.Length > 40 ? name.Substring(0, 40) : name;
+        }
+
         public async void Remove(string id)
         {
             if (Session == null) { return; }
@@ -1056,6 +1107,7 @@ namespace MarkerOne.Unity
                                      item.Position.Height, item.HeadingDeg);
                 _groundY[item.Id] = (float)item.Local.Y;
                 _provider[item.Id] = item.Provider;
+                _info[item.Id] = item;
 
                 // ARCore first, every refresh.
                 if (Reposition(item.Id, go)) { continue; }
@@ -1118,6 +1170,7 @@ namespace MarkerOne.Unity
                 _groundY.Remove(entry.Key);
                 _mine.Remove(entry.Key);
                 _provider.Remove(entry.Key);
+                _info.Remove(entry.Key);
                 _waitingSince.Remove(entry.Key);
                 gone.Add(entry.Key);
             }
