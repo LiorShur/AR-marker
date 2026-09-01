@@ -34,7 +34,9 @@ namespace MarkerOne.EditorTools
             if (string.IsNullOrEmpty(clientId))
             {
                 Debug.Log("MarkerOne: no Google OAuth client id in any scene — " +
-                          "no URL scheme added. Sign-in will not be able to return.");
+                          "no URL scheme added. Google sign-in will not be able to " +
+                          "return; the other three are unaffected.");
+                AppleSignIn(path);
                 return;
             }
 
@@ -52,8 +54,56 @@ namespace MarkerOne.EditorTools
 
             plist.WriteToFile(plistPath);
             Debug.Log("MarkerOne: registered URL scheme " + scheme);
+
+            AppleSignIn(path);
 #endif
         }
+
+#if UNITY_IOS
+        /// <summary>
+        /// What Sign in with Apple needs from the Xcode project.
+        ///
+        /// A framework and an entitlement, neither of which Unity adds for a
+        /// plugin it does not know the purpose of. Both are written on every
+        /// build because Replace regenerates the project, and the failure when
+        /// they are missing is a link error for the framework and, worse, a
+        /// silent refusal at runtime for the entitlement.
+        ///
+        /// The App ID also needs the capability enabled in Apple's developer
+        /// portal. That part cannot be done from here.
+        /// </summary>
+        private static void AppleSignIn(string path)
+        {
+            string projectPath = PBXProject.GetPBXProjectPath(path);
+            var project = new PBXProject();
+            project.ReadFromFile(projectPath);
+
+            string target = project.GetUnityMainTargetGuid();
+            string framework = project.GetUnityFrameworkTargetGuid();
+
+            project.AddFrameworkToProject(target, "AuthenticationServices.framework", true);
+            project.AddFrameworkToProject(framework, "AuthenticationServices.framework", true);
+
+            const string file = "MarkerOne.entitlements";
+            var entitlements = new PlistDocument();
+
+            string full = Path.Combine(path, file);
+            if (File.Exists(full)) { entitlements.ReadFromFile(full); }
+            else { entitlements.Create(); }
+
+            PlistElementArray signin = entitlements.root.CreateArray("com.apple.developer.applesignin");
+            signin.AddString("Default");
+            entitlements.WriteToFile(full);
+
+            project.AddFile(full, file);
+            project.SetBuildProperty(target, "CODE_SIGN_ENTITLEMENTS", file);
+            project.WriteToFile(projectPath);
+
+            Debug.Log("MarkerOne: added AuthenticationServices and the Sign in with " +
+                      "Apple entitlement. The App ID needs the capability enabled in " +
+                      "Apple's developer portal too.");
+        }
+#endif
 
         /// <summary>
         /// Read the client id out of the scene rather than keeping a second

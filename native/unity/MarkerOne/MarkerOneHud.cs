@@ -345,16 +345,17 @@ namespace MarkerOne.Unity
 
             string account = _rig.Signed;
 
-            if (!string.IsNullOrEmpty(account))
+            // Opens the screen rather than starting a sign-in. There are four
+            // ways in now, and a button that silently picks one of them for you
+            // is a button that picks wrong.
+            if (GUI.Button(at, string.IsNullOrEmpty(account) ? "Sign in" : "Account", _button))
             {
-                if (GUI.Button(at, "Sign out", _button)) { _rig.SignOut(); }
-                GUI.Label(new Rect(at.xMax + 8, at.y, at.width * 3, at.height), account, _style);
-                return;
+                SignInScreen.Open = !SignInScreen.Open;
             }
 
-            if (GUI.Button(at, _signIn.Busy ? "…" : "Sign in", _button) && !_signIn.Busy)
+            if (!string.IsNullOrEmpty(account))
             {
-                _signIn.Begin();
+                GUI.Label(new Rect(at.xMax + 8, at.y, at.width * 3, at.height), account, _style);
             }
         }
 

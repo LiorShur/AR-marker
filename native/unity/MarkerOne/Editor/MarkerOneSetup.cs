@@ -154,6 +154,11 @@ namespace MarkerOne.EditorTools
             {
                 rig.gameObject.AddComponent<GoogleSignIn>();
             }
+
+            // AppleSignIn is deliberately not added here. The native side calls
+            // back by GameObject name, so it makes its own object with the name
+            // it needs rather than inheriting whatever this one is called.
+
             EditorUtility.SetDirty(rig);
             EditorSceneManager.MarkSceneDirty(rig.gameObject.scene);
             return 1;

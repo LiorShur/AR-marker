@@ -104,6 +104,47 @@ namespace MarkerOne.Unity
 
         /// <summary>Trade a Google identity for a Firebase one. The uid changes,
         /// so what the session is holding is no longer this user's.</summary>
+        /// <summary>Trade an Apple identity for a Firebase one. The nonce is
+        /// the one Apple was given the hash of.</summary>
+        public async Task<string> SignInWithAppleAsync(string appleIdToken, string rawNonce)
+        {
+            return await SignedInAs(store => store.SignInWithAppleAsync(appleIdToken, rawNonce));
+        }
+
+        public async Task<string> RegisterAsync(string email, string password)
+        {
+            return await SignedInAs(store => store.RegisterAsync(email, password));
+        }
+
+        public async Task<string> SignInWithPasswordAsync(string email, string password)
+        {
+            return await SignedInAs(store => store.SignInWithPasswordAsync(email, password));
+        }
+
+        public async Task ResetPasswordAsync(string email)
+        {
+            if (_store is FirestorePlacementStore store) { await store.ResetPasswordAsync(email); }
+        }
+
+        /// <summary>
+        /// Whatever a sign-in has in common: do it, then re-read the world.
+        ///
+        /// The uid changes, so what the session is holding was fetched as
+        /// somebody else and its idea of what belongs to whom is now wrong.
+        /// </summary>
+        private async Task<string> SignedInAs(Func<FirestorePlacementStore, Task<string>> how)
+        {
+            if (!(_store is FirestorePlacementStore store))
+            {
+                throw new InvalidOperationException("no Firestore store to sign in");
+            }
+
+            await how(store);
+
+            if (Session != null) { await Session.RefreshAsync(); }
+            return store.Signed;
+        }
+
         public async Task<string> SignInWithGoogleAsync(string googleIdToken)
         {
             if (!(_store is FirestorePlacementStore store))

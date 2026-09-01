@@ -135,7 +135,7 @@ namespace MarkerOne.Core
         /// Everything downstream is unchanged. The rules ask who owns a
         /// placement and get a better answer.
         /// </summary>
-        public async Task<string> SignInWithGoogleAsync(string googleIdToken,
+        public Task<string> SignInWithGoogleAsync(string googleIdToken,
             CancellationToken cancel = default)
         {
             if (string.IsNullOrEmpty(googleIdToken))
@@ -143,12 +143,45 @@ namespace MarkerOne.Core
                 throw new ArgumentException("no Google id token", nameof(googleIdToken));
             }
 
+            return SignInWithIdpAsync("id_token=" + googleIdToken + "&providerId=google.com",
+                                      "google", cancel);
+        }
+
+        /// <summary>
+        /// Sign in with Apple.
+        ///
+        /// The nonce is not optional and not decoration. Apple is given its
+        /// SHA-256 and returns it inside the signed token; Firebase is given the
+        /// original and checks that they match. Without it, a token captured
+        /// from one sign-in could be replayed into another, and Firebase rejects
+        /// the exchange rather than allow it.
+        ///
+        /// Apple also gives the email exactly once, on the very first sign-in
+        /// for an account, and never again. Firebase keeps it, which is why this
+        /// reads the address back from the response rather than from Apple.
+        /// </summary>
+        public Task<string> SignInWithAppleAsync(string appleIdToken, string rawNonce,
+            CancellationToken cancel = default)
+        {
+            if (string.IsNullOrEmpty(appleIdToken))
+            {
+                throw new ArgumentException("no Apple id token", nameof(appleIdToken));
+            }
+
+            string body = "id_token=" + appleIdToken + "&providerId=apple.com";
+            if (!string.IsNullOrEmpty(rawNonce)) { body += "&nonce=" + rawNonce; }
+
+            return SignInWithIdpAsync(body, "apple", cancel);
+        }
+
+        private async Task<string> SignInWithIdpAsync(string postBody, string provider,
+            CancellationToken cancel)
+        {
             using var request = new HttpRequestMessage(HttpMethod.Post,
                 $"{Identity}/accounts:signInWithIdp?key={Uri.EscapeDataString(_apiKey)}")
             {
                 Content = Body(Json.Object()
-                    .Set("postBody", Json.Of("id_token=" + googleIdToken +
-                                             "&providerId=google.com"))
+                    .Set("postBody", Json.Of(postBody))
                     // Not used for anything by this flow, but the endpoint
                     // insists on one.
                     .Set("requestUri", Json.Of("http://localhost"))
@@ -156,7 +189,76 @@ namespace MarkerOne.Core
             };
 
             Json root = await SendAsync(request, cancel).ConfigureAwait(false);
+            Adopt(root, root["email"].AsString ?? provider);
+            return _idToken;
+        }
 
+        /// <summary>
+        /// Make an account with an email and a password.
+        ///
+        /// Deliberately separate from signing in. A single "sign in or register"
+        /// call is friendlier right up to the moment somebody mistypes an
+        /// address they have used before, at which point it silently makes them
+        /// a second empty account and everything they placed belongs to the
+        /// first one.
+        /// </summary>
+        public async Task<string> RegisterAsync(string email, string password,
+            CancellationToken cancel = default)
+        {
+            Json root = await PasswordAsync("accounts:signUp", email, password, cancel)
+                              .ConfigureAwait(false);
+            Adopt(root, email);
+            return _idToken;
+        }
+
+        public async Task<string> SignInWithPasswordAsync(string email, string password,
+            CancellationToken cancel = default)
+        {
+            Json root = await PasswordAsync("accounts:signInWithPassword", email, password,
+                                            cancel).ConfigureAwait(false);
+            Adopt(root, email);
+            return _idToken;
+        }
+
+        /// <summary>Send a reset email. Nothing here can change a password, and
+        /// an account nobody can get back into is a placement nobody can
+        /// edit.</summary>
+        public async Task ResetPasswordAsync(string email, CancellationToken cancel = default)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post,
+                $"{Identity}/accounts:sendOobCode?key={Uri.EscapeDataString(_apiKey)}")
+            {
+                Content = Body(Json.Object()
+                    .Set("requestType", Json.Of("PASSWORD_RESET"))
+                    .Set("email", Json.Of(email ?? "")))
+            };
+
+            await SendAsync(request, cancel).ConfigureAwait(false);
+        }
+
+        private async Task<Json> PasswordAsync(string endpoint, string email, string password,
+            CancellationToken cancel)
+        {
+            if (string.IsNullOrEmpty(email)) { throw new ArgumentException("no email"); }
+            if (string.IsNullOrEmpty(password)) { throw new ArgumentException("no password"); }
+
+            using var request = new HttpRequestMessage(HttpMethod.Post,
+                $"{Identity}/{endpoint}?key={Uri.EscapeDataString(_apiKey)}")
+            {
+                Content = Body(Json.Object()
+                    .Set("email", Json.Of(email))
+                    .Set("password", Json.Of(password))
+                    .Set("returnSecureToken", Json.Of(true)))
+            };
+
+            return await SendAsync(request, cancel).ConfigureAwait(false);
+        }
+
+        /// <summary>Take on the identity in a sign-in response. One place, so
+        /// that a provider added later cannot forget the refresh token and
+        /// silently become an identity that lasts one launch.</summary>
+        private void Adopt(Json root, string signed)
+        {
             _idToken = root["idToken"].AsString;
             Uid = root["localId"].AsString;
             WriteRefreshToken?.Invoke(root["refreshToken"].AsString);
@@ -170,8 +272,7 @@ namespace MarkerOne.Core
             }
             _tokenExpires = DateTimeOffset.UtcNow.AddSeconds(seconds);
 
-            Signed = root["email"].AsString ?? "google";
-            return _idToken;
+            Signed = signed;
         }
 
         /// <summary>Who is signed in, for showing. Null while anonymous.</summary>

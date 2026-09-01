@@ -336,6 +336,47 @@ to forget.
 anonymous identity. That is correct — they were made by a device, not by you —
 but it does mean a developer override keyed to the old uid stops applying.
 
+## 8b. Accounts
+
+Four ways in, all ending at the same Firebase uid, differing only in how much a
+person hands over to get there.
+
+**The device** — nothing to do. Anonymous, kept across launches, and the right
+answer for somebody who wants to leave a marker and walk away. An account only
+earns its place when something has to survive a reinstall or move to another
+phone.
+
+**Email and password** — Firebase console → Authentication → Sign-in method →
+enable **Email/Password**. Nothing else; it goes through the same REST endpoints
+as everything here.
+
+**Google** — §8 above.
+
+**Apple** — required rather than optional. Apple oblige any app offering another
+third-party sign-in to offer theirs too, so shipping Google on the App Store
+obliges this.
+
+1. Firebase console → Authentication → Sign-in method → enable **Apple**
+2. Apple developer portal → your App ID → enable the **Sign in with Apple**
+   capability
+
+The build post-processor adds `AuthenticationServices.framework` and the
+entitlement on every build. The capability on the App ID is the part it cannot
+do, and its absence shows up as a sign-in sheet that appears and then fails.
+
+⚠️ Done natively, unlike Google. Apple's web OAuth flow needs a client secret —
+a JWT signed with a key from the developer portal — and nothing shipped in an
+app is secret. `Assets/Plugins/iOS/MarkerOneAppleAuth.m` is the smallest amount
+of Objective-C that provides `ASAuthorization`, and it reports back through
+`UnitySendMessage`, which finds its target **by GameObject name**. `AppleSignIn`
+sets its own name in `Awake` for that reason; renaming the object breaks the
+callback silently.
+
+The nonce is not decoration. Apple receives its SHA-256 and puts that inside the
+signed token; Firebase receives the original and checks they match. It is what
+stops a token captured from one sign-in being replayed into another, and Firebase
+refuses the exchange without it.
+
 ## 9. Knowing whether it works
 
 Geospatial needs a view of the sky and VPS coverage to do its best work.
