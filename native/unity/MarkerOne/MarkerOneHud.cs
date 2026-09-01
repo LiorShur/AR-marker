@@ -122,6 +122,10 @@ namespace MarkerOne.Unity
 
         private void OnGUI()
         {
+            // Drawn behind the sign-in screen rather than in front of it,
+            // whatever order Unity happens to call these in.
+            GUI.depth = 0;
+
             EnsureStyles();
 
             // Screen.safeArea is measured from the bottom left; IMGUI draws

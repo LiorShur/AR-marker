@@ -357,10 +357,14 @@ but it does mean a developer override keyed to the old uid stops applying.
 Four ways in, all ending at the same Firebase uid, differing only in how much a
 person hands over to get there.
 
-**The device** — nothing to do. Anonymous, kept across launches, and the right
-answer for somebody who wants to leave a marker and walk away. An account only
-earns its place when something has to survive a reinstall or move to another
-phone.
+Signing in is required. The screen is the first thing anybody sees and the app
+waits behind it — the placement bar, the pin panel and the arrows all stand down
+until it is answered. A placement made by an identity nobody chose belongs to
+nobody, and can afterwards be edited by nobody, which is a worse outcome than
+being asked to sign in.
+
+**The device** — still there underneath, and still what talks to Firestore
+before anybody signs in. It is no longer offered as a choice.
 
 **Email and password** — Firebase console → Authentication → Sign-in method →
 enable **Email/Password**. Nothing else; it goes through the same REST endpoints

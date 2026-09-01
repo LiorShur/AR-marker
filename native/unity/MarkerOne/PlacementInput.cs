@@ -274,6 +274,11 @@ namespace MarkerOne.Unity
 
         private void OnGUI()
         {
+            // Nothing to place until somebody has signed in. The bar drawn
+            // underneath a screen that must be answered first is an invitation
+            // to do work that will be refused.
+            if (SignInScreen.Blocking) { return; }
+
             EnsureStyles();
 
             Rect safe = Screen.safeArea;

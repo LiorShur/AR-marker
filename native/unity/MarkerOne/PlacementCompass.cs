@@ -69,7 +69,7 @@ namespace MarkerOne.Unity
             // Independent of the readout. The arrows are how somebody finds a
             // placement, which is a thing to do rather than a thing to inspect,
             // and hiding the diagnostic should not take the navigation with it.
-            if (_rig == null || _camera == null) { return; }
+            if (_rig == null || _camera == null || SignInScreen.Blocking) { return; }
 
             EnsureStyles();
             Gather();

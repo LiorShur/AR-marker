@@ -31,10 +31,15 @@ namespace MarkerOne.Unity
 
         public static bool Open;
 
-        /// <summary>Remembered so somebody who has chosen the device identity is
-        /// not asked again every launch. Choosing is the point; being asked
-        /// repeatedly after choosing is nagging.</summary>
-        private const string Settled = "MarkerOne.IdentitySettled";
+        /// <summary>
+        /// Whether the app is waiting for somebody to sign in.
+        ///
+        /// Read by everything else that draws, so the world is not offered
+        /// underneath a screen that has to be answered first. A placement made
+        /// by an identity nobody chose belongs to nobody, and can afterwards be
+        /// edited by nobody.
+        /// </summary>
+        public static bool Blocking { get; private set; }
 
         private MarkerOneRig _rig;
         private GoogleSignIn _google;
@@ -45,7 +50,7 @@ namespace MarkerOne.Unity
         private string _password = "";
         private string _said = "";
         private bool _busy;
-        private bool _asked;
+        private float _busySince;
 
         private GUIStyle _text;
         private GUIStyle _field;
@@ -60,18 +65,10 @@ namespace MarkerOne.Unity
 
             if (_rig == null) { _rig = FindFirstObjectByType<MarkerOneRig>(); }
 
-            // Shown first, once, to anybody who has not yet decided how they
-            // want to be known. Not shown to somebody signed in, and not shown
-            // again to somebody who has chosen the device and meant it.
-            if (!_asked && _rig != null)
-            {
-                _asked = true;
-
-                if (string.IsNullOrEmpty(_rig.Signed) && PlayerPrefs.GetInt(Settled, 0) == 0)
-                {
-                    Open = true;
-                }
-            }
+            // Required rather than offered. Signing in is the first thing that
+            // happens and the app waits for it.
+            Blocking = _rig != null && string.IsNullOrEmpty(_rig.Signed);
+            if (Blocking) { Open = true; }
             if (_google == null) { _google = FindFirstObjectByType<GoogleSignIn>(); }
 
             if (_apple == null && AppleSignIn.Available)
@@ -105,8 +102,6 @@ namespace MarkerOne.Unity
             {
                 _said = "signed in as " + account;
                 _password = "";
-                PlayerPrefs.SetInt(Settled, 1);
-                PlayerPrefs.Save();
                 Open = false;
                 return;
             }
@@ -118,6 +113,22 @@ namespace MarkerOne.Unity
         {
             if (!Open || _rig == null) { return; }
 
+            // Lower depth draws on top. Without this the panel lands wherever
+            // Unity happens to order the scripts, which put it behind the
+            // readout — a modal screen underneath the thing it is meant to
+            // block is not modal.
+            GUI.depth = -1000;
+
+            // A sign-in that never comes back leaves every button dead and the
+            // only way out is killing the app: the browser flow can be
+            // abandoned, and a native sheet can be dismissed without calling
+            // back at all. Waiting is legitimate; waiting for ever is not.
+            if (_busy && Time.unscaledTime > _busySince + 30f)
+            {
+                _busy = false;
+                if (string.IsNullOrEmpty(_said)) { _said = "that did not come back — try again"; }
+            }
+
             EnsureStyles();
 
             Rect safe = Screen.safeArea;
@@ -125,7 +136,9 @@ namespace MarkerOne.Unity
             float pad = _text.fontSize;
 
             float width = Mathf.Min(safe.width - pad * 2, _text.fontSize * 26);
-            float height = line * (AppleSignIn.Available ? 14 : 13) + pad * 2;
+            float height = string.IsNullOrEmpty(_rig.Signed)
+                ? line * (AppleSignIn.Available ? 14 : 13) + pad * 2
+                : line * 4 + pad * 2;
 
             var panel = new Rect(safe.x + (safe.width - width) * 0.5f,
                                  Screen.height - (safe.y + safe.height) + line,
@@ -135,11 +148,20 @@ namespace MarkerOne.Unity
 
             var row = new Rect(panel.x + pad, panel.y + pad, panel.width - pad * 2, line);
 
-            GUI.Label(row, string.IsNullOrEmpty(_rig.Signed)
-                ? "Signed in as this device"
-                : "Signed in as " + _rig.Signed, _text);
+            // Already signed in: this is an account screen, not a sign-in one.
+            // Offering a second way in while a first is in effect is offering
+            // to become somebody else, which is never what the button appears
+            // to mean.
+            if (!string.IsNullOrEmpty(_rig.Signed))
+            {
+                Account(row, line, pad);
+                return;
+            }
 
-            row.y += line * 1.4f;
+            GUI.Label(row, "Sign in to place things. Placements are yours to edit "
+                         + "and remove, on any device you sign in from.", _text);
+
+            row.y += line * 2.2f;
             GUI.Label(row, "Email", _text);
             row.y += line;
             _email = GUI.TextField(row, _email, 128, _field);
@@ -172,24 +194,6 @@ namespace MarkerOne.Unity
                 if (Button(cell, "Apple")) { Apple(); }
             }
 
-            cell.x += third + pad;
-            bool signedIn = !string.IsNullOrEmpty(_rig.Signed);
-
-            if (GUI.Button(cell, signedIn ? "Sign out" : "Use device", _button))
-            {
-                if (signedIn) { _rig.SignOut(); }
-                else
-                {
-                    // A deliberate choice, so it is remembered. The device
-                    // identity is a real answer rather than a way of putting the
-                    // question off.
-                    PlayerPrefs.SetInt(Settled, 1);
-                    PlayerPrefs.Save();
-                }
-
-                Open = false;
-            }
-
             if (string.IsNullOrEmpty(_said)) { return; }
 
             // Three lines rather than one. Sign-in failures are the messages
@@ -197,6 +201,26 @@ namespace MarkerOne.Unity
             // edge of a panel is a message that was not shown.
             row.y += line * 1.3f;
             GUI.Label(new Rect(row.x, row.y, row.width, line * 3), _said, _text);
+        }
+
+        /// <summary>Who you are, and the two things worth doing about it.</summary>
+        private void Account(Rect row, float line, float pad)
+        {
+            GUI.Label(row, "Signed in as " + _rig.Signed, _text);
+
+            row.y += line * 1.6f;
+            float half = (row.width - pad) / 2;
+
+            var cell = new Rect(row.x, row.y, half, line);
+            if (GUI.Button(cell, "Close", _button)) { Open = false; }
+
+            cell.x += half + pad;
+            if (GUI.Button(cell, "Sign out", _button))
+            {
+                _rig.SignOut();
+                _said = "";
+                _password = "";
+            }
         }
 
         /// <summary>Buttons are dead while a sign-in is in flight. Two
@@ -215,7 +239,7 @@ namespace MarkerOne.Unity
 
         private async void SignIn()
         {
-            _busy = true;
+            Working();
             _said = "signing in…";
 
             try { OnFinished(await _rig.SignInWithPasswordAsync(_email, _password), null); }
@@ -224,7 +248,7 @@ namespace MarkerOne.Unity
 
         private async void Register()
         {
-            _busy = true;
+            Working();
             _said = "making an account…";
 
             try { OnFinished(await _rig.RegisterAsync(_email, _password), null); }
@@ -233,7 +257,7 @@ namespace MarkerOne.Unity
 
         private async void Forgot()
         {
-            _busy = true;
+            Working();
             _said = "sending…";
 
             try
@@ -247,7 +271,7 @@ namespace MarkerOne.Unity
 
         private void Google()
         {
-            _busy = true;
+            Working();
             _said = "opening the browser…";
 
             _google.Finished -= OnFinished;
@@ -257,9 +281,15 @@ namespace MarkerOne.Unity
 
         private void Apple()
         {
-            _busy = true;
+            Working();
             _said = "";
             _apple.Begin();
+        }
+
+        private void Working()
+        {
+            _busy = true;
+            _busySince = Time.unscaledTime;
         }
 
         /// <summary>
