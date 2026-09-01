@@ -31,6 +31,11 @@ namespace MarkerOne.Unity
 
         public static bool Open;
 
+        /// <summary>Remembered so somebody who has chosen the device identity is
+        /// not asked again every launch. Choosing is the point; being asked
+        /// repeatedly after choosing is nagging.</summary>
+        private const string Settled = "MarkerOne.IdentitySettled";
+
         private MarkerOneRig _rig;
         private GoogleSignIn _google;
         private AppleSignIn _apple;
@@ -40,6 +45,7 @@ namespace MarkerOne.Unity
         private string _password = "";
         private string _said = "";
         private bool _busy;
+        private bool _asked;
 
         private GUIStyle _text;
         private GUIStyle _field;
@@ -53,6 +59,19 @@ namespace MarkerOne.Unity
             _rescan = 1f;
 
             if (_rig == null) { _rig = FindFirstObjectByType<MarkerOneRig>(); }
+
+            // Shown first, once, to anybody who has not yet decided how they
+            // want to be known. Not shown to somebody signed in, and not shown
+            // again to somebody who has chosen the device and meant it.
+            if (!_asked && _rig != null)
+            {
+                _asked = true;
+
+                if (string.IsNullOrEmpty(_rig.Signed) && PlayerPrefs.GetInt(Settled, 0) == 0)
+                {
+                    Open = true;
+                }
+            }
             if (_google == null) { _google = FindFirstObjectByType<GoogleSignIn>(); }
 
             if (_apple == null && AppleSignIn.Available)
@@ -86,6 +105,8 @@ namespace MarkerOne.Unity
             {
                 _said = "signed in as " + account;
                 _password = "";
+                PlayerPrefs.SetInt(Settled, 1);
+                PlayerPrefs.Save();
                 Open = false;
                 return;
             }
@@ -104,7 +125,7 @@ namespace MarkerOne.Unity
             float pad = _text.fontSize;
 
             float width = Mathf.Min(safe.width - pad * 2, _text.fontSize * 26);
-            float height = line * (AppleSignIn.Available ? 12 : 11) + pad * 2;
+            float height = line * (AppleSignIn.Available ? 14 : 13) + pad * 2;
 
             var panel = new Rect(safe.x + (safe.width - width) * 0.5f,
                                  Screen.height - (safe.y + safe.height) + line,
@@ -152,17 +173,30 @@ namespace MarkerOne.Unity
             }
 
             cell.x += third + pad;
-            if (GUI.Button(cell, string.IsNullOrEmpty(_rig.Signed) ? "Close" : "Sign out",
-                           _button))
+            bool signedIn = !string.IsNullOrEmpty(_rig.Signed);
+
+            if (GUI.Button(cell, signedIn ? "Sign out" : "Use device", _button))
             {
-                if (!string.IsNullOrEmpty(_rig.Signed)) { _rig.SignOut(); }
+                if (signedIn) { _rig.SignOut(); }
+                else
+                {
+                    // A deliberate choice, so it is remembered. The device
+                    // identity is a real answer rather than a way of putting the
+                    // question off.
+                    PlayerPrefs.SetInt(Settled, 1);
+                    PlayerPrefs.Save();
+                }
+
                 Open = false;
             }
 
             if (string.IsNullOrEmpty(_said)) { return; }
 
+            // Three lines rather than one. Sign-in failures are the messages
+            // most worth reading and the longest, and a message cut off at the
+            // edge of a panel is a message that was not shown.
             row.y += line * 1.3f;
-            GUI.Label(row, _said, _text);
+            GUI.Label(new Rect(row.x, row.y, row.width, line * 3), _said, _text);
         }
 
         /// <summary>Buttons are dead while a sign-in is in flight. Two
@@ -247,6 +281,15 @@ namespace MarkerOne.Unity
             if (message.Contains("OPERATION_NOT_ALLOWED"))
             {
                 return "that sign-in method is off in the Firebase console";
+            }
+
+            // The one that means something specific and says nothing. Apple's
+            // token names this app's bundle id as its audience, and Firebase
+            // only accepts an audience belonging to an app it knows about.
+            if (message.Contains("INVALID_IDP_RESPONSE"))
+            {
+                return "Firebase refused the Apple token. It usually means no iOS " +
+                       "app with this bundle id is registered in the Firebase project.";
             }
 
             return message;

@@ -375,6 +375,18 @@ obliges this.
 1. Firebase console → Authentication → Sign-in method → enable **Apple**
 2. Apple developer portal → your App ID → enable the **Sign in with Apple**
    capability
+3. Firebase console → Project settings → Your apps → **Add app → iOS**, with the
+   same bundle id
+
+That third step is the one that looks unnecessary and is not. Nothing else here
+uses the Firebase SDK — there is no `GoogleService-Info.plist` and no registered
+app — but Apple's identity token names the bundle id as its audience, and
+Firebase only accepts an audience belonging to an app it knows about. Without
+it, Apple's sheet succeeds and the exchange comes back
+`INVALID_IDP_RESPONSE`, which says nothing about bundle ids at all.
+
+Register the app and ignore everything it offers afterwards: no plist, no SDK,
+no config file. The registration is the whole point.
 
 The build post-processor adds `AuthenticationServices.framework` and the
 entitlement on every build. The capability on the App ID is the part it cannot
