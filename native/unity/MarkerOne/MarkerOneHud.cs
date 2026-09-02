@@ -51,7 +51,6 @@ namespace MarkerOne.Unity
 
         private MarkerOneRig _rig;
         private GeospatialFixSource _source;
-        private GoogleSignIn _signIn;
         private AROcclusionManager _occlusion;
         private WorldSession _watched;
         private int _items;
@@ -180,14 +179,11 @@ namespace MarkerOne.Unity
                 Visible = false;
             }
 
-            Identity(new Rect(box.x, box.yMax + 6, lineHeight * 5, lineHeight * 1.5f));
-
             // Dropping a pin is not placing: it writes a coordinate somebody
             // read off a map, and needs no localization at all. So it lives
             // here rather than in the placement bar, which is about the thing
             // in front of you.
-            var pin = new Rect(box.x + lineHeight * 5.4f, box.yMax + 6,
-                               lineHeight * 4, lineHeight * 1.5f);
+            var pin = new Rect(box.x, box.yMax + 6, lineHeight * 4, lineHeight * 1.5f);
             if (GUI.Button(pin, MapPin.Open ? "Hide pin" : "Drop pin", _button))
             {
                 MapPin.Open = !MapPin.Open;
@@ -337,30 +333,6 @@ namespace MarkerOne.Unity
             }
 
             return Append(_text).ToString();
-        }
-
-        /// <summary>Sign in, or say who is signed in and offer to stop.</summary>
-        private void Identity(Rect at)
-        {
-            if (_rig == null) { return; }
-
-            if (_signIn == null) { _signIn = FindFirstObjectByType<GoogleSignIn>(); }
-            if (_signIn == null) { return; }
-
-            string account = _rig.Signed;
-
-            // Opens the screen rather than starting a sign-in. There are four
-            // ways in now, and a button that silently picks one of them for you
-            // is a button that picks wrong.
-            if (GUI.Button(at, string.IsNullOrEmpty(account) ? "Sign in" : "Account", _button))
-            {
-                SignInScreen.Open = !SignInScreen.Open;
-            }
-
-            if (!string.IsNullOrEmpty(account))
-            {
-                GUI.Label(new Rect(at.xMax + 8, at.y, at.width * 3, at.height), account, _style);
-            }
         }
 
         private void Occlusion(Rect at)

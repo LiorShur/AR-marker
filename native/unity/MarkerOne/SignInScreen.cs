@@ -3,19 +3,21 @@ using UnityEngine;
 namespace MarkerOne.Unity
 {
     /// <summary>
-    /// Signing in, four ways.
+    /// The first screen, and afterwards a chip in the corner.
     ///
-    /// Every one of them ends at the same place — a Firebase uid — and what
-    /// differs is only how much a person has to hand over to get there. The
-    /// device identity is offered first and without apology: it needs nothing,
-    /// it already works, and for somebody who wants to leave a marker and walk
-    /// away it is the right answer. An account only earns its place when
-    /// something has to survive a reinstall or move to another phone.
+    /// Signing in is required. Everything placed carries the uid of whoever
+    /// placed it, and that is what later decides who may edit or remove it, so
+    /// an anonymous placement belongs to nobody and can afterwards be corrected
+    /// by nobody. Asking once at launch is cheaper than that.
     ///
-    /// Registering is a separate button from signing in. One combined button is
-    /// friendlier right up to the moment somebody mistypes an address they have
-    /// used before, at which point it quietly makes them a second empty account
-    /// and everything they placed belongs to the first.
+    /// Four ways in, all ending at the same Firebase uid. Registering is a
+    /// separate button from signing in: one combined button is friendlier right
+    /// up to the moment somebody mistypes an address they have used before, at
+    /// which point it quietly makes them a second empty account and everything
+    /// they placed belongs to the first.
+    ///
+    /// Deliberately IMGUI and self-installing, like the rest of the interface —
+    /// no Canvas, no EventSystem, no font asset, nothing to wire.
     /// </summary>
     public sealed class SignInScreen : MonoBehaviour
     {
@@ -29,17 +31,17 @@ namespace MarkerOne.Unity
         }
 #endif
 
-        public static bool Open;
-
         /// <summary>
         /// Whether the app is waiting for somebody to sign in.
         ///
-        /// Read by everything else that draws, so the world is not offered
-        /// underneath a screen that has to be answered first. A placement made
-        /// by an identity nobody chose belongs to nobody, and can afterwards be
-        /// edited by nobody.
+        /// Read by everything else that draws, so the world is never offered
+        /// underneath a screen that has to be answered first.
         /// </summary>
         public static bool Blocking { get; private set; }
+
+        /// <summary>What the account chip is covering, so nothing else draws
+        /// underneath it. Empty while the sign-in screen is up.</summary>
+        public static Rect Occupied;
 
         private MarkerOneRig _rig;
         private GoogleSignIn _google;
@@ -53,9 +55,12 @@ namespace MarkerOne.Unity
         private float _busySince;
 
         private GUIStyle _text;
+        private GUIStyle _dim;
+        private GUIStyle _title;
         private GUIStyle _field;
         private GUIStyle _button;
-        private Texture2D _panel;
+        private Texture2D _card;
+        private Texture2D _scrim;
 
         private void Update()
         {
@@ -65,10 +70,7 @@ namespace MarkerOne.Unity
 
             if (_rig == null) { _rig = FindFirstObjectByType<MarkerOneRig>(); }
 
-            // Required rather than offered. Signing in is the first thing that
-            // happens and the app waits for it.
             Blocking = _rig != null && string.IsNullOrEmpty(_rig.Signed);
-            if (Blocking) { Open = true; }
             if (_google == null) { _google = FindFirstObjectByType<GoogleSignIn>(); }
 
             if (_apple == null && AppleSignIn.Available)
@@ -100,9 +102,8 @@ namespace MarkerOne.Unity
 
             if (account != null)
             {
-                _said = "signed in as " + account;
+                _said = "";
                 _password = "";
-                Open = false;
                 return;
             }
 
@@ -111,16 +112,26 @@ namespace MarkerOne.Unity
 
         private void OnGUI()
         {
-            if (!Open || _rig == null) { return; }
+            if (_rig == null) { return; }
 
-            // Lower depth draws on top. Without this the panel lands wherever
-            // Unity happens to order the scripts, which put it behind the
-            // readout — a modal screen underneath the thing it is meant to
-            // block is not modal.
+            // Lower depth draws on top. Without this it lands wherever Unity
+            // happens to order the scripts, which put it behind the readout —
+            // a screen underneath the thing it is meant to block is not a
+            // screen, it is a decoration.
             GUI.depth = -1000;
 
-            // A sign-in that never comes back leaves every button dead and the
-            // only way out is killing the app: the browser flow can be
+            EnsureStyles();
+
+            if (!string.IsNullOrEmpty(_rig.Signed))
+            {
+                Chip();
+                return;
+            }
+
+            Occupied = new Rect();
+
+            // A sign-in that never comes back leaves every button dead and
+            // killing the app as the only way out: the browser flow can be
             // abandoned, and a native sheet can be dismissed without calling
             // back at all. Waiting is legitimate; waiting for ever is not.
             if (_busy && Time.unscaledTime > _busySince + 30f)
@@ -129,98 +140,132 @@ namespace MarkerOne.Unity
                 if (string.IsNullOrEmpty(_said)) { _said = "that did not come back — try again"; }
             }
 
-            EnsureStyles();
+            Launch();
+        }
+
+        /// <summary>
+        /// The launch screen: everything behind it dimmed rather than hidden,
+        /// so it reads as the app waiting rather than the app not having
+        /// started.
+        /// </summary>
+        private void Launch()
+        {
+            GUI.DrawTexture(new Rect(0, 0, Screen.width, Screen.height), _scrim);
 
             Rect safe = Screen.safeArea;
-            float line = _text.fontSize * 1.9f;
-            float pad = _text.fontSize;
+            float size = _text.fontSize;
+            float line = size * 1.9f;
+            float pad = size * 1.4f;
+            bool providers = _google != null || AppleSignIn.Available;
 
-            float width = Mathf.Min(safe.width - pad * 2, _text.fontSize * 26);
-            float height = string.IsNullOrEmpty(_rig.Signed)
-                ? line * (AppleSignIn.Available ? 14 : 13) + pad * 2
-                : line * 4 + pad * 2;
+            // Counted off the same increments the rows below step through, and
+            // including the space for a message whether or not there is one:
+            // a card that grows when something goes wrong moves every button
+            // out from under the finger already on its way to one.
+            float height = pad * 2 + line * (providers ? 14.45f : 13.05f);
 
-            var panel = new Rect(safe.x + (safe.width - width) * 0.5f,
-                                 Screen.height - (safe.y + safe.height) + line,
-                                 width, height);
+            float width = Mathf.Min(safe.width - pad * 2, size * 26);
+            float top = Screen.height - (safe.y + safe.height);
 
-            GUI.DrawTexture(panel, _panel);
+            var card = new Rect(safe.x + (safe.width - width) * 0.5f,
+                                top + Mathf.Max(line, (safe.height - height) * 0.4f),
+                                width, height);
 
-            var row = new Rect(panel.x + pad, panel.y + pad, panel.width - pad * 2, line);
+            GUI.DrawTexture(card, _card);
 
-            // Already signed in: this is an account screen, not a sign-in one.
-            // Offering a second way in while a first is in effect is offering
-            // to become somebody else, which is never what the button appears
-            // to mean.
-            if (!string.IsNullOrEmpty(_rig.Signed))
-            {
-                Account(row, line, pad);
-                return;
-            }
+            var row = new Rect(card.x + pad, card.y + pad, card.width - pad * 2, line * 1.6f);
+            GUI.Label(row, "MarkerOne", _title);
 
-            GUI.Label(row, "Sign in to place things. Placements are yours to edit "
-                         + "and remove, on any device you sign in from.", _text);
+            row.y += line * 1.7f;
+            row.height = line * 2.2f;
+            GUI.Label(row, "Sign in to place things. What you place is yours to move "
+                         + "and remove, from any phone you sign in on.", _dim);
 
-            row.y += line * 2.2f;
-            GUI.Label(row, "Email", _text);
-            row.y += line;
+            row.y += line * 2.3f;
+            row.height = line;
+
+            GUI.Label(row, "Email", _dim);
+            row.y += line * 0.95f;
             _email = GUI.TextField(row, _email, 128, _field);
 
-            row.y += line * 1.2f;
-            GUI.Label(row, "Password", _text);
-            row.y += line;
+            row.y += line * 1.35f;
+            GUI.Label(row, "Password", _dim);
+            row.y += line * 0.95f;
             _password = GUI.PasswordField(row, _password, '•', 128, _field);
 
-            row.y += line * 1.3f;
-            float third = (row.width - pad * 2) / 3;
+            row.y += line * 1.5f;
+            float third = (row.width - pad * 0.5f * 2) / 3;
 
             var cell = new Rect(row.x, row.y, third, line);
             if (Button(cell, "Sign in")) { SignIn(); }
 
-            cell.x += third + pad;
+            cell.x += third + pad * 0.5f;
             if (Button(cell, "Register")) { Register(); }
 
-            cell.x += third + pad;
+            cell.x += third + pad * 0.5f;
             if (Button(cell, "Forgot")) { Forgot(); }
 
-            row.y += line * 1.3f;
-            cell = new Rect(row.x, row.y, third, line);
-
-            if (_google != null && Button(cell, "Google")) { Google(); }
-
-            if (AppleSignIn.Available)
+            if (providers)
             {
-                cell.x += third + pad;
-                if (Button(cell, "Apple")) { Apple(); }
+                row.y += line * 1.4f;
+
+                float half = (row.width - pad * 0.5f) / 2;
+                bool both = _google != null && AppleSignIn.Available;
+                cell = new Rect(row.x, row.y, both ? half : row.width, line);
+
+                if (_google != null && Button(cell, "Continue with Google")) { Google(); }
+
+                if (AppleSignIn.Available)
+                {
+                    if (both) { cell.x += half + pad * 0.5f; }
+                    if (Button(cell, "Continue with Apple")) { Apple(); }
+                }
             }
 
             if (string.IsNullOrEmpty(_said)) { return; }
 
             // Three lines rather than one. Sign-in failures are the messages
             // most worth reading and the longest, and a message cut off at the
-            // edge of a panel is a message that was not shown.
-            row.y += line * 1.3f;
-            GUI.Label(new Rect(row.x, row.y, row.width, line * 3), _said, _text);
+            // edge of a card is a message that was not shown.
+            row.y += line * 1.5f;
+            GUI.Label(new Rect(row.x, row.y, row.width, line * 2.8f), _said, _text);
         }
 
-        /// <summary>Who you are, and the two things worth doing about it.</summary>
-        private void Account(Rect row, float line, float pad)
+        /// <summary>
+        /// Afterwards: who you are and how to stop being them, small, tucked
+        /// under whatever the readout is currently occupying so the two never
+        /// land on top of each other.
+        /// </summary>
+        private void Chip()
         {
-            GUI.Label(row, "Signed in as " + _rig.Signed, _text);
+            Rect safe = Screen.safeArea;
+            float size = _text.fontSize;
+            float line = size * 1.6f;
+            float pad = size * 0.6f;
 
-            row.y += line * 1.6f;
-            float half = (row.width - pad) / 2;
+            float label = _text.CalcSize(new GUIContent(_rig.Signed)).x;
+            float button = size * 5f;
+            float width = Mathf.Min(safe.width - 16, pad * 3 + label + button);
 
-            var cell = new Rect(row.x, row.y, half, line);
-            if (GUI.Button(cell, "Close", _button)) { Open = false; }
+            float top = Mathf.Max(Screen.height - (safe.y + safe.height) + 8f,
+                                  MarkerOneHud.Occupied.yMax + 6f);
 
-            cell.x += half + pad;
-            if (GUI.Button(cell, "Sign out", _button))
-            {
-                _rig.SignOut();
-                _said = "";
-                _password = "";
-            }
+            var chip = new Rect(safe.xMax - 8f - width, top, width, line + pad);
+            Occupied = chip;
+
+            GUI.DrawTexture(chip, _card);
+            GUI.Label(new Rect(chip.x + pad, chip.y + pad * 0.5f,
+                               width - button - pad * 3, line), _rig.Signed, _text);
+
+            var stop = new Rect(chip.xMax - pad - button, chip.y + pad * 0.5f, button, line);
+            if (!GUI.Button(stop, "Sign out", _button)) { return; }
+
+            // Which puts the launch screen back up on the next frame, because
+            // there is nothing to use the app as any more.
+            _rig.SignOut();
+            _said = "";
+            _password = "";
+            _busy = false;
         }
 
         /// <summary>Buttons are dead while a sign-in is in flight. Two
@@ -230,7 +275,7 @@ namespace MarkerOne.Unity
         {
             if (_busy)
             {
-                GUI.Label(at, label, _text);
+                GUI.Label(at, label, _dim);
                 return false;
             }
 
@@ -303,6 +348,7 @@ namespace MarkerOne.Unity
 
             if (message.Contains("EMAIL_EXISTS")) { return "that email already has an account"; }
             if (message.Contains("EMAIL_NOT_FOUND")) { return "no account for that email"; }
+            if (message.Contains("MISSING_PASSWORD")) { return "no password"; }
             if (message.Contains("INVALID_PASSWORD") ||
                 message.Contains("INVALID_LOGIN_CREDENTIALS")) { return "wrong email or password"; }
             if (message.Contains("WEAK_PASSWORD")) { return "password needs six characters"; }
@@ -327,27 +373,46 @@ namespace MarkerOne.Unity
 
         private void EnsureStyles()
         {
-            int size = Mathf.Max(11, Mathf.RoundToInt(Screen.height * 0.019f));
+            // The same sizing as the readout, so the two look like parts of one
+            // app rather than two.
+            int size = Mathf.Max(11, Mathf.RoundToInt(Screen.height * 0.018f));
             if (_text != null && _text.fontSize == size) { return; }
 
-            if (_panel == null)
+            if (_card == null)
             {
-                _panel = new Texture2D(1, 1);
-                _panel.SetPixel(0, 0, new Color(0, 0, 0, 0.9f));
-                _panel.Apply();
-                _panel.hideFlags = HideFlags.HideAndDontSave;
+                _card = Solid(new Color(0, 0, 0, 0.72f));
+
+                // Dimmed rather than hidden. The camera carries on underneath,
+                // which is the difference between an app that is asking
+                // something and an app that has not started.
+                _scrim = Solid(new Color(0, 0, 0, 0.55f));
             }
 
             _text = new GUIStyle(GUI.skin.label) { fontSize = size, wordWrap = true };
             _text.normal.textColor = Color.white;
 
+            _dim = new GUIStyle(_text);
+            _dim.normal.textColor = new Color(1, 1, 1, 0.65f);
+
+            _title = new GUIStyle(_text) { fontSize = Mathf.RoundToInt(size * 2.1f) };
+
             _field = new GUIStyle(GUI.skin.textField) { fontSize = size };
             _button = new GUIStyle(GUI.skin.button) { fontSize = size };
         }
 
+        private static Texture2D Solid(Color color)
+        {
+            var texture = new Texture2D(1, 1);
+            texture.SetPixel(0, 0, color);
+            texture.Apply();
+            texture.hideFlags = HideFlags.HideAndDontSave;
+            return texture;
+        }
+
         private void OnDestroy()
         {
-            if (_panel != null) { Destroy(_panel); }
+            if (_card != null) { Destroy(_card); }
+            if (_scrim != null) { Destroy(_scrim); }
         }
     }
 }

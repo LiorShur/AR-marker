@@ -319,10 +319,20 @@ Keyless option.
 
 ## 8. Signing in with Google
 
-Optional, and worth it. The device identity is kept across launches now, but it
-is still a device: reinstall the app or pick up a different phone and everything
-you placed belongs to somebody else. An account is the only thing that fixes
-that.
+One of the four ways in, and the one most people will take.
+
+Signing in is required. The launch screen is the first thing anybody sees and
+the app waits behind it — the placement bar, the pin panel and the arrows all
+stand down until it is answered. Afterwards it is a chip in the corner with the
+account name and a Sign out button, tucked under whatever the readout is
+occupying so the two never land on each other; signing out puts the launch
+screen back.
+
+That is a decision rather than a default. The device identity still exists and
+still talks to Firestore before anybody signs in, but it is a device: reinstall
+the app or pick up a different phone and everything you placed belongs to
+somebody else, editable and removable by nobody, for ever. Being asked once at
+launch is cheaper than that.
 
 Done without the Firebase Unity SDK, which would arrive with its own Firestore
 and its own auth to sit beside the REST client this project has already tested
@@ -354,17 +364,8 @@ but it does mean a developer override keyed to the old uid stops applying.
 
 ## 8b. Accounts
 
-Four ways in, all ending at the same Firebase uid, differing only in how much a
-person hands over to get there.
-
-Signing in is required. The screen is the first thing anybody sees and the app
-waits behind it — the placement bar, the pin panel and the arrows all stand down
-until it is answered. A placement made by an identity nobody chose belongs to
-nobody, and can afterwards be edited by nobody, which is a worse outcome than
-being asked to sign in.
-
-**The device** — still there underneath, and still what talks to Firestore
-before anybody signs in. It is no longer offered as a choice.
+Three ways in, all ending at the same Firebase uid, differing only in how much a
+person hands over to get there. One of them has to be taken: see §8.
 
 **Email and password** — Firebase console → Authentication → Sign-in method →
 enable **Email/Password**. Nothing else; it goes through the same REST endpoints
