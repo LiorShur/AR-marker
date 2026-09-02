@@ -323,10 +323,15 @@ One of the four ways in, and the one most people will take.
 
 Signing in is required. The launch screen is the first thing anybody sees and
 the app waits behind it — the placement bar, the pin panel and the arrows all
-stand down until it is answered. Afterwards it is a chip in the corner with the
-account name and a Sign out button, tucked under whatever the readout is
-occupying so the two never land on each other; signing out puts the launch
-screen back.
+stand down until it is answered. The screen is opaque: the camera is warming up
+behind it the whole time, but a live view with the readout's numbers legible
+through the card is two screens at once and neither reads as the one being
+asked about.
+
+Afterwards it is a chip in the bottom-left corner — the account name and a Sign
+out button, above the control bar — and signing out puts the launch screen
+back. The corner is fixed, because a chip that moves around as the readout comes
+and goes is one nobody learns the position of.
 
 That is a decision rather than a default. The device identity still exists and
 still talks to Firestore before anybody signs in, but it is a device: reinstall
@@ -372,6 +377,20 @@ enable **Email/Password**. Nothing else; it goes through the same REST endpoints
 as everything here.
 
 **Google** — §8 above.
+
+Whichever way somebody signs in, the name shown is the same one: the local part
+of the email, or "Apple account" where Apple has withheld it. Apple returns an
+email at the first authorization and never again, so the name is kept beside the
+refresh token — which is also what lets somebody signed in come back from a
+relaunch still signed in, rather than being asked all over again.
+
+**Clearing everything** is admin-only, and admins are listed on the rig's
+**Admins** field — by email now as well as by uid. A uid is sixteen unreadable
+characters that have to be found on a device and pasted into the scene, and it
+changes the moment the person it belongs to signs in, which silently stops a
+list written before accounts existed from matching anybody. Put the email in.
+
+The rules still decide in the end; the list only decides what to offer.
 
 **Apple** — required rather than optional. Apple oblige any app offering another
 third-party sign-in to offer theirs too, so shipping Google on the App Store

@@ -299,6 +299,18 @@ namespace MarkerOne.Unity
             float w = (bar.width - pad * 5) / 4;
             var row = new Rect(x, bar.y + pad * 0.5f, w, line);
 
+            Buttons(row, w, pad);
+            Note(new Rect(bar.x + pad, bar.y + line + pad * 0.6f, bar.width - pad * 2, line));
+        }
+
+        /// <summary>
+        /// The top row, which is about what you can do. Every path out of here
+        /// is a return, which is why the line underneath is drawn by the
+        /// caller: it belongs to all of them.
+        /// </summary>
+        private void Buttons(Rect row, float w, float pad)
+        {
+
             // Adjusting takes over the bar. Being able to place a new thing
             // while halfway through moving an old one is a way to end up with
             // both and mean neither.
@@ -313,6 +325,7 @@ namespace MarkerOne.Unity
                     _rig.Adjust(_selected, _target, Facing());
                     _adjusting = false;
                 }
+
                 return;
             }
 
@@ -368,10 +381,11 @@ namespace MarkerOne.Unity
                     _clearArmedUntil = Time.unscaledTime + 4f;
                 }
             }
+        }
 
-            // What the crosshair is over, and what just happened.
-            var note = new Rect(bar.x + pad, bar.y + line + pad * 0.6f,
-                                bar.width - pad * 2, line);
+        /// <summary>What the crosshair is over, and what just happened.</summary>
+        private void Note(Rect note)
+        {
             string status;
             if (Time.unscaledTime < _saidUntil && _said != null)
             {

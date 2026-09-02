@@ -142,7 +142,7 @@ namespace MarkerOne.Unity
             }
             if (SignInScreen.Occupied.height > 0)
             {
-                top = Mathf.Max(top, SignInScreen.Occupied.yMax + margin);
+                floor = Mathf.Min(floor, SignInScreen.Occupied.yMin - margin);
             }
             if (PlacementInput.Occupied.height > 0)
             {

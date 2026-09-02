@@ -121,8 +121,15 @@ namespace MarkerOne.Unity
 
         private void OnGUI()
         {
-            // Drawn behind the sign-in screen rather than in front of it,
-            // whatever order Unity happens to call these in.
+            // Nothing behind the sign-in screen, which is opaque: drawing
+            // underneath it costs a layout pass to produce something nobody can
+            // see, and gets the buttons pressed by taps meant for it.
+            if (SignInScreen.Blocking)
+            {
+                Occupied = new Rect();
+                return;
+            }
+
             GUI.depth = 0;
 
             EnsureStyles();

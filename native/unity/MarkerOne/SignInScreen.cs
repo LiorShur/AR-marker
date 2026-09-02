@@ -60,6 +60,7 @@ namespace MarkerOne.Unity
         private GUIStyle _field;
         private GUIStyle _button;
         private Texture2D _card;
+        private Texture2D _chip;
         private Texture2D _scrim;
 
         private void Update()
@@ -181,6 +182,7 @@ namespace MarkerOne.Unity
             GUI.Label(row, "Sign in to place things. What you place is yours to move "
                          + "and remove, from any phone you sign in on.", _dim);
 
+
             row.y += line * 2.3f;
             row.height = line;
 
@@ -243,19 +245,31 @@ namespace MarkerOne.Unity
             float line = size * 1.6f;
             float pad = size * 0.6f;
 
-            float label = _text.CalcSize(new GUIContent(_rig.Signed)).x;
+            // One name, whichever of the three ways in somebody took. Apple
+            // returns an email once and never again, Google returns one every
+            // time, and a password account is one — so the rig settles it in a
+            // single place and this shows whatever it settled on.
+            string name = _rig.Named;
+            if (string.IsNullOrEmpty(name)) { name = "Signed in"; }
+
+            float label = _text.CalcSize(new GUIContent(name)).x;
             float button = size * 5f;
             float width = Mathf.Min(safe.width - 16, pad * 3 + label + button);
 
-            float top = Mathf.Max(Screen.height - (safe.y + safe.height) + 8f,
-                                  MarkerOneHud.Occupied.yMax + 6f);
+            // The bottom left corner, which is the one nothing else wants: the
+            // readout owns the top, the control bar owns the width of the
+            // bottom, and a chip that moves around as those come and go is a
+            // chip nobody learns the position of.
+            float floor = PlacementInput.Occupied.height > 0
+                ? PlacementInput.Occupied.yMin - 8f
+                : Screen.height - safe.y - 8f;
 
-            var chip = new Rect(safe.xMax - 8f - width, top, width, line + pad);
+            var chip = new Rect(safe.x + 8f, floor - (line + pad), width, line + pad);
             Occupied = chip;
 
-            GUI.DrawTexture(chip, _card);
+            GUI.DrawTexture(chip, _chip);
             GUI.Label(new Rect(chip.x + pad, chip.y + pad * 0.5f,
-                               width - button - pad * 3, line), _rig.Signed, _text);
+                               width - button - pad * 3, line), name, _text);
 
             var stop = new Rect(chip.xMax - pad - button, chip.y + pad * 0.5f, button, line);
             if (!GUI.Button(stop, "Sign out", _button)) { return; }
@@ -380,12 +394,17 @@ namespace MarkerOne.Unity
 
             if (_card == null)
             {
-                _card = Solid(new Color(0, 0, 0, 0.72f));
+                _card = Solid(new Color(1, 1, 1, 0.10f));
 
-                // Dimmed rather than hidden. The camera carries on underneath,
-                // which is the difference between an app that is asking
-                // something and an app that has not started.
-                _scrim = Solid(new Color(0, 0, 0, 0.55f));
+                // Against the camera rather than against the ground, so it
+                // needs its own darkness — the readout's, so the two match.
+                _chip = Solid(new Color(0, 0, 0, 0.72f));
+
+                // Opaque, not dimmed. The camera does carry on underneath and
+                // is warming up the whole time, but a live view with the
+                // readout's numbers legible through the card is two screens at
+                // once and neither reads as the one being asked about.
+                _scrim = Solid(new Color(0.06f, 0.07f, 0.09f, 1f));
             }
 
             _text = new GUIStyle(GUI.skin.label) { fontSize = size, wordWrap = true };
@@ -412,6 +431,7 @@ namespace MarkerOne.Unity
         private void OnDestroy()
         {
             if (_card != null) { Destroy(_card); }
+            if (_chip != null) { Destroy(_chip); }
             if (_scrim != null) { Destroy(_scrim); }
         }
     }

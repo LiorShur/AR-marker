@@ -75,6 +75,20 @@ namespace MarkerOne.Core
         public Action<string> WriteRefreshToken { get; set; }
 
         /// <summary>
+        /// Where the account's name is kept, alongside the refresh token.
+        ///
+        /// Needed because a refresh restores the token and the uid but knows
+        /// nothing about who they belong to — so without this, somebody signed
+        /// in comes back from a relaunch looking anonymous and gets asked to
+        /// sign in again every launch. It also covers Apple, which returns an
+        /// email on the first authorization only and nothing at all on every
+        /// one after it.
+        /// </summary>
+        public Func<string> ReadAccount { get; set; }
+
+        public Action<string> WriteAccount { get; set; }
+
+        /// <summary>
         /// Anonymous sign-in identifies the device without asking anyone for
         /// anything. It is not a security boundary — anyone can mint one — so
         /// it answers "who wrote this", never "who is allowed".
@@ -189,7 +203,13 @@ namespace MarkerOne.Core
             };
 
             Json root = await SendAsync(request, cancel).ConfigureAwait(false);
-            Adopt(root, root["email"].AsString ?? provider);
+
+            // Apple hands over an email exactly once, at the first
+            // authorization, and never again — so the name has to survive
+            // somewhere, and "apple" is not a name.
+            Adopt(root, root["email"].AsString ?? root["displayName"].AsString,
+                  provider == "apple" ? "Apple account" : "Google account");
+
             return _idToken;
         }
 
@@ -257,7 +277,7 @@ namespace MarkerOne.Core
         /// <summary>Take on the identity in a sign-in response. One place, so
         /// that a provider added later cannot forget the refresh token and
         /// silently become an identity that lasts one launch.</summary>
-        private void Adopt(Json root, string signed)
+        private void Adopt(Json root, string signed, string fallback = null)
         {
             _idToken = root["idToken"].AsString;
             Uid = root["localId"].AsString;
@@ -272,7 +292,25 @@ namespace MarkerOne.Core
             }
             _tokenExpires = DateTimeOffset.UtcNow.AddSeconds(seconds);
 
+            if (string.IsNullOrEmpty(signed)) { signed = Remembered(Uid) ?? fallback; }
+
             Signed = signed;
+            WriteAccount?.Invoke(Uid + "\t" + Signed);
+        }
+
+        /// <summary>The saved name, but only if it belongs to this uid. Signing
+        /// in as somebody else and inheriting the last person's name is a worse
+        /// failure than showing no name at all.</summary>
+        private string Remembered(string uid)
+        {
+            string saved = ReadAccount?.Invoke();
+            if (string.IsNullOrEmpty(saved) || string.IsNullOrEmpty(uid)) { return null; }
+
+            int tab = saved.IndexOf('\t');
+            if (tab <= 0 || saved.Substring(0, tab) != uid) { return null; }
+
+            string name = saved.Substring(tab + 1);
+            return string.IsNullOrEmpty(name) ? null : name;
         }
 
         /// <summary>Who is signed in, for showing. Null while anonymous.</summary>
@@ -287,6 +325,7 @@ namespace MarkerOne.Core
             Signed = null;
             _tokenExpires = DateTimeOffset.MinValue;
             WriteRefreshToken?.Invoke("");
+            WriteAccount?.Invoke("");
         }
 
         /// <summary>Trade a saved refresh token for a live one, keeping the uid
@@ -313,6 +352,10 @@ namespace MarkerOne.Core
 
                 _idToken = token;
                 Uid = uid;
+
+                // Anonymous devices have nothing saved, so this leaves them
+                // anonymous, which is right.
+                Signed = Remembered(uid);
 
                 double seconds = 3600;
                 string raw = root["expires_in"].AsString;

@@ -235,9 +235,9 @@ namespace MarkerOne.Unity
         private readonly Dictionary<string, PlacedItem> _info = new Dictionary<string, PlacedItem>();
 
         [Header("Who may clear everything")]
-        [Tooltip("Uids allowed to remove other people's placements. Empty means "
-               + "nobody, which is the right default: the button erases a shared "
-               + "world and the rules will refuse it anyway.")]
+        [Tooltip("Emails or uids allowed to remove other people's placements. "
+               + "Empty means nobody, which is the right default: the button "
+               + "erases a shared world and the rules will refuse it anyway.")]
         public List<string> Admins = new List<string>();
 
         /// <summary>When each placement first failed to be positioned by
@@ -310,12 +310,22 @@ namespace MarkerOne.Unity
             // across launches. Without it every launch is a different person
             // and nothing you placed yesterday is yours.
             const string kept = "MarkerOne.RefreshToken";
+            const string who = "MarkerOne.Account";
             _store = new FirestorePlacementStore(ProjectId, ApiKey)
             {
                 ReadRefreshToken = () => PlayerPrefs.GetString(kept, null),
                 WriteRefreshToken = token =>
                 {
                     PlayerPrefs.SetString(kept, token ?? "");
+                    PlayerPrefs.Save();
+                },
+
+                // Beside it, so a signed-in person comes back from a relaunch
+                // still signed in rather than being asked all over again.
+                ReadAccount = () => PlayerPrefs.GetString(who, null),
+                WriteAccount = account =>
+                {
+                    PlayerPrefs.SetString(who, account ?? "");
                     PlayerPrefs.Save();
                 }
             };
@@ -946,7 +956,32 @@ namespace MarkerOne.Unity
 
         /// <summary>Whether this device may remove other people's placements.
         /// The rules decide in the end; this only decides what to offer.</summary>
-        public bool IsAdmin => !string.IsNullOrEmpty(Uid) && Admins.Contains(Uid);
+        public bool IsAdmin => Admins != null && (Listed(Uid) || Listed(Signed));
+
+        /// <summary>
+        /// By email as well as by uid.
+        ///
+        /// A uid is sixteen unreadable characters that have to be found on a
+        /// device and pasted into the scene, and it changes the moment the
+        /// person it belongs to signs in — so a list written before accounts
+        /// existed silently stops matching anybody. An email is what somebody
+        /// putting a name on this list actually knows.
+        /// </summary>
+        private bool Listed(string it)
+        {
+            if (string.IsNullOrEmpty(it)) { return false; }
+
+            foreach (string admin in Admins)
+            {
+                if (!string.IsNullOrEmpty(admin) &&
+                    string.Equals(admin.Trim(), it, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
 
         /// <summary>Whether this device placed the thing, and may therefore
         /// remove it. A seed belongs to whoever ran the script and is claimable
@@ -1082,6 +1117,8 @@ namespace MarkerOne.Unity
         /// address on every placement a person leaves in the world is more than
         /// they agreed to when they signed in.
         /// </summary>
+        public string Named => Called();
+
         private string Called()
         {
             string signed = Signed;
