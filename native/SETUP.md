@@ -390,7 +390,16 @@ characters that have to be found on a device and pasted into the scene, and it
 changes the moment the person it belongs to signs in, which silently stops a
 list written before accounts existed from matching anybody. Put the email in.
 
-The rules still decide in the end; the list only decides what to offer.
+The rules still decide in the end, and they have their own list — the app's
+field decides what to *offer*, `isAdmin()` in `firestore.rules` decides what
+actually happens. Both have to name you or Clear appears and then refuses
+everything it touches. The rules match on the **verified** email: Google and
+Apple sign-ins arrive verified, a password account does not until its owner
+follows the link.
+
+```bash
+firebase deploy --only firestore:rules
+```
 
 **Apple** — required rather than optional. Apple oblige any app offering another
 third-party sign-in to offer theirs too, so shipping Google on the App Store

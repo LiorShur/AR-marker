@@ -596,9 +596,10 @@ is whatever the map was worth, which nobody knows, so it is left at zero rather
 than invented.
 
 ⚠️ The script signs in anonymously, so the placement's owner is an identity
-that exists only for that write. Nothing can delete it afterwards — not the
-app, not the script — unless that uid goes into `isDeveloper()` in
-`firestore.rules`. It is printed for that purpose.
+that exists only for that write, and nothing can delete it afterwards — not the
+app, not the script. Two things can: an admin, listed by verified email in
+`isAdmin()` in `firestore.rules`, or the first person to stand in front of it
+and correct it, which is what seeds are for.
 
 ### What it achieves, measured
 

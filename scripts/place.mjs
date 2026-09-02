@@ -137,4 +137,4 @@ console.log(`  owner  ${who.localId}`);
 console.log(`  geohash ${geo.geohash(lat, lon, 10)}`);
 console.log();
 console.log('The owner is a fresh anonymous identity, so the app cannot delete this.');
-console.log('Put that uid in isDeveloper() in firestore.rules if you want to.');
+console.log('Correct it in the app to claim it, or delete it as an admin.');

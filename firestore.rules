@@ -20,21 +20,6 @@ service cloud.firestore {
 
     match /placements/{placement} {
 
-      // ── development ────────────────────────────────────────────
-      // Delete this block, and every isDeveloper() below it, before anyone
-      // else uses this.
-      //
-      // It exists because clearing the collection between tests is otherwise a
-      // trip to the Firebase console, and a test run that cannot start from
-      // nothing is a test run whose result means very little. It is a named
-      // uid rather than "any signed-in caller" so that the hole is exactly one
-      // device wide and obvious in a diff.
-      //
-      // Paste the uid the app shows on its Uid line. It is stable across
-      // launches now that the refresh token is kept; before that it was a
-      // different uid every launch, which is why deleting your own placements
-      // never once worked.
-
       allow read: if resource.data.visibility == 'public'
                   || (request.auth != null && request.auth.uid == resource.data.owner);
 
@@ -72,7 +57,7 @@ service cloud.firestore {
                        );
 
       allow delete: if request.auth != null
-                    && (resource.data.owner == request.auth.uid || isDeveloper());
+                    && (resource.data.owner == request.auth.uid || isAdmin());
     }
 
     // Anything not named above is closed. Collections get rules deliberately
@@ -82,11 +67,30 @@ service cloud.firestore {
     }
   }
 
-  // ── development ──────────────────────────────────────────────
-  // Remove along with the note above. An empty string matches nobody, so the
-  // rules are safe to deploy before the uid is filled in.
-  function isDeveloper() {
-    return request.auth.uid == '';
+  /* Who may remove somebody else's placement.
+   *
+   * By verified email rather than by uid. A uid is sixteen unreadable
+   * characters that have to be read off a device and pasted in here, and it
+   * changes the moment its owner signs in with an account — so a list written
+   * before accounts existed silently stops matching anybody, and the failure
+   * looks like a broken button rather than a stale list.
+   *
+   * email_verified is the whole of the security here, and it is not a detail.
+   * Anyone can register an account claiming any address they like; what they
+   * cannot do is receive the mail sent to it. Google and Apple sign-ins arrive
+   * verified. A password account arrives unverified until its owner follows
+   * the link, so an admin listed here who registered with a password and never
+   * confirmed it will be refused — correctly.
+   *
+   * An empty list matches nobody, which is the right default: this erases a
+   * shared world.
+   */
+  function isAdmin() {
+    return request.auth.token.get('email_verified', false) == true
+           && request.auth.token.get('email', '') in [
+                'liorshur@gmail.com',
+                'lior.shur@gmail.com'
+              ];
   }
 
   function isWellFormed(data) {
