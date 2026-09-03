@@ -53,6 +53,7 @@ namespace MarkerOne.Unity
         private string _said = "";
         private bool _busy;
         private float _busySince;
+        private bool _sent;
 
         private GUIStyle _text;
         private GUIStyle _dim;
@@ -252,9 +253,16 @@ namespace MarkerOne.Unity
             string name = _rig.Named;
             if (string.IsNullOrEmpty(name)) { name = "Signed in"; }
 
+            // Only while it is worth doing something about: an account whose
+            // address is unproven is one an admin rule matching on the email
+            // will never fire for, and the whole remedy is one tap that nothing
+            // else in the app offers.
+            bool prove = !string.IsNullOrEmpty(_rig.Email) && !_rig.EmailVerified;
+
             float label = _text.CalcSize(new GUIContent(name)).x;
             float button = size * 5f;
-            float width = Mathf.Min(safe.width - 16, pad * 3 + label + button);
+            float width = Mathf.Min(safe.width - 16,
+                                    pad * 3 + label + button + (prove ? button + pad : 0));
 
             // The bottom left corner, which is the one nothing else wants: the
             // readout owns the top, the control bar owns the width of the
@@ -268,10 +276,19 @@ namespace MarkerOne.Unity
             Occupied = chip;
 
             GUI.DrawTexture(chip, _chip);
+
+            float taken = button + pad * 3 + (prove ? button + pad : 0);
             GUI.Label(new Rect(chip.x + pad, chip.y + pad * 0.5f,
-                               width - button - pad * 3, line), name, _text);
+                               width - taken, line), name, _text);
 
             var stop = new Rect(chip.xMax - pad - button, chip.y + pad * 0.5f, button, line);
+
+            if (prove)
+            {
+                var verify = new Rect(stop.x - pad - button, stop.y, button, line);
+                if (GUI.Button(verify, _sent ? "Sent" : "Verify", _button)) { Prove(); }
+            }
+
             if (!GUI.Button(stop, "Sign out", _button)) { return; }
 
             // Which puts the launch screen back up on the next frame, because
@@ -280,6 +297,26 @@ namespace MarkerOne.Unity
             _said = "";
             _password = "";
             _busy = false;
+            _sent = false;
+        }
+
+        /// <summary>
+        /// Ask Firebase for the confirmation link.
+        ///
+        /// The token does not become verified until the link is followed and
+        /// the app signs in again, so nothing visible changes here — which is
+        /// why the button says so rather than appearing to have done nothing.
+        /// </summary>
+        private async void Prove()
+        {
+            _sent = true;
+
+            try { await _rig.VerifyEmailAsync(); }
+            catch (System.Exception e)
+            {
+                _sent = false;
+                Debug.LogWarning("MarkerOne: could not send the verification — " + e.Message);
+            }
         }
 
         /// <summary>Buttons are dead while a sign-in is in flight. Two

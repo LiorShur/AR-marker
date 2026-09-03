@@ -403,9 +403,10 @@ firebase deploy --only firestore:rules
 
 The readout's Uid line says which of the two the token will match: the email it
 carries and whether Firebase counts it as proven — `liorshur@gmail.com ✓` or
-`liorshur@gmail.com UNVERIFIED`. Unverified is refused, correctly, and the
-remedy is either to sign in with Google or Apple, who vouch for the address, or
-to follow the confirmation link. There is a uid branch in the rules as well,
+`liorshur@gmail.com UNVERIFIED`. Unverified is refused, correctly. The chip
+grows a **Verify** button whenever the signed-in address is unproven; the token
+does not change until the link is followed and the app signs in again. Signing
+in with Google or Apple instead also works, since both vouch for the address. There is a uid branch in the rules as well,
 which needs no verification and is the way back in when the email list is the
 thing that is wrong.
 
