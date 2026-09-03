@@ -1,10 +1,14 @@
 using System.Collections.Generic;
 using System.IO;
 using UnityEditor;
+
+// The extensions that build a reference image library are editor-only and live
+// in the editor namespace, not beside the library type they extend.
+using UnityEditor.XR.ARSubsystems;
 using UnityEngine;
 using UnityEngine.XR.ARSubsystems;
 
-namespace MarkerOne.Unity.Editor
+namespace MarkerOne.EditorTools
 {
     /// <summary>
     /// Makes the printed markers a venue is pinned by, and the library that
@@ -139,21 +143,28 @@ namespace MarkerOne.Unity.Editor
             // not.
             var editable = new SerializedObject(library);
             SerializedProperty images = editable.FindProperty("m_Images");
-            images.ClearArray();
-            editable.ApplyModifiedProperties();
-
-            for (int i = 0; i < paths.Count; i++)
+            if (images != null && images.isArray)
             {
-                var texture = AssetDatabase.LoadAssetAtPath<Texture2D>(paths[i]);
+                images.ClearArray();
+                editable.ApplyModifiedProperties();
+            }
+
+            foreach (string path in paths)
+            {
+                var texture = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
                 if (texture == null) { continue; }
 
-                XRReferenceImageLibraryExtensions.Add(library);
-                XRReferenceImageLibraryExtensions.SetTexture(library, i, texture, true);
-                XRReferenceImageLibraryExtensions.SetName(library, i,
-                    Path.GetFileNameWithoutExtension(paths[i]));
-                XRReferenceImageLibraryExtensions.SetSpecifySize(library, i, true);
-                XRReferenceImageLibraryExtensions.SetSize(library, i,
-                    new Vector2(PrintedMetres, PrintedMetres));
+                library.Add();
+
+                // The index of what was just added, read back rather than
+                // counted: if the clear above did not happen, counting writes
+                // over the first entries and leaves the rest empty.
+                int at = library.count - 1;
+
+                library.SetTexture(at, texture, true);
+                library.SetName(at, Path.GetFileNameWithoutExtension(path));
+                library.SetSpecifySize(at, true);
+                library.SetSize(at, new Vector2(PrintedMetres, PrintedMetres));
             }
 
             EditorUtility.SetDirty(library);
