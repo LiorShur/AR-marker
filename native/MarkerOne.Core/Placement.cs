@@ -99,6 +99,37 @@ namespace MarkerOne.Core
 
         public bool IsChild => !string.IsNullOrEmpty(Parent) && Offset != null;
 
+        /// <summary>
+        /// Which venue this belongs to, or null for something in the world.
+        ///
+        /// A venue is a room, a hall, or a building full of both, and the point
+        /// of it is that nothing inside one has coordinates. Geospatial does not
+        /// work indoors — no sky, no VPS imagery — so a venue is pinned by
+        /// printed markers instead, and everything in it is measured from the
+        /// venue's own origin rather than from the Earth.
+        /// </summary>
+        public string Venue;
+
+        /// <summary>Where this sits in the venue's frame: metres east, up and
+        /// north of the venue origin, and how it is turned. Null for anything
+        /// that is not in a venue.</summary>
+        public Attachment At;
+
+        /// <summary>
+        /// Which printed image pins this, for the handful of placements that
+        /// are markers rather than things.
+        ///
+        /// A marker is stored the same way as everything else because it is the
+        /// same thing: something at a known pose in the venue. The difference is
+        /// only that this one is also findable by a camera, which is what makes
+        /// every other pose in the venue reachable.
+        /// </summary>
+        public string Marker;
+
+        public bool InVenue => !string.IsNullOrEmpty(Venue) && At != null;
+
+        public bool IsMarker => InVenue && !string.IsNullOrEmpty(Marker);
+
         /// <summary>Filled in by the query, not stored.</summary>
         public double DistanceM;
 
@@ -137,6 +168,29 @@ namespace MarkerOne.Core
                 if (string.IsNullOrEmpty(Parent)) { bad.Add("an offset needs a parent"); }
             }
             if (Math.Abs(GroundOffset) > 100) { bad.Add("ground offset"); }
+            if (Venue != null && (Venue.Length == 0 || Venue.Length > 64)) { bad.Add("venue id"); }
+            if (Marker != null && (Marker.Length == 0 || Marker.Length > 64)) { bad.Add("marker name"); }
+            if (Marker != null && Venue == null) { bad.Add("a marker needs a venue"); }
+
+            if (At != null)
+            {
+                if (string.IsNullOrEmpty(Venue)) { bad.Add("a venue pose needs a venue"); }
+
+                // A kilometre is a campus, not a venue, and past that the
+                // accumulated drift between markers is larger than the things
+                // being placed.
+                if (double.IsNaN(At.X) || Math.Abs(At.X) > 1000) { bad.Add("venue x"); }
+                if (double.IsNaN(At.Y) || Math.Abs(At.Y) > 1000) { bad.Add("venue y"); }
+                if (double.IsNaN(At.Z) || Math.Abs(At.Z) > 1000) { bad.Add("venue z"); }
+
+                double turn = Math.Sqrt(
+                    At.Rotation.X * At.Rotation.X + At.Rotation.Y * At.Rotation.Y +
+                    At.Rotation.Z * At.Rotation.Z + At.Rotation.W * At.Rotation.W);
+                if (double.IsNaN(turn) || Math.Abs(turn - 1) > 0.01)
+                {
+                    bad.Add("venue rotation is not a unit");
+                }
+            }
 
             double length = Math.Sqrt(
                 Orientation.X * Orientation.X + Orientation.Y * Orientation.Y +

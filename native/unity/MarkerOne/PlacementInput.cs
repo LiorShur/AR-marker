@@ -55,6 +55,8 @@ namespace MarkerOne.Unity
 
         /// <summary>What the next piece is being put on, while building.</summary>
         private string _building;
+
+        private VenueRig _venue;
         private bool _adjusting;
 
         [Tooltip("How far off the crosshair a placement can be and still count "
@@ -95,6 +97,7 @@ namespace MarkerOne.Unity
                     _rig = FindFirstObjectByType<MarkerOneRig>();
                     if (_rig != null) { _rig.Placed += OnPlaced; }
                 }
+                if (_venue == null) { _venue = FindFirstObjectByType<VenueRig>(); }
                 if (_raycaster == null) { _raycaster = FindFirstObjectByType<ARRaycastManager>(); }
                 if (_camera == null) { _camera = Camera.main; }
             }
@@ -237,6 +240,33 @@ namespace MarkerOne.Unity
         }
 
         /// <summary>
+        /// Put it in the venue rather than on the Earth.
+        ///
+        /// The same crosshair and the same target point; only the frame it is
+        /// measured in differs. Indoors there is no fix to write down, so the
+        /// venue's own origin is the only thing a pose can be relative to.
+        /// </summary>
+        private async void InVenue()
+        {
+            string scene = SceneId();
+            if (string.IsNullOrEmpty(scene)) { Say("no scenes configured on the rig"); return; }
+
+            Quaternion facing = Quaternion.identity;
+            if (_camera != null)
+            {
+                Vector3 forward = _camera.transform.forward;
+                facing = Quaternion.Euler(0, Mathf.Atan2(-forward.x, -forward.z) * Mathf.Rad2Deg, 0);
+            }
+
+            try
+            {
+                await _venue.PlaceAsync(scene, _target, facing, _label);
+                Say("placed in " + _venue.Venue);
+            }
+            catch (System.Exception e) { Say(e.Message); }
+        }
+
+        /// <summary>
         /// Delete the thing being aimed at, twice-confirmed.
         ///
         /// Offered for what this device owns, and for anything at all to an
@@ -270,6 +300,13 @@ namespace MarkerOne.Unity
         private void Place()
         {
             if (_rig == null) { Say("no rig in scene"); return; }
+
+            if (_venue != null && !string.IsNullOrEmpty(_venue.Venue))
+            {
+                InVenue();
+                return;
+            }
+
             if (!_rig.CanPlace) { Say("not located yet — " + _rig.State); return; }
 
             string scene = SceneId();

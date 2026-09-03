@@ -38,6 +38,7 @@ namespace MarkerOne.EditorTools
             SeeFarEnough();
             added += EnsureDepth();
             EnsureLighting();
+            EnsureVenue();
 
             AssetDatabase.SaveAssets();
 
@@ -143,6 +144,32 @@ namespace MarkerOne.EditorTools
         /// <summary>Drive the scene's light from what the camera can see of the
         /// real one. An object lit at midday brightness against a photograph of
         /// dusk is wrong before anybody looks at its geometry.</summary>
+        /// <summary>
+        /// The venue rig, and the transform its contents hang off.
+        ///
+        /// Made outside the XR Origin deliberately. Its pose is written every
+        /// time a marker is seen, and having it inherit the origin's transform
+        /// as well would apply that transform twice.
+        /// </summary>
+        private static void EnsureVenue()
+        {
+            var venue = Object.FindFirstObjectByType<VenueRig>();
+            if (venue == null)
+            {
+                venue = new GameObject("MarkerOne Venue").AddComponent<VenueRig>();
+            }
+
+            if (venue.VenueRoot == null)
+            {
+                var root = new GameObject("Venue Root");
+                root.transform.SetParent(venue.transform, false);
+                venue.VenueRoot = root.transform;
+            }
+
+            EditorUtility.SetDirty(venue);
+            EditorSceneManager.MarkSceneDirty(venue.gameObject.scene);
+        }
+
         private static void EnsureLighting()
         {
             Light sun = null;
@@ -327,6 +354,30 @@ namespace MarkerOne.EditorTools
             {
                 origin.gameObject.AddComponent<ARAnchorManager>();
                 added++;
+            }
+
+            // What pins a venue. Given the generated library if there is one —
+            // a tracked-image manager with no library detects nothing at all
+            // and says nothing about it, which is the quietest possible way for
+            // indoor mode to appear broken.
+            var images = origin.GetComponent<ARTrackedImageManager>();
+            if (images == null)
+            {
+                images = origin.gameObject.AddComponent<ARTrackedImageManager>();
+                added++;
+            }
+
+            if (images.referenceLibrary == null)
+            {
+                var library = AssetDatabase.LoadAssetAtPath<XRReferenceImageLibrary>(
+                    "Assets/MarkerOne/Markers/MarkerOne Markers.asset");
+
+                if (library != null) { images.referenceLibrary = library; }
+                else
+                {
+                    Debug.LogWarning("MarkerOne: no marker library — run " +
+                                     "MarkerOne → Make venue markers before using a venue.");
+                }
             }
 
             if (added > 0)

@@ -516,6 +516,13 @@ time and cannot check for a cycle, so the depth cap is what stops a chain that
 loops — at the cost of a structure that never draws rather than an app that
 hangs.
 
+### Indoors
+
+Geospatial needs sky and street imagery and has neither in a hall, so indoors is
+a different mode rather than a different app: the same content and the same bar,
+with the frame pinned by printed markers instead of by the Earth. **Venue** on
+the readout opens it, and `VENUES.md` is the whole of how it works.
+
 ### How it looks
 
 Four things, all added by *Set up scene* and none of them needing content that

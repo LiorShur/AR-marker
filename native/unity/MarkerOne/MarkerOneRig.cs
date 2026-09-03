@@ -1007,6 +1007,51 @@ namespace MarkerOne.Unity
         /// <summary>Whether this is a piece of something larger.</summary>
         public bool IsAttached(string id) => !string.IsNullOrEmpty(Info(id)?.Parent);
 
+        /// <summary>Everything in a venue, markers included.</summary>
+        public async Task<IReadOnlyList<Placement>> InVenueAsync(string venue)
+        {
+            if (!(_store is FirestorePlacementStore store))
+            {
+                throw new InvalidOperationException("no Firestore store");
+            }
+
+            return await store.InVenueAsync(venue);
+        }
+
+        /// <summary>
+        /// Write something into a venue.
+        ///
+        /// No coordinates, because there are none: a venue exists precisely
+        /// where a fix cannot be had. The geopose is written at zero and the
+        /// geohash with it, so nothing indoors is ever returned by a nearby
+        /// query — a hall full of party decorations has no business appearing
+        /// to somebody walking past the building.
+        /// </summary>
+        public async Task<Placement> PlaceInVenueAsync(string venue, string scene,
+            Attachment at, string marker = null, string label = "")
+        {
+            if (!(_store is FirestorePlacementStore store))
+            {
+                throw new InvalidOperationException("no Firestore store");
+            }
+
+            var placement = new Placement
+            {
+                Scene = scene,
+                Position = new GeoPoint(0, 0, 0),
+                Orientation = Quat.Identity,
+                Scale = 1,
+                Label = label ?? "",
+                Author = Called(),
+                Venue = venue,
+                At = at,
+                Marker = marker,
+                Fix = new FixQuality { Provider = "venue", PositionM = 0, HeadingDeg = 0 }
+            };
+
+            return await store.PlaceAsync(placement);
+        }
+
         /// <summary>
         /// Delete everything this session can see.
         ///
@@ -1502,7 +1547,10 @@ namespace MarkerOne.Unity
             return root;
         }
 
-        private GameObject PrefabFor(string scene)
+        /// <summary>What to draw for a scene id, or null. Public because the
+        /// venue rig draws the same content in a different frame, and there is
+        /// no reason for two lists of prefabs.</summary>
+        public GameObject PrefabFor(string scene)
         {
             foreach (ScenePrefab entry in Scenes)
             {

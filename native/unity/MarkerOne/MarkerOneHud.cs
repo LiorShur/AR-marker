@@ -201,8 +201,16 @@ namespace MarkerOne.Unity
             // edges of one standing in front of a surface. Which of those
             // matters more depends on where you are, so it belongs on a button
             // rather than in a file.
-            Occlusion(new Rect(pin.xMax + lineHeight * 0.4f, box.yMax + 6,
-                               lineHeight * 4.4f, lineHeight * 1.5f));
+            var occlusion = new Rect(pin.xMax + lineHeight * 0.4f, box.yMax + 6,
+                                     lineHeight * 4.4f, lineHeight * 1.5f);
+            Occlusion(occlusion);
+
+            // Indoors is a different mode rather than a different app: the same
+            // content, the same bar, a frame pinned by paper instead of by the
+            // Earth.
+            var venue = new Rect(occlusion.xMax + lineHeight * 0.4f, box.yMax + 6,
+                                 lineHeight * 4, lineHeight * 1.5f);
+            if (GUI.Button(venue, "Venue", _button)) { VenuePanel.Open = !VenuePanel.Open; }
         }
 
         private string Body()

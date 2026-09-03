@@ -106,7 +106,7 @@ service cloud.firestore {
     return data.keys().hasOnly([
              'geopose', 'geohash', 'scene', 'scale', 'fix', 'groundOffset',
              'label', 'author', 'visibility', 'owner', 'createdAt',
-             'parent', 'local'
+             'parent', 'local', 'venue', 'at', 'marker'
            ])
            && data.keys().hasAll(['geopose', 'geohash', 'scene', 'scale', 'visibility', 'owner'])
            && isGeoPose(data.geopose)
@@ -130,7 +130,40 @@ service cloud.firestore {
            // cannot be used as free storage.
            && (!('author' in data.keys()) ||
                (data.author is string && data.author.size() <= 40))
-           && isLinked(data);
+           && isLinked(data)
+           && isInVenue(data);
+  }
+
+  /* Somewhere indoors, pinned by a printed marker rather than by the Earth.
+   *
+   * Both fields or neither, for the same reason as a linked placement: a venue
+   * with no pose has no idea where in it the thing is, and a pose with no venue
+   * has no frame to be a pose in.
+   *
+   * A kilometre is a campus rather than a venue, and past that the drift
+   * accumulated walking between two markers is larger than anything being
+   * placed — so the bound is a statement about what this can actually do, not
+   * only about storage.
+   *
+   * A marker is an ordinary placement that a camera can also find. Nothing here
+   * distinguishes the organizer's markers from anyone else's, because nothing
+   * needs to: a marker somebody else adds to a venue is a marker that only
+   * resolves for whoever can also see the printed image.
+   */
+  function isInVenue(data) {
+    return (!('venue' in data.keys()) && !('at' in data.keys())
+            && !('marker' in data.keys()))
+           || (data.venue is string
+               && data.venue.size() > 0 && data.venue.size() <= 64
+               && data.at.keys().hasOnly(['x', 'y', 'z', 'rotation'])
+               && data.at.x is number && data.at.x >= -1000 && data.at.x <= 1000
+               && data.at.y is number && data.at.y >= -1000 && data.at.y <= 1000
+               && data.at.z is number && data.at.z >= -1000 && data.at.z <= 1000
+               && data.at.rotation.x is number && data.at.rotation.y is number
+               && data.at.rotation.z is number && data.at.rotation.w is number
+               && (!('marker' in data.keys()) ||
+                   (data.marker is string
+                    && data.marker.size() > 0 && data.marker.size() <= 64)));
   }
 
   /* A piece of something larger, rather than a thing on its own.

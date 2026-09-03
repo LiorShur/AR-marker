@@ -494,6 +494,58 @@ namespace MarkerOne.Core
             return found.Values.OrderBy(p => p.DistanceM).ToList();
         }
 
+        /// <summary>
+        /// Everything in one venue.
+        ///
+        /// By name rather than by geohash, because nothing in a venue has
+        /// coordinates worth querying on: the whole reason a venue exists is
+        /// that indoors there is no fix to write down. The venue id is the
+        /// index.
+        /// </summary>
+        public async Task<IReadOnlyList<Placement>> InVenueAsync(string venue,
+            CancellationToken cancel = default)
+        {
+            if (string.IsNullOrEmpty(venue)) { throw new ArgumentException("no venue"); }
+
+            await SignInAsync(cancel).ConfigureAwait(false);
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"{Documents}:runQuery")
+            {
+                Content = Body(VenueQuery(venue))
+            };
+            await AuthorizeAsync(request, cancel).ConfigureAwait(false);
+
+            Json rows = await SendAsync(request, cancel).ConfigureAwait(false);
+
+            var found = new List<Placement>();
+            foreach (Json row in rows.Items)
+            {
+                if (!row.Has("document")) { continue; }
+
+                Placement p = FromDocument(row["document"]);
+                if (p?.Id != null) { found.Add(p); }
+            }
+
+            return found;
+        }
+
+        private Json VenueQuery(string venue)
+        {
+            // The visibility equality for the same reason as the nearby query:
+            // rules are not filters, and without it the whole query is refused
+            // rather than narrowed.
+            Json filters = Json.Array_()
+                .Add(Filter("visibility", "EQUAL", "public"))
+                .Add(Filter("venue", "EQUAL", venue));
+
+            return Json.Object().Set("structuredQuery", Json.Object()
+                .Set("from", Json.Array_().Add(Json.Object().Set("collectionId", _collection)))
+                .Set("where", Json.Object().Set("compositeFilter", Json.Object()
+                    .Set("op", "AND")
+                    .Set("filters", filters)))
+                .Set("limit", MaxPerRange));
+        }
+
         private Json RangeQuery(string start, string end)
         {
             // Rules are not filters. The read rule turns on visibility, and
@@ -781,20 +833,31 @@ namespace MarkerOne.Core
             // document it was before any of this existed.
             if (p.IsChild)
             {
-                fields.Set("parent", Wrap(p.Parent))
-                      .Set("local", Map(Json.Object()
-                          .Set("x", Wrap(p.Offset.X))
-                          .Set("y", Wrap(p.Offset.Y))
-                          .Set("z", Wrap(p.Offset.Z))
-                          .Set("rotation", Map(Json.Object()
-                              .Set("x", Wrap(p.Offset.Rotation.X))
-                              .Set("y", Wrap(p.Offset.Rotation.Y))
-                              .Set("z", Wrap(p.Offset.Rotation.Z))
-                              .Set("w", Wrap(p.Offset.Rotation.W))))));
+                fields.Set("parent", Wrap(p.Parent)).Set("local", Pose(p.Offset));
+            }
+
+            if (p.InVenue)
+            {
+                fields.Set("venue", Wrap(p.Venue)).Set("at", Pose(p.At));
+
+                if (!string.IsNullOrEmpty(p.Marker)) { fields.Set("marker", Wrap(p.Marker)); }
             }
 
             return Json.Object().Set("fields", fields);
         }
+
+        /// <summary>Somewhere and some way round, in whatever frame the field
+        /// it is written to means.</summary>
+        private static Json Pose(Attachment a) =>
+            Map(Json.Object()
+                .Set("x", Wrap(a.X))
+                .Set("y", Wrap(a.Y))
+                .Set("z", Wrap(a.Z))
+                .Set("rotation", Map(Json.Object()
+                    .Set("x", Wrap(a.Rotation.X))
+                    .Set("y", Wrap(a.Rotation.Y))
+                    .Set("z", Wrap(a.Rotation.Z))
+                    .Set("w", Wrap(a.Rotation.W)))));
 
         private static Json GeoPose(GeoPoint position, Quat q)
         {
@@ -852,17 +915,14 @@ namespace MarkerOne.Core
             p.Parent = Str(fields, "parent");
             if (!string.IsNullOrEmpty(p.Parent) && fields.Has("local"))
             {
-                Json local = Inner(fields, "local");
-                Json turn = Inner(local, "rotation");
+                p.Offset = ReadPose(Inner(fields, "local"));
+            }
 
-                p.Offset = new Attachment
-                {
-                    X = Num(local, "x", 0),
-                    Y = Num(local, "y", 0),
-                    Z = Num(local, "z", 0),
-                    Rotation = new Quat(Num(turn, "x", 0), Num(turn, "y", 0),
-                                        Num(turn, "z", 0), Num(turn, "w", 1))
-                };
+            p.Venue = Str(fields, "venue");
+            p.Marker = Str(fields, "marker");
+            if (!string.IsNullOrEmpty(p.Venue) && fields.Has("at"))
+            {
+                p.At = ReadPose(Inner(fields, "at"));
             }
 
             Json fix = Inner(fields, "fix");
@@ -874,6 +934,19 @@ namespace MarkerOne.Core
             };
 
             return p;
+        }
+
+        private static Attachment ReadPose(Json pose)
+        {
+            Json turn = Inner(pose, "rotation");
+            return new Attachment
+            {
+                X = Num(pose, "x", 0),
+                Y = Num(pose, "y", 0),
+                Z = Num(pose, "z", 0),
+                Rotation = new Quat(Num(turn, "x", 0), Num(turn, "y", 0),
+                                    Num(turn, "z", 0), Num(turn, "w", 1))
+            };
         }
 
         private static Json Inner(Json fields, string name) => fields[name]["mapValue"]["fields"];
