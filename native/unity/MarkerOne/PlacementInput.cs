@@ -417,6 +417,26 @@ namespace MarkerOne.Unity
                 return;
             }
 
+            // Mid-build. The bar is about the piece being added, not about
+            // anything else that could be done meanwhile.
+            if (_building != null)
+            {
+                if (GUI.Button(row, "Cancel", _button)) { _building = null; }
+
+                row.x += w + pad;
+                if (GUI.Button(row, SceneId() ?? "—", _button)) { _scene++; }
+
+                row.x += w + pad;
+                row.width = w * 2 + pad;
+                if (GUI.Button(row, "Put it here", _button))
+                {
+                    _rig.Attach(_building, SceneId(), _target, _label);
+                    _building = null;
+                }
+
+                return;
+            }
+
             // Aiming at something changes what the bar is for. Aiming at a
             // placement and pressing Place would otherwise put a second one on
             // top of the first, which is never what was meant.
@@ -445,25 +465,6 @@ namespace MarkerOne.Unity
                 return;
             }
 
-            // Mid-build. The bar is about the piece being added, not about
-            // anything else that could be done meanwhile.
-            if (_building != null)
-            {
-                if (GUI.Button(row, "Cancel", _button)) { _building = null; }
-
-                row.x += w + pad;
-                if (GUI.Button(row, SceneId() ?? "—", _button)) { _scene++; }
-
-                row.x += w + pad;
-                row.width = w * 2 + pad;
-                if (GUI.Button(row, "Put it here", _button))
-                {
-                    _rig.Attach(_building, SceneId(), _target, _label);
-                    _building = null;
-                }
-
-                return;
-            }
 
             if (GUI.Button(row, SceneId() ?? "—", _button))
             {

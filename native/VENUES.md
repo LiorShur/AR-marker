@@ -84,7 +84,18 @@ appearing to somebody walking past the building.
 
 ## Building structures indoors
 
-**Build on** works exactly as it does outdoors, and is more useful here: pieces
-hang off a parent by an offset, so a structure keeps its shape whatever the
-frame does. Indoors the frame is re-pinned every time a marker comes into view,
-and a structure built out of pieces moves as one when that happens.
+There is nothing to do. Everything in a venue is already a child of the venue
+root, so everything is already rigid with respect to everything else — the
+problem **Build on** exists to solve outdoors, where each placement carries its
+own separately-corrected anchor, does not arise in here. Place the pieces where
+they go and they stay in that arrangement, and the whole arrangement moves as
+one when a marker re-pins the frame.
+
+## What a venue cannot do yet
+
+Venue objects cannot be selected, moved or deleted from the app. Aiming picks
+from the outdoor rig's placements, and a venue's live somewhere else — so the
+crosshair does not find them and the bar offers nothing for them. Placing works;
+correcting a mistake means clearing it from the console.
+
+Worth knowing before an event rather than during one.
