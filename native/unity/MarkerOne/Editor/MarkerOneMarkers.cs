@@ -128,13 +128,13 @@ namespace MarkerOne.EditorTools
 
         private static void Library(List<string> paths)
         {
-            const string at = Folder + "/MarkerOne Markers.asset";
+            const string asset = Folder + "/MarkerOne Markers.asset";
 
-            var library = AssetDatabase.LoadAssetAtPath<XRReferenceImageLibrary>(at);
+            var library = AssetDatabase.LoadAssetAtPath<XRReferenceImageLibrary>(asset);
             if (library == null)
             {
                 library = ScriptableObject.CreateInstance<XRReferenceImageLibrary>();
-                AssetDatabase.CreateAsset(library, at);
+                AssetDatabase.CreateAsset(library, asset);
             }
 
             // Emptied and rebuilt rather than appended to, so running this
@@ -159,12 +159,12 @@ namespace MarkerOne.EditorTools
                 // The index of what was just added, read back rather than
                 // counted: if the clear above did not happen, counting writes
                 // over the first entries and leaves the rest empty.
-                int at = library.count - 1;
+                int slot = library.count - 1;
 
-                library.SetTexture(at, texture, true);
-                library.SetName(at, Path.GetFileNameWithoutExtension(path));
-                library.SetSpecifySize(at, true);
-                library.SetSize(at, new Vector2(PrintedMetres, PrintedMetres));
+                library.SetTexture(slot, texture, true);
+                library.SetName(slot, Path.GetFileNameWithoutExtension(path));
+                library.SetSpecifySize(slot, true);
+                library.SetSize(slot, new Vector2(PrintedMetres, PrintedMetres));
             }
 
             EditorUtility.SetDirty(library);
