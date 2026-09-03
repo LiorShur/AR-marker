@@ -243,6 +243,29 @@ namespace MarkerOne.Core
         /// <summary>Send a reset email. Nothing here can change a password, and
         /// an account nobody can get back into is a placement nobody can
         /// edit.</summary>
+        /// <summary>
+        /// Ask Firebase to send the confirmation link.
+        ///
+        /// Worth having because email_verified is what an admin rule turns on,
+        /// and a password account arrives unverified: without this the only way
+        /// to become verified is to abandon the account and sign in with a
+        /// provider that vouches for the address.
+        /// </summary>
+        public async Task VerifyEmailAsync(CancellationToken cancel = default)
+        {
+            string token = await SignInAsync(cancel).ConfigureAwait(false);
+
+            using var request = new HttpRequestMessage(HttpMethod.Post,
+                $"{Identity}/accounts:sendOobCode?key={Uri.EscapeDataString(_apiKey)}")
+            {
+                Content = Body(Json.Object()
+                    .Set("requestType", Json.Of("VERIFY_EMAIL"))
+                    .Set("idToken", Json.Of(token)))
+            };
+
+            await SendAsync(request, cancel).ConfigureAwait(false);
+        }
+
         public async Task ResetPasswordAsync(string email, CancellationToken cancel = default)
         {
             using var request = new HttpRequestMessage(HttpMethod.Post,
@@ -292,6 +315,8 @@ namespace MarkerOne.Core
             }
             _tokenExpires = DateTimeOffset.UtcNow.AddSeconds(seconds);
 
+            ReadClaims();
+
             if (string.IsNullOrEmpty(signed)) { signed = Remembered(Uid) ?? fallback; }
 
             Signed = signed;
@@ -316,6 +341,55 @@ namespace MarkerOne.Core
         /// <summary>Who is signed in, for showing. Null while anonymous.</summary>
         public string Signed { get; private set; }
 
+        /// <summary>
+        /// The email the token actually carries, and whether Firebase considers
+        /// it proven.
+        ///
+        /// Read out of the token rather than out of the sign-in response,
+        /// because this is precisely what a rule matching on email sees — and
+        /// an admin rule that will never fire is otherwise indistinguishable
+        /// from a broken button. Unverified means anyone could have claimed the
+        /// address, so no rule should trust it, and knowing that on screen is
+        /// the difference between a five-minute fix and an afternoon.
+        /// </summary>
+        public string Email { get; private set; }
+
+        public bool EmailVerified { get; private set; }
+
+        /// <summary>
+        /// A JWT's middle segment is base64url-encoded JSON and needs no key to
+        /// read — the signature is what needs the key, and verifying it is the
+        /// server's job, not ours. Nothing here is trusted; it is shown.
+        /// </summary>
+        private void ReadClaims()
+        {
+            Email = null;
+            EmailVerified = false;
+
+            try
+            {
+                string[] parts = _idToken?.Split('.');
+                if (parts == null || parts.Length < 2) { return; }
+
+                string payload = parts[1].Replace('-', '+').Replace('_', '/');
+                switch (payload.Length % 4)
+                {
+                    case 2: payload += "=="; break;
+                    case 3: payload += "="; break;
+                }
+
+                Json claims = Json.Parse(Encoding.UTF8.GetString(Convert.FromBase64String(payload)));
+
+                Email = claims["email"].AsString;
+                EmailVerified = claims["email_verified"].AsBool;
+            }
+            catch
+            {
+                // A token this cannot read is still a token that works. This is
+                // for showing, so failing to show it is not worth an error.
+            }
+        }
+
         /// <summary>Forget the identity entirely — the token, the uid and
         /// whatever was persisted — so the next call signs in afresh.</summary>
         public void SignOut()
@@ -323,6 +397,8 @@ namespace MarkerOne.Core
             _idToken = null;
             Uid = null;
             Signed = null;
+            Email = null;
+            EmailVerified = false;
             _tokenExpires = DateTimeOffset.MinValue;
             WriteRefreshToken?.Invoke("");
             WriteAccount?.Invoke("");
@@ -352,6 +428,8 @@ namespace MarkerOne.Core
 
                 _idToken = token;
                 Uid = uid;
+
+                ReadClaims();
 
                 // Anonymous devices have nothing saved, so this leaves them
                 // anonymous, which is right.
@@ -639,9 +717,13 @@ namespace MarkerOne.Core
                     }
                     catch { /* the body was not JSON; the status will do */ }
 
+                    // Status first, then the document, then the reason. The
+                    // readout truncates a long line, and the full REST path is
+                    // 90 characters of boilerplate that would push the status
+                    // and the reason off the end of it — which is exactly what
+                    // "could not remove … — DELETE /v1/projects/…" was.
                     var failed = new HttpRequestException(
-                        $"{method} {uri?.AbsolutePath} failed: " +
-                        $"{(int)response.StatusCode} {detail}");
+                        $"{(int)response.StatusCode} on {method} {Tail(uri)}: {detail}");
 
                     int status = (int)response.StatusCode;
                     if (status < 500 && status != 429) { throw failed; }
@@ -651,6 +733,20 @@ namespace MarkerOne.Core
             }
 
             throw last ?? new HttpRequestException($"{method} {uri?.AbsolutePath} failed");
+        }
+
+        /// <summary>The last two segments of a REST path — the collection and
+        /// the document — which is the whole of what a person reading an error
+        /// needs from it.</summary>
+        private static string Tail(Uri uri)
+        {
+            string path = uri?.AbsolutePath;
+            if (string.IsNullOrEmpty(path)) { return "?"; }
+
+            string[] parts = path.Split('/');
+            return parts.Length < 2
+                ? path
+                : parts[parts.Length - 2] + "/" + parts[parts.Length - 1];
         }
 
         private static StringContent Body(Json value) =>

@@ -253,8 +253,20 @@ namespace MarkerOne.Unity
 
             if (!string.IsNullOrEmpty(_rig.Uid))
             {
+                // The claim, and whether it is proven. An admin rule matches
+                // on the verified email, so "listed but unverified" is the
+                // difference between a button that works and one that is
+                // refused every time — and it is invisible anywhere else.
+                string account = " (device)";
+                if (!string.IsNullOrEmpty(_rig.Signed))
+                {
+                    account = string.IsNullOrEmpty(_rig.Email)
+                        ? " (account)"
+                        : " (" + _rig.Email + (_rig.EmailVerified ? " ✓)" : " UNVERIFIED)");
+                }
+
                 _text.Append("Uid    ").Append(_rig.Uid)
-                     .Append(string.IsNullOrEmpty(_rig.Signed) ? " (device)" : " (account)")
+                     .Append(account)
                      .Append('\n');
             }
 

@@ -121,6 +121,17 @@ namespace MarkerOne.Unity
             return await SignedInAs(store => store.SignInWithPasswordAsync(email, password));
         }
 
+        /// <summary>The email the token carries, and whether Firebase counts it
+        /// as proven — which is what an admin rule is matching on.</summary>
+        public string Email => (_store as FirestorePlacementStore)?.Email;
+
+        public bool EmailVerified => (_store as FirestorePlacementStore)?.EmailVerified ?? false;
+
+        public async Task VerifyEmailAsync()
+        {
+            if (_store is FirestorePlacementStore store) { await store.VerifyEmailAsync(); }
+        }
+
         public async Task ResetPasswordAsync(string email)
         {
             if (_store is FirestorePlacementStore store) { await store.ResetPasswordAsync(email); }

@@ -82,15 +82,24 @@ service cloud.firestore {
    * the link, so an admin listed here who registered with a password and never
    * confirmed it will be refused — correctly.
    *
-   * An empty list matches nobody, which is the right default: this erases a
-   * shared world.
+   * Which is why there is a uid branch as well. A uid is unforgeable and needs
+   * no verification, so it is the one that always works — at the cost of having
+   * to be read off the device and pasted in, and of going stale if its owner
+   * ever registers again. Use the email list; keep the uid as the way back in
+   * when the email list is the thing that is wrong.
+   *
+   * Empty lists match nobody, which is the right default: this erases a shared
+   * world.
    */
   function isAdmin() {
-    return request.auth.token.get('email_verified', false) == true
-           && request.auth.token.get('email', '') in [
-                'liorshur@gmail.com',
-                'lior.shur@gmail.com'
-              ];
+    return request.auth.uid in [
+             'xleQV9Ac88YQQSomu7E2AoPjryF2'
+           ]
+           || (request.auth.token.get('email_verified', false) == true
+               && request.auth.token.get('email', '') in [
+                    'liorshur@gmail.com',
+                    'lior.shur@gmail.com'
+                  ]);
   }
 
   function isWellFormed(data) {

@@ -120,23 +120,71 @@ namespace MarkerOne.Unity
             Vector3 look = _camera.transform.forward;
 
             string best = null;
-            float bestAngle = SelectWithinDeg;
+            float bestMiss = SelectWithinDeg;
 
             foreach (KeyValuePair<string, GameObject> entry in _rig.Objects)
             {
                 if (entry.Value == null || !entry.Value.activeSelf) { continue; }
 
-                Vector3 to = entry.Value.transform.position - eye;
-                if (to.sqrMagnitude < 0.01f) { continue; }
+                if (!Middle(entry.Value, out Vector3 middle, out float radius)) { continue; }
 
-                float angle = Vector3.Angle(look, to);
-                if (angle >= bestAngle) { continue; }
+                Vector3 to = middle - eye;
+                float away = to.magnitude;
+                if (away < 0.05f) { continue; }
 
-                bestAngle = angle;
+                // How far outside the thing the crosshair is, rather than how
+                // far from a point on it. A pivot sits at the base, so aiming
+                // at the middle of a cube two metres away missed its pivot by
+                // twenty degrees and selected nothing — the object filled the
+                // screen and the bar said "mid-air".
+                float half = Mathf.Atan2(radius, away) * Mathf.Rad2Deg;
+                float miss = Vector3.Angle(look, to) - half;
+
+                if (miss >= bestMiss) { continue; }
+
+                bestMiss = miss;
                 best = entry.Key;
             }
 
             _selected = best;
+        }
+
+        /// <summary>
+        /// Where a placement actually is and how big it looks, from its
+        /// renderers rather than from its transform.
+        ///
+        /// False for something with nothing drawn in it, which is not aimable
+        /// at by definition.
+        /// </summary>
+        private static bool Middle(GameObject go, out Vector3 middle, out float radius)
+        {
+            middle = go.transform.position;
+            radius = 0;
+
+            // The contact shadow is a renderer too, and it is a flat ellipse
+            // wider than the thing casting it — counting it would pull the
+            // middle down to the ground and make the object selectable from
+            // well off to either side of it.
+            var bounds = new Bounds();
+            bool any = false;
+
+            foreach (Renderer part in go.GetComponentsInChildren<Renderer>())
+            {
+                if (part.gameObject.name == "shadow") { continue; }
+
+                if (!any) { bounds = part.bounds; any = true; }
+                else { bounds.Encapsulate(part.bounds); }
+            }
+
+            if (!any) { return false; }
+
+            middle = bounds.center;
+
+            // The largest extent rather than the diagonal: a wide flat plaque
+            // should be selectable across its width without also being
+            // selectable from well above it.
+            radius = Mathf.Max(bounds.extents.x, Mathf.Max(bounds.extents.y, bounds.extents.z));
+            return true;
         }
 
         /// <summary>Where the crosshair is pointing, in world space — which is
