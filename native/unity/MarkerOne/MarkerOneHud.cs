@@ -209,6 +209,7 @@ namespace MarkerOne.Unity
         {
             _text.Length = 0;
 
+            _text.Append("Build  ").Append(Build.Stamp).Append('\n');
             _text.Append("AR     ").Append(ARSession.state).Append('\n');
 
             // What the phone thinks it has. Everything here needs the network —
@@ -261,7 +262,7 @@ namespace MarkerOne.Unity
                 if (!string.IsNullOrEmpty(_rig.Signed))
                 {
                     account = string.IsNullOrEmpty(_rig.Email)
-                        ? " (account)"
+                        ? " (account, no email in the token)"
                         : " (" + _rig.Email + (_rig.EmailVerified ? " ✓)" : " UNVERIFIED)");
                 }
 
