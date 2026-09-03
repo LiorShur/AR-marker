@@ -52,6 +52,9 @@ namespace MarkerOne.Unity
         /// <summary>What the crosshair is nearest to, and whether we are in the
         /// middle of moving it.</summary>
         private string _selected;
+
+        /// <summary>What the next piece is being put on, while building.</summary>
+        private string _building;
         private bool _adjusting;
 
         [Tooltip("How far off the crosshair a placement can be and still count "
@@ -114,7 +117,7 @@ namespace MarkerOne.Unity
         /// </summary>
         private void Select()
         {
-            if (_adjusting || _rig == null || _camera == null) { return; }
+            if (_adjusting || _building != null || _rig == null || _camera == null) { return; }
 
             Vector3 eye = _camera.transform.position;
             Vector3 look = _camera.transform.forward;
@@ -389,7 +392,39 @@ namespace MarkerOne.Unity
                 }
 
                 row.x += w + pad;
+
+                // Building rather than placing. A piece put on something keeps
+                // its position relative to that thing for good, which is the
+                // only way a structure survives: two things anchored separately
+                // are corrected separately and come apart.
+                if (GUI.Button(row, "Build on", _button))
+                {
+                    _building = _selected;
+                    Say("aim where the next piece goes");
+                }
+
+                row.x += w + pad;
                 Remove(row, w, pad);
+                return;
+            }
+
+            // Mid-build. The bar is about the piece being added, not about
+            // anything else that could be done meanwhile.
+            if (_building != null)
+            {
+                if (GUI.Button(row, "Cancel", _button)) { _building = null; }
+
+                row.x += w + pad;
+                if (GUI.Button(row, SceneId() ?? "—", _button)) { _scene++; }
+
+                row.x += w + pad;
+                row.width = w * 2 + pad;
+                if (GUI.Button(row, "Put it here", _button))
+                {
+                    _rig.Attach(_building, SceneId(), _target, _label);
+                    _building = null;
+                }
+
                 return;
             }
 
@@ -446,6 +481,10 @@ namespace MarkerOne.Unity
             else if (_adjusting)
             {
                 status = "aim at where it really belongs, then Put it here";
+            }
+            else if (_building != null)
+            {
+                status = "part of " + Describe(_building);
             }
             else if (_selected != null)
             {
@@ -535,7 +574,7 @@ namespace MarkerOne.Unity
 
             var said = new System.Text.StringBuilder();
 
-            said.Append(_rig.IsSeed(id) ? "⌖ " : "◆ ");
+            said.Append(_rig.IsAttached(id) ? "⛓ " : _rig.IsSeed(id) ? "⌖ " : "◆ ");
             said.Append(string.IsNullOrEmpty(item.Label) ? item.Scene : item.Label);
 
             if (!string.IsNullOrEmpty(item.Author))
@@ -577,7 +616,7 @@ namespace MarkerOne.Unity
             float cx = Screen.width * 0.5f;
             float cy = Screen.height * 0.5f;
 
-            GUI.color = _adjusting || _selected != null
+            GUI.color = _adjusting || _building != null || _selected != null
                 ? new Color(1f, 0.85f, 0.3f, 0.95f)
                 : _onSurface ? new Color(0.4f, 1f, 0.55f, 0.95f)
                              : new Color(1f, 1f, 1f, 0.6f);

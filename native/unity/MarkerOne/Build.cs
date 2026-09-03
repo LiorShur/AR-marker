@@ -13,6 +13,6 @@ namespace MarkerOne.Unity
     /// </summary>
     public static class Build
     {
-        public const string Stamp = "b2 · verify from the chip";
+        public const string Stamp = "b3 · build on";
     }
 }

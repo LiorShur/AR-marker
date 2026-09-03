@@ -47,6 +47,15 @@ namespace MarkerOne.Core
         /// was worth — which is the one case where a stranger walking past is
         /// better informed than the record.</summary>
         public string Provider;
+
+        /// <summary>What this hangs off, or null. Carried through untouched:
+        /// resolving it needs the other placements, which is the renderer's
+        /// business rather than this one's.</summary>
+        public string Parent;
+
+        /// <summary>Where it sits in the parent's frame, or null. Right, up and
+        /// forward in metres, and how it is turned.</summary>
+        public Attachment Offset;
     }
 
     /// <summary>
@@ -346,7 +355,9 @@ namespace MarkerOne.Core
                     Position = p.Position,
                     HeadingDeg = headingDeg,
                     GroundOffset = p.GroundOffset,
-                    Provider = p.Fix?.Provider
+                    Provider = p.Fix?.Provider,
+                    Parent = p.Parent,
+                    Offset = p.Offset
                 };
             }).ToList();
 
@@ -375,7 +386,7 @@ namespace MarkerOne.Core
             CancellationToken cancel = default)
         {
             return await WriteAsync(scene, position, headingDeg, localPoint, label,
-                                    fromFrame: false, cancel).ConfigureAwait(false);
+                                    fromFrame: false, null, null, cancel).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -432,12 +443,32 @@ namespace MarkerOne.Core
 
             return await WriteAsync(scene, Frame.ToGlobal(localPoint),
                                     Frame.LocalYawToHeading(localYawRad), localPoint, label,
-                                    fromFrame: true, cancel).ConfigureAwait(false);
+                                    fromFrame: true, null, null, cancel).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Place as a piece of something larger.
+        ///
+        /// The coordinates are still worked out and still written, because a
+        /// child needs a geohash to be found by and somewhere to stand when its
+        /// parent is missing. They are a cache; the offset is the truth.
+        /// </summary>
+        public async Task<Placement> AttachAsync(string scene, Vec3 localPoint, double localYawRad,
+            string parent, Attachment offset, string label = "",
+            CancellationToken cancel = default)
+        {
+            if (Frame == null) { throw new InvalidOperationException("not localized yet"); }
+            if (string.IsNullOrEmpty(parent)) { throw new ArgumentException("no parent"); }
+            if (offset == null) { throw new ArgumentNullException(nameof(offset)); }
+
+            return await WriteAsync(scene, Frame.ToGlobal(localPoint),
+                                    Frame.LocalYawToHeading(localYawRad), localPoint, label,
+                                    fromFrame: true, parent, offset, cancel).ConfigureAwait(false);
         }
 
         private async Task<Placement> WriteAsync(string scene, GeoPoint position,
             double headingDeg, Vec3 localPoint, string label, bool fromFrame,
-            CancellationToken cancel)
+            string parent, Attachment offset, CancellationToken cancel)
         {
             if (Frame == null) { throw new InvalidOperationException("not localized yet"); }
 
@@ -450,6 +481,8 @@ namespace MarkerOne.Core
                 Label = label ?? "",
                 Author = Author ?? "",
                 Scale = 1,
+                Parent = parent,
+                Offset = offset,
                 Fix = new FixQuality
                 {
                     Provider = Frame.Fix.Provider,
@@ -476,7 +509,10 @@ namespace MarkerOne.Core
             // Keep the local point. When the frame improves this is what lets
             // the saved coordinates improve with it rather than keeping the
             // error they were written with.
-            if (fromFrame)
+            // A child's coordinates are a cache, and reprojecting the cache as
+            // the frame improves would rewrite a document whose position is not
+            // what places it. The offset already survives every frame change.
+            if (fromFrame && parent == null)
             {
                 _mine.Add((saved.Id, localPoint, Frame.HeadingToLocalYaw(headingDeg), position));
             }

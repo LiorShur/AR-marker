@@ -918,6 +918,96 @@ namespace MarkerOne.Unity
         }
 
         /// <summary>
+        /// Place as a piece of something already there.
+        ///
+        /// The offset is measured in the parent's own frame, from the parent's
+        /// transform — so whatever ARCore later decides about where the parent
+        /// really is, the piece moves with it and the structure keeps its
+        /// shape. Coordinates are still written, because a child still needs a
+        /// geohash to be found by and somewhere to stand if its parent is ever
+        /// missing, but they are a cache and the offset is the truth.
+        /// </summary>
+        public async void Attach(string parent, string scene, Vector3 localPoint,
+            string label = "")
+        {
+            if (!CanPlace)
+            {
+                Placed?.Invoke(false, "not located yet");
+                return;
+            }
+
+            if (!_spawned.TryGetValue(parent, out GameObject onto) || onto == null)
+            {
+                Placed?.Invoke(false, "nothing to attach to");
+                return;
+            }
+
+            // Depth is capped when drawing, so it is capped when writing too —
+            // a structure that cannot be drawn is not worth storing.
+            if (Depth(parent) >= 7)
+            {
+                Placed?.Invoke(false, "that is as deep as a structure goes");
+                return;
+            }
+
+            double yaw = 0;
+            if (SessionCamera != null)
+            {
+                Vector3 forward = SessionCamera.transform.forward;
+                yaw = Mathf.Atan2(-forward.x, -forward.z);
+            }
+
+            var rotation = Quaternion.Euler(0, (float)(yaw * Mathf.Rad2Deg), 0);
+
+            // Into the parent's frame, which is the whole point.
+            Vector3 into = onto.transform.InverseTransformPoint(
+                PlacementRoot != null ? PlacementRoot.TransformPoint(localPoint) : localPoint);
+            Quaternion turn = Quaternion.Inverse(onto.transform.rotation) * rotation;
+
+            var offset = new Attachment
+            {
+                X = into.x,
+                Y = into.y,
+                Z = into.z,
+                Rotation = new Quat(turn.x, turn.y, turn.z, turn.w)
+            };
+
+            try
+            {
+                await Session.AttachAsync(scene, new Vec3(localPoint.x, localPoint.y, localPoint.z),
+                                          yaw, parent, offset, label);
+                Placed?.Invoke(true, scene);
+            }
+            catch (Exception e)
+            {
+                Debug.LogError("MarkerOne: could not attach — " + e.Message);
+                Placed?.Invoke(false, e.Message);
+            }
+        }
+
+        /// <summary>How many things this hangs off, following the chain up.
+        /// Capped so a loop written by hand cannot spin here.</summary>
+        private int Depth(string id)
+        {
+            int deep = 0;
+            string at = id;
+
+            while (deep < 16)
+            {
+                PlacedItem item = Info(at);
+                if (item == null || string.IsNullOrEmpty(item.Parent)) { break; }
+
+                at = item.Parent;
+                deep++;
+            }
+
+            return deep;
+        }
+
+        /// <summary>Whether this is a piece of something larger.</summary>
+        public bool IsAttached(string id) => !string.IsNullOrEmpty(Info(id)?.Parent);
+
+        /// <summary>
         /// Delete everything this session can see.
         ///
         /// Every reading is confounded until this exists. The placements
@@ -1147,12 +1237,104 @@ namespace MarkerOne.Unity
             catch (Exception e) { Debug.LogWarning("MarkerOne: could not remove — " + e.Message); }
         }
 
+        /// <summary>
+        /// Hang the pieces on the things they belong to.
+        ///
+        /// Repeated rather than done once, because a piece may hang off another
+        /// piece: whatever could not be placed this round because its parent
+        /// had not been placed yet may well be placeable the next. Capped,
+        /// because rules cannot check for a cycle — they see one document at a
+        /// time — so a chain that loops has to stop somewhere, and stopping
+        /// costs its author a structure that never draws rather than costing
+        /// everybody a hang.
+        /// </summary>
+        private void Attach(List<PlacedItem> attached)
+        {
+            const int Deepest = 8;
+
+            var placed = new HashSet<string>();
+
+            for (int round = 0; round < Deepest && placed.Count < attached.Count; round++)
+            {
+                bool moved = false;
+
+                foreach (PlacedItem item in attached)
+                {
+                    if (placed.Contains(item.Id)) { continue; }
+
+                    if (!_spawned.TryGetValue(item.Id, out GameObject go) || go == null)
+                    {
+                        placed.Add(item.Id);
+                        continue;
+                    }
+
+                    // Its parent has to be somewhere before this can be
+                    // anywhere. Not yet drawn is not the same as absent, which
+                    // is why this comes round again.
+                    if (!_spawned.TryGetValue(item.Parent, out GameObject onto) ||
+                        onto == null || !onto.activeSelf)
+                    {
+                        continue;
+                    }
+
+                    // Only once the parent itself is settled, or the offset
+                    // gets measured from a position about to change.
+                    if (!string.IsNullOrEmpty(Info(item.Parent)?.Parent) &&
+                        !placed.Contains(item.Parent))
+                    {
+                        continue;
+                    }
+
+                    if (go.transform.parent != onto.transform)
+                    {
+                        go.transform.SetParent(onto.transform, false);
+                    }
+
+                    go.transform.localPosition = new Vector3(
+                        (float)item.Offset.X, (float)item.Offset.Y, (float)item.Offset.Z);
+                    go.transform.localRotation = new Quaternion(
+                        (float)item.Offset.Rotation.X, (float)item.Offset.Rotation.Y,
+                        (float)item.Offset.Rotation.Z, (float)item.Offset.Rotation.W);
+
+                    if (!go.activeSelf) { go.SetActive(true); }
+
+                    placed.Add(item.Id);
+                    moved = true;
+                }
+
+                if (!moved) { break; }
+            }
+
+            // Whatever is left has no parent to hang on — deleted, out of
+            // range, or still waiting for a fix. The stored coordinates are a
+            // cache kept for exactly this, and roughly right in the right place
+            // beats correct nowhere.
+            foreach (PlacedItem item in attached)
+            {
+                if (placed.Contains(item.Id)) { continue; }
+                if (!_spawned.TryGetValue(item.Id, out GameObject go) || go == null) { continue; }
+
+                if (go.transform.parent != PlacementRoot)
+                {
+                    go.transform.SetParent(PlacementRoot, false);
+                }
+
+                go.transform.localPosition = new Vector3(
+                    (float)item.Local.X, (float)item.Local.Y, (float)item.Local.Z);
+                go.transform.localRotation =
+                    Quaternion.Euler(0, (float)(item.YawRad * Mathf.Rad2Deg), 0);
+
+                if (!go.activeSelf) { go.SetActive(true); }
+            }
+        }
+
         /// <summary>Diffed rather than rebuilt. Re-creating these every refresh
         /// would drop and reload every model, which is both slow and
         /// visible.</summary>
         private void Render(IReadOnlyList<PlacedItem> items)
         {
             var seen = new HashSet<string>();
+            var attached = new List<PlacedItem>();
 
 
             foreach (PlacedItem item in items)
@@ -1197,6 +1379,18 @@ namespace MarkerOne.Unity
                 _groundY[item.Id] = (float)item.Local.Y;
                 _provider[item.Id] = item.Provider;
                 _info[item.Id] = item;
+
+                // A piece of something larger is positioned by that larger
+                // thing and never by itself. An anchor of its own is exactly
+                // what has to be avoided: two anchors are corrected separately
+                // and drift apart, which is a stack of bricks coming to pieces
+                // while you watch.
+                if (!string.IsNullOrEmpty(item.Parent) && item.Offset != null)
+                {
+                    attached.Add(item);
+                    Anchors?.Release(item.Id);
+                    continue;
+                }
 
                 // ARCore first, every refresh.
                 if (Reposition(item.Id, go)) { continue; }
@@ -1247,6 +1441,8 @@ namespace MarkerOne.Unity
                     go.transform.localScale = Vector3.one * (float)item.Scale;
                 }
             }
+
+            Attach(attached);
 
             var gone = new List<string>();
             foreach (KeyValuePair<string, GameObject> entry in _spawned)

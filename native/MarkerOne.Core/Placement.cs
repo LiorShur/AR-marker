@@ -15,6 +15,31 @@ namespace MarkerOne.Core
         public double HeadingDeg;
     }
 
+    /// <summary>Where something sits in its parent's frame: metres right, up
+    /// and forward of the parent, and how it is turned relative to it.</summary>
+    public sealed class Attachment
+    {
+        public double X;
+        public double Y;
+        public double Z;
+        public Quat Rotation = Quat.Identity;
+    }
+
+    /// <summary>
+    /// One thing left somewhere, and possibly a piece of something larger.
+    ///
+    /// Position means two things depending on Parent. For a root it is where
+    /// the thing is, full stop. For a child it is a cache — where the thing was
+    /// last computed to be — kept only so the child can still be indexed by
+    /// geohash, still be found by a nearby query, and still be drawn roughly
+    /// right when its parent is missing, deleted or not yet located. Whenever
+    /// the parent is there, Offset wins and the cache is ignored.
+    ///
+    /// That the cache goes stale is deliberate. Moving somebody else's baseplate
+    /// would otherwise mean writing to their children's documents, which the
+    /// rules refuse and should refuse; a stale fallback that is never consulted
+    /// costs nothing.
+    /// </summary>
     public sealed class Placement
     {
         public string Id;
@@ -53,6 +78,27 @@ namespace MarkerOne.Core
         public string Visibility = "public";
         public FixQuality Fix = new FixQuality();
 
+        /// <summary>
+        /// What this hangs off, or null for something standing on its own.
+        ///
+        /// The reason anything can be built out of more than one piece. Two
+        /// placements anchored separately are corrected separately, and drift
+        /// apart by tens of centimetres — enough that a stack of bricks comes
+        /// apart and a doorway stops lining up with its wall. A structure has
+        /// to be one anchored thing with everything else measured from it.
+        /// </summary>
+        public string Parent;
+
+        /// <summary>
+        /// Where this sits in the parent's frame. Null for a root.
+        ///
+        /// This is the truth for anything with a parent; Position is kept
+        /// beside it as a fallback rather than as a fact — see above.
+        /// </summary>
+        public Attachment Offset;
+
+        public bool IsChild => !string.IsNullOrEmpty(Parent) && Offset != null;
+
         /// <summary>Filled in by the query, not stored.</summary>
         public double DistanceM;
 
@@ -69,6 +115,27 @@ namespace MarkerOne.Core
             if (Scene != null && Scene.Length > 64) { bad.Add("scene name too long"); }
             if (double.IsNaN(Scale) || Scale <= 0 || Scale > 1000) { bad.Add("scale"); }
             if (Author != null && Author.Length > 40) { bad.Add("author too long"); }
+            if (Parent != null && Parent.Length > 64) { bad.Add("parent id too long"); }
+            if (Parent == Id && Id != null) { bad.Add("cannot hang off itself"); }
+
+            if (Offset != null)
+            {
+                // A hundred metres from the thing it is attached to is not an
+                // offset, it is a mistake with a parent field on it.
+                if (double.IsNaN(Offset.X) || Math.Abs(Offset.X) > 100) { bad.Add("offset x"); }
+                if (double.IsNaN(Offset.Y) || Math.Abs(Offset.Y) > 100) { bad.Add("offset y"); }
+                if (double.IsNaN(Offset.Z) || Math.Abs(Offset.Z) > 100) { bad.Add("offset z"); }
+
+                double local = Math.Sqrt(
+                    Offset.Rotation.X * Offset.Rotation.X + Offset.Rotation.Y * Offset.Rotation.Y +
+                    Offset.Rotation.Z * Offset.Rotation.Z + Offset.Rotation.W * Offset.Rotation.W);
+                if (double.IsNaN(local) || Math.Abs(local - 1) > 0.01)
+                {
+                    bad.Add("offset rotation is not a unit");
+                }
+
+                if (string.IsNullOrEmpty(Parent)) { bad.Add("an offset needs a parent"); }
+            }
             if (Math.Abs(GroundOffset) > 100) { bad.Add("ground offset"); }
 
             double length = Math.Sqrt(

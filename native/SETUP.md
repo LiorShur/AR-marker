@@ -489,6 +489,33 @@ screen with the distance beside it, on-screen ones just the distance, and each
 arrow takes the colour of the thing it points at — "the orange one is behind
 me" is a thought you can have, where "one of the four is behind me" is not.
 
+### Building out of more than one piece
+
+Aim at something and the bar offers **Build on**. Aim at where the next piece
+goes, press **Put it here**, and it is stored as an offset from the first rather
+than as a place of its own.
+
+That distinction is the whole feature. Two things anchored separately are
+corrected separately by ARCore and drift apart by tens of centimetres — enough
+that a stack of bricks comes to pieces and a doorway stops lining up with its
+wall. A structure has to be one anchored thing with everything else measured
+from it, so that is what a piece is: `parent` and an offset in the parent's own
+frame. Move the base and the whole thing moves, keeping its shape.
+
+A piece still stores coordinates, so it can still be found by the same geohash
+query as everything else, and so it can still be drawn roughly right if its
+parent is ever missing — deleted, out of range, or not yet located. Those
+coordinates are a cache and the offset is the truth; whenever the parent is
+there, the cache is ignored. It also goes stale when somebody moves a parent,
+which is deliberate: keeping it fresh would mean writing to other people's
+documents, the rules refuse that and should, and a fallback that is never
+consulted costs nothing by being wrong.
+
+Pieces can hang off pieces, to a depth of eight. Rules see one document at a
+time and cannot check for a cycle, so the depth cap is what stops a chain that
+loops — at the cost of a structure that never draws rather than an app that
+hangs.
+
 ### How it looks
 
 Four things, all added by *Set up scene* and none of them needing content that

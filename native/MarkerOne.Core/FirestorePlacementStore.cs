@@ -777,6 +777,22 @@ namespace MarkerOne.Core
                 .Set("createdAt", Wrap(p.CreatedAt))
                 .Set("fix", Map(fix));
 
+            // Written only when there is one, so a root stays exactly the
+            // document it was before any of this existed.
+            if (p.IsChild)
+            {
+                fields.Set("parent", Wrap(p.Parent))
+                      .Set("local", Map(Json.Object()
+                          .Set("x", Wrap(p.Offset.X))
+                          .Set("y", Wrap(p.Offset.Y))
+                          .Set("z", Wrap(p.Offset.Z))
+                          .Set("rotation", Map(Json.Object()
+                              .Set("x", Wrap(p.Offset.Rotation.X))
+                              .Set("y", Wrap(p.Offset.Rotation.Y))
+                              .Set("z", Wrap(p.Offset.Rotation.Z))
+                              .Set("w", Wrap(p.Offset.Rotation.W))))));
+            }
+
             return Json.Object().Set("fields", fields);
         }
 
@@ -832,6 +848,22 @@ namespace MarkerOne.Core
 
             Json q = Inner(pose, "quaternion");
             p.Orientation = new Quat(Num(q, "x", 0), Num(q, "y", 0), Num(q, "z", 0), Num(q, "w", 1));
+
+            p.Parent = Str(fields, "parent");
+            if (!string.IsNullOrEmpty(p.Parent) && fields.Has("local"))
+            {
+                Json local = Inner(fields, "local");
+                Json turn = Inner(local, "rotation");
+
+                p.Offset = new Attachment
+                {
+                    X = Num(local, "x", 0),
+                    Y = Num(local, "y", 0),
+                    Z = Num(local, "z", 0),
+                    Rotation = new Quat(Num(turn, "x", 0), Num(turn, "y", 0),
+                                        Num(turn, "z", 0), Num(turn, "w", 1))
+                };
+            }
 
             Json fix = Inner(fields, "fix");
             p.Fix = new FixQuality
