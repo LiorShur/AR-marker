@@ -64,6 +64,23 @@ panel refuses it rather than silently doing it.
 Open the app, type the venue name once — it is remembered across launches — and
 point the camera at any marker. That is the whole of it.
 
+## When nothing is detected
+
+The panel says which of these it is rather than leaving it to guesswork — a
+scene with no tracked-image manager, a manager with no library, and a camera
+pointed at a blank wall all behave identically otherwise.
+
+If it says the library is missing, the order matters: **Make venue markers**
+first, then **Set up scene**, because setup hands the library to the manager and
+cannot hand over one that does not exist yet.
+
+If a marker flickers into view and vanishes, that is ARKit detecting an image
+and then not following it. It is fixed in the app now — image tracking has to be
+asked for explicitly, and the default is detect-once — but the same symptom can
+come from a marker that is too small in frame, too glossy, or lit so unevenly
+that half of it is blown out. Fill more of the frame and try again before
+suspecting anything else.
+
 ## Fixing the markers up
 
 Screwed, taped flat, or framed. **If the marker moves, the venue moves**, and

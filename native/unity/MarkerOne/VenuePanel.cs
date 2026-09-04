@@ -159,6 +159,12 @@ namespace MarkerOne.Unity
                      + "an existing one joins it.";
             }
 
+            // Before anything about this venue, whether the camera is able to
+            // see a marker at all. A venue with no markers and a phone that
+            // could not recognise one if it saw it read identically.
+            string blind = _venue.Blind;
+            if (blind != null) { return blind; }
+
             if (!string.IsNullOrEmpty(_venue.Trouble)) { return _venue.Trouble; }
 
             if (_venue.PinnedTo == null)

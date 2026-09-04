@@ -58,6 +58,30 @@ namespace MarkerOne.Unity
 
         public string Trouble { get; private set; }
 
+        /// <summary>
+        /// Why no marker is being seen, or null if that is not the problem.
+        ///
+        /// Both of these fail silently otherwise: a scene with no tracked-image
+        /// manager and a manager with no library behave identically to a camera
+        /// pointed at a blank wall, and "nothing happens" is the least
+        /// debuggable symptom there is.
+        /// </summary>
+        public string Blind
+        {
+            get
+            {
+                if (_images == null) { return "no AR Tracked Image Manager — run Set up scene"; }
+
+                if (_images.referenceLibrary == null || _images.referenceLibrary.count == 0)
+                {
+                    return "no marker library — run MarkerOne → Make venue markers, "
+                         + "then Set up scene";
+                }
+
+                return null;
+            }
+        }
+
         private MarkerOneRig _rig;
         private ARTrackedImageManager _images;
 
@@ -78,7 +102,19 @@ namespace MarkerOne.Unity
         private void Update()
         {
             if (_rig == null) { _rig = FindFirstObjectByType<MarkerOneRig>(); }
-            if (_images == null) { _images = FindFirstObjectByType<ARTrackedImageManager>(); }
+
+            if (_images == null)
+            {
+                _images = FindFirstObjectByType<ARTrackedImageManager>();
+
+                // Without this ARKit detects an image once and then stops
+                // following it: the trackable is reported, drops out of
+                // Tracking within a frame or two, and a marker held steady in
+                // front of the camera flickers into view and vanishes. The
+                // default is zero, which means "detect, do not track", and
+                // detect-once is not what a marker pinning a room needs.
+                if (_images != null) { _images.requestedMaxNumberOfMovingImages = 4; }
+            }
 
             if (string.IsNullOrEmpty(Venue))
             {
@@ -110,10 +146,7 @@ namespace MarkerOne.Unity
 
             foreach (ARTrackedImage image in _images.trackables)
             {
-                if (image == null || image.trackingState != UnityEngine.XR.ARSubsystems.TrackingState.Tracking)
-                {
-                    continue;
-                }
+                if (!Usable(image)) { continue; }
 
                 string name = image.referenceImage.name;
                 if (!_markers.ContainsKey(name)) { continue; }
@@ -376,6 +409,19 @@ namespace MarkerOne.Unity
             Refresh();
         }
 
+        /// <summary>
+        /// Whether an image's pose can be believed.
+        ///
+        /// Limited counts. A marker screwed to a wall is not moving, so once
+        /// ARKit has found it there is often nothing left to refine and it
+        /// reports Limited rather than Tracking — the pose is still the one it
+        /// measured, and refusing it means refusing every marker that is doing
+        /// its job properly. Only None is useless.
+        /// </summary>
+        private static bool Usable(ARTrackedImage image) =>
+            image != null &&
+            image.trackingState != UnityEngine.XR.ARSubsystems.TrackingState.None;
+
         /// <summary>Whichever tracked image is this marker, or null.</summary>
         public ARTrackedImage Tracked(string marker)
         {
@@ -383,12 +429,7 @@ namespace MarkerOne.Unity
 
             foreach (ARTrackedImage image in _images.trackables)
             {
-                if (image != null &&
-                    image.trackingState == UnityEngine.XR.ARSubsystems.TrackingState.Tracking &&
-                    image.referenceImage.name == marker)
-                {
-                    return image;
-                }
+                if (Usable(image) && image.referenceImage.name == marker) { return image; }
             }
 
             return null;
@@ -402,11 +443,7 @@ namespace MarkerOne.Unity
 
             foreach (ARTrackedImage image in _images.trackables)
             {
-                if (image != null &&
-                    image.trackingState == UnityEngine.XR.ARSubsystems.TrackingState.Tracking)
-                {
-                    yield return image.referenceImage.name;
-                }
+                if (Usable(image)) { yield return image.referenceImage.name; }
             }
         }
 

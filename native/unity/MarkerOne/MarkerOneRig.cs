@@ -403,11 +403,28 @@ namespace MarkerOne.Unity
         {
             if (Anchors == null || go == null) { return false; }
 
+            // A piece of something is positioned by the thing it hangs off,
+            // and writing a world position over it every frame drags it back to
+            // its cached coordinates — which is the one number in a child that
+            // is explicitly not the truth. Left alone entirely.
+            if (IsAttached(id)) { return true; }
+
             // Anchored, so ARCore is positioning it and nothing here should.
             // Asked of the anchor rather than inferred from the hierarchy: a
             // placement can be detached from its anchor for several reasons and
             // reading the parent gets that wrong in both directions.
-            if (Anchors.Has(id)) { return true; }
+            if (Anchors.Has(id))
+            {
+                // Shown, which this used to forget. Something placed is hidden
+                // until ARCore can position it, and the anchor arriving is
+                // exactly the moment it can — but this returned before saying
+                // so, and the object stayed invisible until some later refresh
+                // happened to take the other branch. Which is why a placement
+                // appeared only when the next one was made.
+                if (!go.activeSelf) { go.SetActive(true); }
+                _waitingSince.Remove(id);
+                return true;
+            }
 
             if (!_onGlobe.TryGetValue(id, out var at)) { return false; }
 
@@ -628,8 +645,11 @@ namespace MarkerOne.Unity
                 // the altitude was poor came back sixteen metres in the air —
                 // horizontally right, and unreachable.
                 //
-                // Horizontally the anchor, vertically the floor, continuously.
+                // Horizontally the anchor, vertically the floor, continuously —
+                // but never for a piece of a structure, whose height is the
+                // whole point of where it was put.
                 if (entry.Value.transform.parent != PlacementRoot &&
+                    !IsAttached(entry.Key) &&
                     _groundY.TryGetValue(entry.Key, out float ground))
                 {
                     Vector3 at = entry.Value.transform.position;
