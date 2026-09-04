@@ -16,11 +16,11 @@ namespace MarkerOne.Unity
     /// be tested without a device, so it is kept as thin as it can be: read a
     /// pose, hand it over, instantiate what comes back.
     /// </summary>
-    /// <summary>Which side of a thing a piece goes on.</summary>
-    public enum Face { Free, Top, Right, Left, Front, Behind }
-
     public sealed class MarkerOneRig : MonoBehaviour
     {
+        /// <summary>Which side of a thing a piece goes on.</summary>
+        public enum Face { Free, Top, Right, Left, Front, Behind }
+
         [Header("Firebase")]
         public string ProjectId = "";
         public string ApiKey = "";
