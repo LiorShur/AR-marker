@@ -56,7 +56,20 @@ namespace MarkerOne.Unity
         /// <summary>What the next piece is being put on, while building.</summary>
         private string _building;
 
+        /// <summary>What is actually being moved, which for a piece of
+        /// something is that something rather than the piece.</summary>
+        private string _moving;
+
         private VenueRig _venue;
+
+        /// <summary>Which face of the parent the next piece goes on, or Free to
+        /// put it where the crosshair is.</summary>
+        private MarkerOneRig.Face _face = MarkerOneRig.Face.Top;
+
+        /// <summary>Metres of daylight between the piece and the face. Cycled
+        /// rather than typed, because this is done standing up.</summary>
+        private static readonly float[] Gaps = { 0f, 0.1f, 0.2f, 0.3f };
+        private int _gap;
         private bool _adjusting;
 
         [Tooltip("How far off the crosshair a placement can be and still count "
@@ -239,6 +252,32 @@ namespace MarkerOne.Unity
             _range = FallbackDistanceM;
         }
 
+        /// <summary>How much daylight to leave, said in centimetres because
+        /// that is the unit anybody placing a block is thinking in.</summary>
+        private string Gap()
+        {
+            float gap = Gaps[_gap % Gaps.Length];
+            return gap <= 0 ? "flush" : "+" + (gap * 100).ToString("0") + "cm";
+        }
+
+        /// <summary>
+        /// Add the piece, either flush against a face or where the crosshair is.
+        /// </summary>
+        private void Piece()
+        {
+            string scene = SceneId();
+            if (string.IsNullOrEmpty(scene)) { Say("no scenes configured on the rig"); return; }
+
+            Attachment offset = _face == MarkerOneRig.Face.Free
+                ? _rig.OffsetFor(_building, _target, Quaternion.Euler(0, Facing(), 0))
+                : _rig.SnapTo(_building, scene, _face, Gaps[_gap % Gaps.Length]);
+
+            if (offset == null) { Say("could not work out where that goes"); return; }
+
+            _rig.AttachWith(_building, scene, offset, _label);
+            _building = null;
+        }
+
         /// <summary>
         /// Put it in the venue rather than on the Earth.
         ///
@@ -404,14 +443,15 @@ namespace MarkerOne.Unity
             // both and mean neither.
             if (_adjusting)
             {
-                if (GUI.Button(row, "Cancel", _button)) { _adjusting = false; }
+                if (GUI.Button(row, "Cancel", _button)) { _adjusting = false; _moving = null; }
 
                 row.x += w + pad;
                 row.width = w * 2 + pad;
                 if (GUI.Button(row, "Put it here", _button))
                 {
-                    _rig.Adjust(_selected, _target, Facing());
+                    _rig.Adjust(_moving ?? _selected, _target, Facing());
                     _adjusting = false;
+                    _moving = null;
                 }
 
                 return;
@@ -421,18 +461,37 @@ namespace MarkerOne.Unity
             // anything else that could be done meanwhile.
             if (_building != null)
             {
-                if (GUI.Button(row, "Cancel", _button)) { _building = null; }
+                // Five across rather than four: the face and the gap are the
+                // two things being chosen here and neither is worth hiding
+                // behind the other.
+                float span = w * 4 + pad * 3;
+                float cell = (span - pad * 4) / 5;
+                var at = new Rect(row.x, row.y, cell, row.height);
 
-                row.x += w + pad;
-                if (GUI.Button(row, SceneId() ?? "—", _button)) { _scene++; }
+                if (GUI.Button(at, "Cancel", _button)) { _building = null; }
 
-                row.x += w + pad;
-                row.width = w * 2 + pad;
-                if (GUI.Button(row, "Put it here", _button))
+                at.x += cell + pad;
+                if (GUI.Button(at, SceneId() ?? "—", _button)) { _scene++; }
+
+                // Where on the thing, rather than where in the air. Aiming is
+                // worth a centimetre at arm's length and much less at three
+                // metres, which is fine for leaving a marker in a park and
+                // useless for stacking blocks: a tower built by eye leans, and
+                // the lean accumulates with every piece.
+                at.x += cell + pad;
+                if (GUI.Button(at, _face.ToString(), _button))
                 {
-                    _rig.Attach(_building, SceneId(), _target, _label);
-                    _building = null;
+                    _face = (MarkerOneRig.Face)(((int)_face + 1) % 6);
                 }
+
+                at.x += cell + pad;
+                bool flush = _face != MarkerOneRig.Face.Free;
+
+                if (!flush) { GUI.Label(at, "—", _text); }
+                else if (GUI.Button(at, Gap(), _button)) { _gap = (_gap + 1) % Gaps.Length; }
+
+                at.x += cell + pad;
+                if (GUI.Button(at, "Put it here", _button)) { Piece(); }
 
                 return;
             }
@@ -442,10 +501,19 @@ namespace MarkerOne.Unity
             // top of the first, which is never what was meant.
             if (_selected != null)
             {
-                if (GUI.Button(row, _rig.IsSeed(_selected) ? "Correct" : "Move", _button))
+                bool part = _rig.IsAttached(_selected);
+
+                if (GUI.Button(row, part ? "Move all" : _rig.IsSeed(_selected) ? "Correct" : "Move",
+                               _button))
                 {
+                    // A piece has no anchor of its own, so moving one alone
+                    // would mean rewriting the offset that holds the shape
+                    // together. Moving the base moves the structure, which is
+                    // what "move that" nearly always means.
                     _adjusting = true;
-                    Say("aim at where it really belongs");
+                    _moving = part ? _rig.RootOf(_selected) : _selected;
+                    Say(part ? "moving the whole structure — aim at where it belongs"
+                             : "aim at where it really belongs");
                 }
 
                 row.x += w + pad;
@@ -474,8 +542,13 @@ namespace MarkerOne.Unity
             row.x += w + pad;
             _label = GUI.TextField(row, _label, 40, _text);
 
+            // Which world this goes into, said on the button that does it. A
+            // venue is remembered across launches, so somebody who set one up
+            // last week is in it today without anything having said so.
+            bool indoors = _venue != null && !string.IsNullOrEmpty(_venue.Venue);
+
             row.x += w + pad;
-            if (GUI.Button(row, "Place", _button))
+            if (GUI.Button(row, indoors ? "Place in " + _venue.Venue : "Place", _button))
             {
                 Place();
             }
@@ -522,7 +595,9 @@ namespace MarkerOne.Unity
             }
             else if (_building != null)
             {
-                status = "part of " + Describe(_building);
+                status = _face == MarkerOneRig.Face.Free
+                    ? "aim where it goes · part of " + Describe(_building)
+                    : _face + " of " + Describe(_building) + " · " + Gap();
             }
             else if (_selected != null)
             {

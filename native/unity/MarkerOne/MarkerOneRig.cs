@@ -16,6 +16,9 @@ namespace MarkerOne.Unity
     /// be tested without a device, so it is kept as thin as it can be: read a
     /// pose, hand it over, instantiate what comes back.
     /// </summary>
+    /// <summary>Which side of a thing a piece goes on.</summary>
+    public enum Face { Free, Top, Right, Left, Front, Behind }
+
     public sealed class MarkerOneRig : MonoBehaviour
     {
         [Header("Firebase")]
@@ -976,6 +979,179 @@ namespace MarkerOne.Unity
             {
                 await Session.AttachAsync(scene, new Vec3(localPoint.x, localPoint.y, localPoint.z),
                                           yaw, parent, offset, label);
+                Placed?.Invoke(true, scene);
+            }
+            catch (Exception e)
+            {
+                Debug.LogError("MarkerOne: could not attach — " + e.Message);
+                Placed?.Invoke(false, e.Message);
+            }
+        }
+
+        /// <summary>
+        /// The bottom of a structure — what actually holds it up.
+        ///
+        /// Moving a piece of something is nearly always meant as moving the
+        /// thing: a piece has no anchor of its own, so moving one alone would
+        /// mean rewriting its offset, and the offset is the one number holding
+        /// the shape together.
+        /// </summary>
+        public string RootOf(string id)
+        {
+            string at = id;
+
+            for (int step = 0; step < 16; step++)
+            {
+                PlacedItem item = Info(at);
+                if (item == null || string.IsNullOrEmpty(item.Parent)) { break; }
+
+                at = item.Parent;
+            }
+
+            return at;
+        }
+
+        /// <summary>
+        /// Where a point in front of the camera falls in a parent's own frame.
+        /// </summary>
+        public Attachment OffsetFor(string parent, Vector3 localPoint, Quaternion facing)
+        {
+            if (!_spawned.TryGetValue(parent, out GameObject onto) || onto == null) { return null; }
+
+            Vector3 into = onto.transform.InverseTransformPoint(
+                PlacementRoot != null ? PlacementRoot.TransformPoint(localPoint) : localPoint);
+            Quaternion turn = Quaternion.Inverse(onto.transform.rotation) * facing;
+
+            return new Attachment
+            {
+                X = into.x, Y = into.y, Z = into.z,
+                Rotation = new Quat(turn.x, turn.y, turn.z, turn.w)
+            };
+        }
+
+        /// <summary>
+        /// Flush against one face of what it is being built on.
+        ///
+        /// Aiming is worth about a centimetre at arm's length and rather less
+        /// at three metres, which is fine for leaving a marker in a park and
+        /// useless for stacking blocks — a tower built by eye leans, and the
+        /// lean accumulates. So the offset is computed from the two shapes
+        /// rather than measured off a crosshair: the piece sits exactly on the
+        /// face, centred on it, and the only imprecision left is deliberate.
+        /// </summary>
+        public Attachment SnapTo(string parent, string scene, Face face, float gapM)
+        {
+            if (!_spawned.TryGetValue(parent, out GameObject onto) || onto == null) { return null; }
+
+            GameObject prefab = PrefabFor(scene);
+            if (prefab == null) { return null; }
+
+            Bounds host = LocalBounds(onto);
+            Bounds piece = LocalBounds(prefab);
+
+            // Centred on the face by default, and standing on the same floor
+            // for the four sides — a block placed beside another belongs level
+            // with it, not floating at its midpoint.
+            Vector3 at = host.center - piece.center;
+
+            switch (face)
+            {
+                case Face.Top:
+                    at.y = host.max.y - piece.min.y + gapM;
+                    break;
+                case Face.Right:
+                    at.x = host.max.x - piece.min.x + gapM;
+                    at.y = host.min.y - piece.min.y;
+                    break;
+                case Face.Left:
+                    at.x = host.min.x - piece.max.x - gapM;
+                    at.y = host.min.y - piece.min.y;
+                    break;
+                case Face.Front:
+                    at.z = host.max.z - piece.min.z + gapM;
+                    at.y = host.min.y - piece.min.y;
+                    break;
+                case Face.Behind:
+                    at.z = host.min.z - piece.max.z - gapM;
+                    at.y = host.min.y - piece.min.y;
+                    break;
+            }
+
+            return new Attachment { X = at.x, Y = at.y, Z = at.z, Rotation = Quat.Identity };
+        }
+
+        /// <summary>
+        /// What a thing occupies, in its own frame.
+        ///
+        /// From meshes rather than from renderer bounds, which are world-space
+        /// and axis-aligned: a parent turned forty degrees would give a box
+        /// bigger than itself, and a piece snapped to that box would sit in
+        /// mid-air beside the face it was meant to touch. Works on a prefab
+        /// asset as well as on something in the scene, which is the point —
+        /// the piece being placed does not exist yet.
+        /// </summary>
+        private static Bounds LocalBounds(GameObject go)
+        {
+            var box = new Bounds();
+            bool any = false;
+
+            foreach (MeshFilter filter in go.GetComponentsInChildren<MeshFilter>())
+            {
+                // The contact shadow is wider than what casts it and lies flat
+                // on the floor. Snapping to it would put every piece a shadow's
+                // width out and sitting at ground level.
+                if (filter.gameObject.name == "shadow") { continue; }
+
+                Mesh mesh = filter.sharedMesh;
+                if (mesh == null) { continue; }
+
+                Matrix4x4 into = go.transform.worldToLocalMatrix *
+                                 filter.transform.localToWorldMatrix;
+
+                Bounds local = mesh.bounds;
+                Vector3 c = local.center, e = local.extents;
+
+                for (int corner = 0; corner < 8; corner++)
+                {
+                    var point = new Vector3(
+                        c.x + ((corner & 1) == 0 ? -e.x : e.x),
+                        c.y + ((corner & 2) == 0 ? -e.y : e.y),
+                        c.z + ((corner & 4) == 0 ? -e.z : e.z));
+
+                    point = into.MultiplyPoint3x4(point);
+
+                    if (!any) { box = new Bounds(point, Vector3.zero); any = true; }
+                    else { box.Encapsulate(point); }
+                }
+            }
+
+            return box;
+        }
+
+        /// <summary>Write a piece at an offset somebody else worked out.</summary>
+        public async void AttachWith(string parent, string scene, Attachment offset,
+            string label = "")
+        {
+            if (offset == null) { Placed?.Invoke(false, "nothing to attach to"); return; }
+            if (!CanPlace) { Placed?.Invoke(false, "not located yet"); return; }
+
+            if (Depth(parent) >= 7)
+            {
+                Placed?.Invoke(false, "that is as deep as a structure goes");
+                return;
+            }
+
+            try
+            {
+                Vector3 where = _spawned.TryGetValue(parent, out GameObject onto) && onto != null
+                    ? onto.transform.TransformPoint(new Vector3((float)offset.X, (float)offset.Y,
+                                                                (float)offset.Z))
+                    : Vector3.zero;
+
+                if (PlacementRoot != null) { where = PlacementRoot.InverseTransformPoint(where); }
+
+                await Session.AttachAsync(scene, new Vec3(where.x, where.y, where.z), 0,
+                                          parent, offset, label);
                 Placed?.Invoke(true, scene);
             }
             catch (Exception e)

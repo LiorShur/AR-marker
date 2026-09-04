@@ -91,6 +91,17 @@ own separately-corrected anchor, does not arise in here. Place the pieces where
 they go and they stay in that arrangement, and the whole arrangement moves as
 one when a marker re-pins the frame.
 
+## Leaving
+
+**Leave**, in the venue panel. Closing the panel is not leaving — the venue is
+remembered across launches, so without this somebody who set one up once found
+every placement afterwards refused until they scanned a marker they might be
+nowhere near, with nothing on screen saying why.
+
+While in a venue the placement bar reads **Place in <name>** rather than
+**Place**, so which world a thing is about to go into is said at the button that
+does it.
+
 ## What a venue cannot do yet
 
 Venue objects cannot be selected, moved or deleted from the app. Aiming picks

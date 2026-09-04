@@ -491,8 +491,18 @@ me" is a thought you can have, where "one of the four is behind me" is not.
 
 ### Building out of more than one piece
 
-Aim at something and the bar offers **Build on**. Aim at where the next piece
-goes, press **Put it here**, and it is stored as an offset from the first rather
+Aim at something and the bar offers **Build on**. Then choose a face — **Top**,
+**Right**, **Left**, **Front**, **Behind** — and the piece is placed flush
+against it, centred, computed from the two shapes rather than measured off the
+crosshair. **Free** puts it where you are aiming instead. The gap button leaves
+10, 20 or 30 cm of daylight.
+
+That is not a convenience. Aiming is worth about a centimetre at arm's length
+and much less at three metres, which is fine for leaving a marker in a park and
+useless for stacking blocks: a tower built by eye leans, and the lean
+accumulates with every piece.
+
+Whichever way it is placed, it is stored as an offset from the parent rather
 than as a place of its own.
 
 That distinction is the whole feature. Two things anchored separately are
@@ -510,6 +520,11 @@ there, the cache is ignored. It also goes stale when somebody moves a parent,
 which is deliberate: keeping it fresh would mean writing to other people's
 documents, the rules refuse that and should, and a fallback that is never
 consulted costs nothing by being wrong.
+
+Aiming at a piece offers **Move all**, which moves the base and so the whole
+structure. A piece has no anchor of its own, so moving one alone would mean
+rewriting the offset that holds the shape together — which is the one number
+worth protecting.
 
 Pieces can hang off pieces, to a depth of eight. Rules see one document at a
 time and cannot check for a cycle, so the depth cap is what stops a chain that

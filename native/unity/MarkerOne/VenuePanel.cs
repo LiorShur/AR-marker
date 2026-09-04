@@ -128,10 +128,27 @@ namespace MarkerOne.Unity
                                  _text.fontSize * 6, line);
             if (GUI.Button(close, "Close", _button)) { Open = false; }
 
+            // Closing the panel is not leaving the venue, and there was no way
+            // to do the second: the venue is remembered across launches, so
+            // somebody who entered one once found every placement afterwards
+            // refused until they scanned a marker they may be nowhere near.
+            if (!string.IsNullOrEmpty(_venue.Venue))
+            {
+                var leave = new Rect(close.xMax + pad, close.y, _text.fontSize * 6, line);
+                if (GUI.Button(leave, "Leave", _button))
+                {
+                    _venue.Venue = "";
+                    _name = "";
+                    PlayerPrefs.DeleteKey(Remembered);
+                    PlayerPrefs.Save();
+                    _said = "back outdoors";
+                }
+            }
+
             if (string.IsNullOrEmpty(_said)) { return; }
 
-            GUI.Label(new Rect(close.xMax + pad, close.y,
-                               panel.width - close.width - pad * 3, line), _said, _text);
+            GUI.Label(new Rect(close.x, close.y - line, panel.width - pad * 2, line),
+                      _said, _text);
         }
 
         private string State()
