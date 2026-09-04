@@ -297,6 +297,32 @@ package to the Xcode project and deliberately leaves the Podfile alone, so
 convincing false lead when hunting a missing ARCore session — the reflex is to
 read the Podfile, find nothing, and conclude iOS support is off.
 
+Being a Swift package rather than a pod is also why the build sometimes fails
+with **"There is no XCFramework found at …/SourcePackages/artifacts/
+arcore-ios-sdk/ARCoreBase/ARCoreBase.xcframework"**. The package reference
+resolved, but the binary it points at was never downloaded, or was downloaded
+half way. It is a cache problem rather than a project problem, and nothing in
+Unity or in this repo causes or fixes it.
+
+The usual trigger is building with **Replace**, which regenerates the Xcode
+project and starts package resolution again, and then pressing Build before that
+resolution has finished — the status bar says *Fetching* or *Resolving Package
+Graph* while it is happening, and a build started during it fails exactly this
+way.
+
+In order:
+
+1. **File → Packages → Reset Package Caches**, then wait for the status bar to
+   go quiet before building.
+2. If it persists, quit Xcode and
+   `rm -rf ~/Library/Developer/Xcode/DerivedData/Unity-iPhone-*`, reopen, wait
+   again.
+3. If it still persists, `rm -rf ~/Library/Caches/org.swift.swiftpm` as well.
+   That is the deepest of the three and forces a fresh download of everything.
+
+Each step needs the network — the artifact is fetched from GitHub — so a
+resolution attempted on a bad connection is worth simply repeating.
+
 What actually tells you ARCore is in the build:
 
 ```bash
