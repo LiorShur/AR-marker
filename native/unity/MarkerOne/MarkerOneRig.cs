@@ -1063,6 +1063,16 @@ namespace MarkerOne.Unity
         {
             if (!_spawned.TryGetValue(parent, out GameObject onto) || onto == null) { return null; }
 
+            return SnapBetween(onto, scene, face, gapM);
+        }
+
+        /// <summary>The same, for something the rig does not hold — a venue's
+        /// contents live on the venue rig, and the maths cares only about the
+        /// two shapes.</summary>
+        public Attachment SnapBetween(GameObject onto, string scene, Face face, float gapM)
+        {
+            if (onto == null) { return null; }
+
             GameObject prefab = PrefabFor(scene);
             if (prefab == null) { return null; }
 
@@ -1203,6 +1213,17 @@ namespace MarkerOne.Unity
         /// <summary>Whether this is a piece of something larger.</summary>
         public bool IsAttached(string id) => !string.IsNullOrEmpty(Info(id)?.Parent);
 
+        /// <summary>Which venue a marker belongs to, or null.</summary>
+        public async Task<Placement> FindMarkerAsync(string marker)
+        {
+            if (!(_store is FirestorePlacementStore store))
+            {
+                throw new InvalidOperationException("no Firestore store");
+            }
+
+            return await store.FindMarkerAsync(marker);
+        }
+
         /// <summary>Everything in a venue, markers included.</summary>
         public async Task<IReadOnlyList<Placement>> InVenueAsync(string venue)
         {
@@ -1224,7 +1245,8 @@ namespace MarkerOne.Unity
         /// to somebody walking past the building.
         /// </summary>
         public async Task<Placement> PlaceInVenueAsync(string venue, string scene,
-            Attachment at, string marker = null, string label = "")
+            Attachment at, string marker = null, string label = "",
+            string parent = null, Attachment offset = null)
         {
             if (!(_store is FirestorePlacementStore store))
             {
@@ -1242,6 +1264,8 @@ namespace MarkerOne.Unity
                 Venue = venue,
                 At = at,
                 Marker = marker,
+                Parent = parent,
+                Offset = offset,
                 Fix = new FixQuality { Provider = "venue", PositionM = 0, HeadingDeg = 0 }
             };
 

@@ -31,9 +31,27 @@ namespace MarkerOne.Unity
     /// </summary>
     public sealed class VenueRig : MonoBehaviour
     {
-        [Tooltip("The venue to show. Set by the venue panel; the organizer's "
-               + "device writes it when the first marker is scanned.")]
+        /// <summary>
+        /// Whether markers are allowed to decide where you are.
+        ///
+        /// Auto is what somebody walking a building wants: point at the marker
+        /// in the next hall and be in the next hall, without having heard of it
+        /// beforehand. World is the way out, and it has to exist — a venue is
+        /// remembered across launches, so without an explicit off somebody who
+        /// set one up last week is placing into it today.
+        /// </summary>
+        public enum Mode { Auto, World }
+
+        [Tooltip("The venue to show. Set by the venue panel, or by whichever "
+               + "marker the camera last recognised.")]
         public string Venue = "";
+
+        [Tooltip("Auto lets a scanned marker choose the venue. World stays "
+               + "outdoors whatever the camera sees.")]
+        public Mode Choosing = Mode.Auto;
+
+        /// <summary>Whether placements are going into a venue right now.</summary>
+        public bool Active => Choosing == Mode.Auto && !string.IsNullOrEmpty(Venue);
 
         [Tooltip("Where venue objects are parented. Made if left empty.")]
         public Transform VenueRoot;
@@ -94,6 +112,9 @@ namespace MarkerOne.Unity
 
         private readonly HashSet<string> _seen = new HashSet<string>();
 
+        private readonly HashSet<string> _refused = new HashSet<string>();
+        private bool _asking;
+
         private float _pinnedAt = -1;
         private float _nextRefresh;
         private string _loaded;
@@ -116,6 +137,16 @@ namespace MarkerOne.Unity
                 if (_images != null) { _images.requestedMaxNumberOfMovingImages = 4; }
             }
 
+            // Forced outdoors: nothing drawn, nothing looked up, and a marker
+            // in view is just a piece of paper.
+            if (Choosing == Mode.World)
+            {
+                if (_spawned.Count > 0) { Clear(); }
+                return;
+            }
+
+            Elsewhere();
+
             if (string.IsNullOrEmpty(Venue))
             {
                 if (_spawned.Count > 0) { Clear(); }
@@ -126,6 +157,64 @@ namespace MarkerOne.Unity
 
             Pin();
         }
+
+        /// <summary>
+        /// Follow a marker into whichever venue it belongs to.
+        ///
+        /// A marker the current venue does not know is either a marker from
+        /// somewhere else or one nobody has recorded yet, and the store settles
+        /// which. Looking it up costs one query and only happens for a name
+        /// that has not been seen before, so standing in a room does not keep
+        /// asking.
+        /// </summary>
+        private async void Elsewhere()
+        {
+            if (_rig == null || _asking) { return; }
+
+            string stranger = null;
+            foreach (string marker in InView())
+            {
+                if (_markers.ContainsKey(marker) || _refused.Contains(marker)) { continue; }
+
+                stranger = marker;
+                break;
+            }
+
+            if (stranger == null) { return; }
+
+            _asking = true;
+            try
+            {
+                Placement found = await _rig.FindMarkerAsync(stranger);
+
+                if (found == null || string.IsNullOrEmpty(found.Venue))
+                {
+                    // Nobody has recorded it. Remembered as such so this does
+                    // not ask again every frame the camera can see it — an
+                    // organizer about to add it is looking at one constantly.
+                    _refused.Add(stranger);
+                    return;
+                }
+
+                if (found.Venue == Venue) { return; }
+
+                Venue = found.Venue;
+                Entered = stranger;
+                _loaded = null;
+                _refused.Clear();
+                Clear();
+            }
+            catch (Exception e)
+            {
+                _refused.Add(stranger);
+                Debug.LogWarning("MarkerOne: could not look up " + stranger + " — " + e.Message);
+            }
+            finally { _asking = false; }
+        }
+
+        /// <summary>Which marker walked this device into the current venue, if
+        /// one did rather than somebody typing the name.</summary>
+        public string Entered { get; private set; }
 
         /// <summary>
         /// Put the venue frame where the marker in front of the camera says it
@@ -249,6 +338,7 @@ namespace MarkerOne.Unity
         {
             Transform root = Root();
             var seen = new HashSet<string>();
+            var pieces = new List<Placement>();
 
             foreach (KeyValuePair<string, Placement> entry in _known)
             {
@@ -272,6 +362,11 @@ namespace MarkerOne.Unity
                     _spawned[p.Id] = go;
                 }
 
+                // A piece hangs off what it was built on rather than off the
+                // venue, so a structure keeps its shape even if somebody later
+                // moves the thing underneath it.
+                if (p.IsChild) { pieces.Add(p); continue; }
+
                 if (go.transform.parent != root) { go.transform.SetParent(root, false); }
 
                 go.transform.localPosition = Where(p.At);
@@ -283,6 +378,8 @@ namespace MarkerOne.Unity
                 }
             }
 
+            Hang(pieces, root);
+
             var gone = new List<string>();
             foreach (KeyValuePair<string, GameObject> entry in _spawned)
             {
@@ -292,6 +389,75 @@ namespace MarkerOne.Unity
             }
             foreach (string id in gone) { _spawned.Remove(id); }
         }
+
+        /// <summary>
+        /// Pieces onto their parents, in rounds — a piece may be reached before
+        /// the piece it sits on. Anything whose parent never turns up falls back
+        /// to its venue pose, which every venue placement has.
+        /// </summary>
+        private void Hang(List<Placement> pieces, Transform root)
+        {
+            var placed = new HashSet<string>();
+
+            for (int round = 0; round < 8 && placed.Count < pieces.Count; round++)
+            {
+                bool moved = false;
+
+                foreach (Placement p in pieces)
+                {
+                    if (placed.Contains(p.Id)) { continue; }
+                    if (!_spawned.TryGetValue(p.Id, out GameObject go) || go == null)
+                    {
+                        placed.Add(p.Id);
+                        continue;
+                    }
+
+                    if (!_spawned.TryGetValue(p.Parent, out GameObject onto) || onto == null)
+                    {
+                        continue;
+                    }
+
+                    if (_known.TryGetValue(p.Parent, out Placement above) &&
+                        above.IsChild && !placed.Contains(p.Parent))
+                    {
+                        continue;
+                    }
+
+                    if (go.transform.parent != onto.transform)
+                    {
+                        go.transform.SetParent(onto.transform, false);
+                    }
+
+                    go.transform.localPosition = Where(p.Offset);
+                    go.transform.localRotation = Turn(p.Offset);
+
+                    placed.Add(p.Id);
+                    moved = true;
+                }
+
+                if (!moved) { break; }
+            }
+
+            foreach (Placement p in pieces)
+            {
+                if (placed.Contains(p.Id)) { continue; }
+                if (!_spawned.TryGetValue(p.Id, out GameObject go) || go == null) { continue; }
+
+                if (go.transform.parent != root) { go.transform.SetParent(root, false); }
+
+                go.transform.localPosition = Where(p.At);
+                go.transform.localRotation = Turn(p.At);
+            }
+        }
+
+        /// <summary>What is drawn in the venue, by id — so aiming can find it.
+        /// A venue's contents live here rather than on the outdoor rig, and
+        /// until this existed the crosshair could not see them at all.</summary>
+        public IEnumerable<KeyValuePair<string, GameObject>> Objects => _spawned;
+
+        /// <summary>What is known about something in the venue, or null.</summary>
+        public Placement Known(string id) =>
+            _known.TryGetValue(id, out Placement p) ? p : null;
 
         private void Clear()
         {
@@ -305,6 +471,19 @@ namespace MarkerOne.Unity
             PinnedTo = null;
             _pinnedAt = -1;
             _loaded = null;
+
+            // Not the refused set: a marker nobody has recorded is still not
+            // recorded after changing venue, and clearing it here would put
+            // the lookup back into asking once a frame.
+        }
+
+        /// <summary>Leave the venue but keep watching for markers.</summary>
+        public void Leave()
+        {
+            Venue = "";
+            Entered = null;
+            _refused.Clear();
+            Clear();
         }
 
         private Transform Root()
@@ -421,6 +600,67 @@ namespace MarkerOne.Unity
         private static bool Usable(ARTrackedImage image) =>
             image != null &&
             image.trackingState != UnityEngine.XR.ARSubsystems.TrackingState.None;
+
+        /// <summary>
+        /// Put a piece on something already in the venue.
+        ///
+        /// The venue pose is written too, so the piece is still somewhere if
+        /// its parent is ever removed — the same cache with the same rules as
+        /// outdoors, and for the same reason.
+        /// </summary>
+        public async Task AttachAsync(string parent, string scene, Attachment offset,
+            string label = "")
+        {
+            if (_rig == null) { throw new InvalidOperationException("no rig"); }
+            if (string.IsNullOrEmpty(Venue)) { throw new InvalidOperationException("no venue"); }
+            if (offset == null) { throw new ArgumentException("nowhere to put it"); }
+
+            if (!_spawned.TryGetValue(parent, out GameObject onto) || onto == null)
+            {
+                throw new InvalidOperationException("nothing to attach to");
+            }
+
+            Transform root = Root();
+            Vector3 world = onto.transform.TransformPoint(Where(offset));
+            Quaternion turn = onto.transform.rotation * Turn(offset);
+
+            Vector3 into = root.InverseTransformPoint(world);
+            Quaternion inVenue = Quaternion.Inverse(root.rotation) * turn;
+
+            var at = new Attachment
+            {
+                X = into.x, Y = into.y, Z = into.z,
+                Rotation = new Quat(inVenue.x, inVenue.y, inVenue.z, inVenue.w)
+            };
+
+            await _rig.PlaceInVenueAsync(Venue, scene, at, null, label, parent, offset);
+            Refresh();
+        }
+
+        /// <summary>Where a point in front of the camera falls in a venue
+        /// object's own frame.</summary>
+        public Attachment OffsetFor(string parent, Vector3 sessionPoint, Quaternion facing)
+        {
+            if (!_spawned.TryGetValue(parent, out GameObject onto) || onto == null) { return null; }
+
+            Vector3 into = onto.transform.InverseTransformPoint(sessionPoint);
+            Quaternion turn = Quaternion.Inverse(onto.transform.rotation) * facing;
+
+            return new Attachment
+            {
+                X = into.x, Y = into.y, Z = into.z,
+                Rotation = new Quat(turn.x, turn.y, turn.z, turn.w)
+            };
+        }
+
+        /// <summary>Flush against a face of something in the venue.</summary>
+        public Attachment SnapTo(string parent, string scene, MarkerOneRig.Face face, float gapM)
+        {
+            if (_rig == null) { return null; }
+            if (!_spawned.TryGetValue(parent, out GameObject onto) || onto == null) { return null; }
+
+            return _rig.SnapBetween(onto, scene, face, gapM);
+        }
 
         /// <summary>Whichever tracked image is this marker, or null.</summary>
         public ARTrackedImage Tracked(string marker)

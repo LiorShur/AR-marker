@@ -529,6 +529,54 @@ namespace MarkerOne.Core
             return found;
         }
 
+        /// <summary>
+        /// Which venue a marker belongs to, if any.
+        ///
+        /// What lets a phone walk into a hall it has never been told about and
+        /// know where it is. A marker name is unique across venues by
+        /// construction — there are eight of them and a venue is a set of them
+        /// — so seeing one is enough to say which place this is.
+        /// </summary>
+        public async Task<Placement> FindMarkerAsync(string marker,
+            CancellationToken cancel = default)
+        {
+            if (string.IsNullOrEmpty(marker)) { return null; }
+
+            await SignInAsync(cancel).ConfigureAwait(false);
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"{Documents}:runQuery")
+            {
+                Content = Body(MarkerQuery(marker))
+            };
+            await AuthorizeAsync(request, cancel).ConfigureAwait(false);
+
+            Json rows = await SendAsync(request, cancel).ConfigureAwait(false);
+
+            foreach (Json row in rows.Items)
+            {
+                if (!row.Has("document")) { continue; }
+
+                Placement p = FromDocument(row["document"]);
+                if (p?.Id != null && p.InVenue) { return p; }
+            }
+
+            return null;
+        }
+
+        private Json MarkerQuery(string marker)
+        {
+            Json filters = Json.Array_()
+                .Add(Filter("visibility", "EQUAL", "public"))
+                .Add(Filter("marker", "EQUAL", marker));
+
+            return Json.Object().Set("structuredQuery", Json.Object()
+                .Set("from", Json.Array_().Add(Json.Object().Set("collectionId", _collection)))
+                .Set("where", Json.Object().Set("compositeFilter", Json.Object()
+                    .Set("op", "AND")
+                    .Set("filters", filters)))
+                .Set("limit", 4));
+        }
+
         private Json VenueQuery(string venue)
         {
             // The visibility equality for the same reason as the nearby query:

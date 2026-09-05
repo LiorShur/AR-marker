@@ -141,7 +141,13 @@ namespace MarkerOne.Unity
             string best = null;
             float bestMiss = SelectWithinDeg;
 
-            foreach (KeyValuePair<string, GameObject> entry in _rig.Objects)
+            // A venue's contents live on the venue rig, not the outdoor one, so
+            // until this looked at both the crosshair could not see a single
+            // thing indoors and the bar offered nothing for any of it.
+            IEnumerable<KeyValuePair<string, GameObject>> world =
+                Indoors() ? _venue.Objects : _rig.Objects;
+
+            foreach (KeyValuePair<string, GameObject> entry in world)
             {
                 if (entry.Value == null || !entry.Value.activeSelf) { continue; }
 
@@ -263,20 +269,39 @@ namespace MarkerOne.Unity
         /// <summary>
         /// Add the piece, either flush against a face or where the crosshair is.
         /// </summary>
-        private void Piece()
+        private async void Piece()
         {
             string scene = SceneId();
             if (string.IsNullOrEmpty(scene)) { Say("no scenes configured on the rig"); return; }
 
+            bool indoors = Indoors();
+            var facing = Quaternion.Euler(0, Facing(), 0);
+
             Attachment offset = _face == MarkerOneRig.Face.Free
-                ? _rig.OffsetFor(_building, _target, Quaternion.Euler(0, Facing(), 0))
-                : _rig.SnapTo(_building, scene, _face, Gaps[_gap % Gaps.Length]);
+                ? (indoors ? _venue.OffsetFor(_building, _target, facing)
+                           : _rig.OffsetFor(_building, _target, facing))
+                : (indoors ? _venue.SnapTo(_building, scene, _face, Gaps[_gap % Gaps.Length])
+                           : _rig.SnapTo(_building, scene, _face, Gaps[_gap % Gaps.Length]));
+
+            string onto = _building;
+            _building = null;
 
             if (offset == null) { Say("could not work out where that goes"); return; }
 
-            _rig.AttachWith(_building, scene, offset, _label);
-            _building = null;
+            if (!indoors) { _rig.AttachWith(onto, scene, offset, _label); return; }
+
+            try
+            {
+                await _venue.AttachAsync(onto, scene, offset, _label);
+                Say("built on it");
+            }
+            catch (System.Exception e) { Say(e.Message); }
         }
+
+        /// <summary>Whether what is being aimed at and placed lives in a venue.
+        /// One question asked in one place, because getting it wrong means
+        /// writing a placement into the wrong world entirely.</summary>
+        private bool Indoors() => _venue != null && _venue.Active;
 
         /// <summary>
         /// Put it in the venue rather than on the Earth.
@@ -340,7 +365,7 @@ namespace MarkerOne.Unity
         {
             if (_rig == null) { Say("no rig in scene"); return; }
 
-            if (_venue != null && !string.IsNullOrEmpty(_venue.Venue))
+            if (Indoors())
             {
                 InVenue();
                 return;
@@ -501,6 +526,20 @@ namespace MarkerOne.Unity
             // top of the first, which is never what was meant.
             if (_selected != null)
             {
+                if (Indoors())
+                {
+                    // Building works in here; moving and removing do not yet,
+                    // and a button whose only outcome is nothing is worse than
+                    // no button.
+                    if (GUI.Button(row, "Build on", _button))
+                    {
+                        _building = _selected;
+                        Say("aim where the next piece goes");
+                    }
+
+                    return;
+                }
+
                 bool part = _rig.IsAttached(_selected);
 
                 if (GUI.Button(row, part ? "Move all" : _rig.IsSeed(_selected) ? "Correct" : "Move",
@@ -545,7 +584,7 @@ namespace MarkerOne.Unity
             // Which world this goes into, said on the button that does it. A
             // venue is remembered across launches, so somebody who set one up
             // last week is in it today without anything having said so.
-            bool indoors = _venue != null && !string.IsNullOrEmpty(_venue.Venue);
+            bool indoors = Indoors();
 
             row.x += w + pad;
             if (GUI.Button(row, indoors ? "Place in " + _venue.Venue : "Place", _button))
@@ -682,6 +721,8 @@ namespace MarkerOne.Unity
         /// </summary>
         private string Describe(string id)
         {
+            if (Indoors()) { return Indoor(id); }
+
             PlacedItem item = _rig.Info(id);
             if (item == null) { return "aiming at a placement"; }
 
@@ -699,6 +740,24 @@ namespace MarkerOne.Unity
             if (when != null) { said.Append("  ·  ").Append(when); }
 
             if (_rig.IsSeed(id)) { said.Append("  ·  from a map, Correct it here"); }
+
+            return said.ToString();
+        }
+
+        private string Indoor(string id)
+        {
+            Placement p = _venue.Known(id);
+            if (p == null) { return "aiming at a placement"; }
+
+            var said = new System.Text.StringBuilder();
+
+            said.Append(p.IsChild ? "⛓ " : "◆ ");
+            said.Append(string.IsNullOrEmpty(p.Label) ? p.Scene : p.Label);
+
+            if (!string.IsNullOrEmpty(p.Author)) { said.Append("  ·  by ").Append(p.Author); }
+
+            string when = Day(p.CreatedAt);
+            if (when != null) { said.Append("  ·  ").Append(when); }
 
             return said.ToString();
         }

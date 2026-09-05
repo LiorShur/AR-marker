@@ -61,6 +61,18 @@ namespace MarkerOne.Unity
             _name = _venue.Venue ?? "";
         }
 
+        private void LateUpdate()
+        {
+            // A marker can change the venue without anybody typing, and a field
+            // still showing the last one typed is a field that lies.
+            if (_venue != null && !string.IsNullOrEmpty(_venue.Venue) && _venue.Venue != _name)
+            {
+                _name = _venue.Venue;
+                PlayerPrefs.SetString(Remembered, _venue.Venue);
+                PlayerPrefs.Save();
+            }
+        }
+
         private void OnGUI()
         {
             if (!Open || _venue == null || SignInScreen.Blocking)
@@ -77,7 +89,7 @@ namespace MarkerOne.Unity
             float pad = _text.fontSize;
 
             float width = Mathf.Min(safe.width - pad * 2, _text.fontSize * 26);
-            float height = line * 9 + pad * 2;
+            float height = line * 10 + pad * 2;
 
             var panel = new Rect(safe.x + (safe.width - width) * 0.5f,
                                  Mathf.Max(MarkerOneHud.Occupied.yMax + pad,
@@ -132,16 +144,31 @@ namespace MarkerOne.Unity
             // to do the second: the venue is remembered across launches, so
             // somebody who entered one once found every placement afterwards
             // refused until they scanned a marker they may be nowhere near.
-            if (!string.IsNullOrEmpty(_venue.Venue))
+            // The switch between the two worlds, said as the two worlds. A
+            // venue is remembered across launches and a marker can now put you
+            // in one without being asked, so there has to be a plain off.
+            var mode = new Rect(close.xMax + pad, close.y, _text.fontSize * 9, line);
+            bool outdoors = _venue.Choosing == VenueRig.Mode.World;
+
+            if (GUI.Button(mode, outdoors ? "Mode: outdoors" : "Mode: venues", _button))
             {
-                var leave = new Rect(close.xMax + pad, close.y, _text.fontSize * 6, line);
+                _venue.Choosing = outdoors ? VenueRig.Mode.Auto : VenueRig.Mode.World;
+                _said = outdoors ? "markers will choose the venue" : "staying outdoors";
+            }
+
+            if (!outdoors && !string.IsNullOrEmpty(_venue.Venue))
+            {
+                var leave = new Rect(mode.xMax + pad, close.y, _text.fontSize * 6, line);
                 if (GUI.Button(leave, "Leave", _button))
                 {
-                    _venue.Venue = "";
+                    // Leaves this venue without leaving venues. A marker can
+                    // put you back in one, which is the point of the mode being
+                    // a separate switch from the venue.
+                    _venue.Leave();
                     _name = "";
                     PlayerPrefs.DeleteKey(Remembered);
                     PlayerPrefs.Save();
-                    _said = "back outdoors";
+                    _said = "left it";
                 }
             }
 
@@ -153,10 +180,19 @@ namespace MarkerOne.Unity
 
         private string State()
         {
+            if (_venue.Choosing == VenueRig.Mode.World)
+            {
+                return "Outdoors. Markers are ignored and everything is placed on "
+                     + "the Earth. Switch to venues to use one.";
+            }
+
             if (string.IsNullOrEmpty(_venue.Venue))
             {
-                return "Type a name and press Enter. A new name starts a venue; "
-                     + "an existing one joins it.";
+                string blind = _venue.Blind;
+                if (blind != null) { return blind; }
+
+                return "Point the camera at a marker and it will find its venue. "
+                     + "Or type a name and press Enter — a new name starts one.";
             }
 
             // Before anything about this venue, whether the camera is able to
@@ -172,7 +208,9 @@ namespace MarkerOne.Unity
                 return _venue.Markers + " markers · point the camera at one";
             }
 
-            return string.Format("{0} items · pinned to {1} {2:0}s ago · {3}/{4} markers seen",
+            return string.Format("{0}{1} · {2} items · pinned to {3} {4:0}s ago · {5}/{6} markers",
+                                 _venue.Venue,
+                                 _venue.Entered == null ? "" : " (found by " + _venue.Entered + ")",
                                  _venue.Items, _venue.PinnedTo, _venue.PinnedSecondsAgo,
                                  _venue.Seen, _venue.Markers);
         }
