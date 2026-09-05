@@ -118,6 +118,14 @@ A name is looked up once. One that nobody has recorded is remembered as such, so
 an organizer standing in front of a fresh marker is not asking the store about
 it every frame.
 
+Moving takes deliberateness, which matters at a doorway where markers from both
+sides are in view at once. A marker belonging to the current venue means you are
+still in it, whatever else the camera can also see; the stranger has to stay in
+view for a second and a half before it counts; and nothing is a stranger until
+the current venue's own markers have loaded. Without the last of those, switching
+made every marker unfamiliar for a moment — including the one just walked away
+from — and a single step through a door became a loop.
+
 ## The two worlds, and the switch between them
 
 **Mode: venues** — markers decide. The default, and what somebody walking a

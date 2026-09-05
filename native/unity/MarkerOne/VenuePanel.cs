@@ -199,6 +199,8 @@ namespace MarkerOne.Unity
                      + "Or type a name and press Enter — a new name starts one.";
             }
 
+            if (_venue.Moving != null) { return "moving to wherever " + _venue.Moving + " is…"; }
+
             if (!string.IsNullOrEmpty(_venue.Trouble)) { return _venue.Trouble; }
 
             if (_venue.PinnedTo == null)

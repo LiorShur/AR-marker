@@ -115,6 +115,17 @@ namespace MarkerOne.Unity
         private readonly HashSet<string> _refused = new HashSet<string>();
         private bool _asking;
 
+        /// <summary>How long a marker from somewhere else has to stay in view
+        /// before this device believes it has moved.</summary>
+        private const float SettleSeconds = 1.5f;
+
+        /// <summary>A marker from somewhere else, being considered. Shown, so
+        /// that walking through a door reads as something happening rather than
+        /// as a pause.</summary>
+        public string Moving { get; private set; }
+
+        private float _movingSince;
+
         private float _pinnedAt = -1;
         private float _nextRefresh;
         private string _loaded;
@@ -169,18 +180,42 @@ namespace MarkerOne.Unity
         /// </summary>
         private async void Elsewhere()
         {
-            if (_rig == null || _asking) { return; }
+            if (_rig == null || _asking || _loading) { return; }
 
             string stranger = null;
+            bool ours = false;
+
             foreach (string marker in InView())
             {
-                if (_markers.ContainsKey(marker) || _refused.Contains(marker)) { continue; }
-
-                stranger = marker;
-                break;
+                if (_markers.ContainsKey(marker)) { ours = true; break; }
+                if (stranger == null && !_refused.Contains(marker)) { stranger = marker; }
             }
 
-            if (stranger == null) { return; }
+            // A marker of this venue in view means you are still in this venue,
+            // whatever else the camera can also see. Without this the two
+            // markers either side of a doorway hand the device back and forth
+            // between their venues several times a second.
+            if (ours) { Moving = null; return; }
+
+            // Nothing can be a stranger until it is known what is not. Switching
+            // clears the marker list, so for the moment after one every marker
+            // looks unfamiliar — including the one just walked away from, which
+            // is what turned a single step through a door into a loop.
+            if (!string.IsNullOrEmpty(Venue) && Venue != _loaded) { Moving = null; return; }
+
+            if (stranger == null) { Moving = null; return; }
+
+            // Seen steadily rather than seen once. Image tracking reports the
+            // odd frame of something at the edge of view, and a venue that
+            // changes on one frame of evidence changes back on the next.
+            if (Moving != stranger)
+            {
+                Moving = stranger;
+                _movingSince = Time.unscaledTime;
+                return;
+            }
+
+            if (Time.unscaledTime < _movingSince + SettleSeconds) { return; }
 
             _asking = true;
             try
@@ -193,6 +228,7 @@ namespace MarkerOne.Unity
                     // not ask again every frame the camera can see it — an
                     // organizer about to add it is looking at one constantly.
                     _refused.Add(stranger);
+                    Moving = null;
                     return;
                 }
 
@@ -203,10 +239,12 @@ namespace MarkerOne.Unity
                 _loaded = null;
                 _refused.Clear();
                 Clear();
+                Moving = null;
             }
             catch (Exception e)
             {
                 _refused.Add(stranger);
+                Moving = null;
                 Debug.LogWarning("MarkerOne: could not look up " + stranger + " — " + e.Message);
             }
             finally { _asking = false; }
