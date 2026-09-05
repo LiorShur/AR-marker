@@ -756,6 +756,70 @@ namespace MarkerOne.Unity
             return _rig.SnapBetween(onto, scene, face, gapM);
         }
 
+        /// <summary>
+        /// Move something to where the crosshair is, in venue coordinates.
+        ///
+        /// A piece of a structure moves the structure, exactly as outdoors and
+        /// for the same reason: the offset holding the shape together is the
+        /// one number not worth rewriting by hand.
+        /// </summary>
+        public async Task MoveAsync(string id, Vector3 sessionPoint, Quaternion facing)
+        {
+            if (_rig == null) { throw new InvalidOperationException("no rig"); }
+
+            string moving = RootOf(id);
+
+            Transform root = Root();
+            Vector3 into = root.InverseTransformPoint(sessionPoint);
+            Quaternion turn = Quaternion.Inverse(root.rotation) * facing;
+
+            await _rig.MoveInVenueAsync(moving, new Attachment
+            {
+                X = into.x, Y = into.y, Z = into.z,
+                Rotation = new Quat(turn.x, turn.y, turn.z, turn.w)
+            });
+
+            Refresh();
+        }
+
+        public async Task RemoveAsync(string id)
+        {
+            if (_rig == null) { throw new InvalidOperationException("no rig"); }
+
+            await _rig.RemoveDirectAsync(id);
+            Refresh();
+        }
+
+        /// <summary>The bottom of a structure, following the chain up.</summary>
+        public string RootOf(string id)
+        {
+            string at = id;
+
+            for (int step = 0; step < 16; step++)
+            {
+                if (!_known.TryGetValue(at, out Placement p) || string.IsNullOrEmpty(p.Parent))
+                {
+                    break;
+                }
+
+                at = p.Parent;
+            }
+
+            return at;
+        }
+
+        /// <summary>Whether this device may edit something in here. The rules
+        /// decide in the end; this decides what to offer.</summary>
+        public bool Mine(string id)
+        {
+            Placement p = Known(id);
+            return p != null && _rig != null &&
+                   !string.IsNullOrEmpty(_rig.Uid) && p.Owner == _rig.Uid;
+        }
+
+        /// <summary>Whether this is a piece of something larger.</summary>
+        public bool IsPiece(string id) => Known(id)?.IsChild == true;
+
         /// <summary>Whichever tracked image is this marker, or null.</summary>
         public ARTrackedImage Tracked(string marker)
         {

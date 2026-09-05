@@ -170,11 +170,16 @@ can now enter one without being asked.
 Whichever world is current, the placement bar says so on the button that acts:
 **Place in <name>** rather than **Place**.
 
-## What a venue cannot do yet
+## Moving and removing
 
-Venue objects can be aimed at and built on, but not moved or deleted from the
-app. Correcting a mistake means clearing it from the Firestore console.
+Aim at something in a venue and the bar offers **Move**, **Build on** and
+**Delete** — the same three things as outdoors, judged the same way. Delete is
+offered for what this device placed, and to an admin for anything; anything else
+says "someone else's" rather than offering a button that would be refused.
 
-Worth knowing before an event rather than during one.
+Moving writes the venue pose and nothing else, because in here that is the whole
+of where a thing is — there are no coordinates to keep in step with, which is
+the point of a venue. Aiming at a piece of a structure offers **Move all** and
+moves the base, exactly as outdoors.
 
 Worth knowing before an event rather than during one.

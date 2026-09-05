@@ -258,6 +258,72 @@ namespace MarkerOne.Unity
             _range = FallbackDistanceM;
         }
 
+        /// <summary>
+        /// The three things a venue's contents allow, which is now all three:
+        /// build on it, move it, remove it.
+        /// </summary>
+        private void Inside(Rect row, float w, float pad)
+        {
+            bool piece = _venue.IsPiece(_selected);
+
+            if (GUI.Button(row, piece ? "Move all" : "Move", _button))
+            {
+                _adjusting = true;
+                _moving = _selected;
+                Say(piece ? "moving the whole structure — aim at where it belongs"
+                          : "aim at where it belongs");
+            }
+
+            row.x += w + pad;
+            if (GUI.Button(row, "Build on", _button))
+            {
+                _building = _selected;
+                Say("aim where the next piece goes");
+            }
+
+            row.x += w + pad;
+
+            // Somebody else's, and not an admin's to take. Said rather than
+            // offered, so the reason nothing can be done is on the screen.
+            if (!_venue.Mine(_selected) && !_rig.IsAdmin)
+            {
+                GUI.Label(new Rect(row.x, row.y, w * 2, row.height), "someone else's", _text);
+                return;
+            }
+
+            bool arming = Time.unscaledTime < _deleteArmedUntil;
+            if (!GUI.Button(row, arming ? "Sure?" : "Delete", _button)) { return; }
+
+            if (!arming)
+            {
+                _deleteArmedUntil = Time.unscaledTime + 4f;
+                return;
+            }
+
+            _deleteArmedUntil = 0;
+            Erase(_selected);
+        }
+
+        private async void Erase(string id)
+        {
+            Say("removing…");
+
+            try { await _venue.RemoveAsync(id); }
+            catch (System.Exception e) { Say(e.Message); }
+        }
+
+        private async void Shift(string id)
+        {
+            Say("moving…");
+
+            try
+            {
+                await _venue.MoveAsync(id, _target, Quaternion.Euler(0, Facing(), 0));
+                Say("moved");
+            }
+            catch (System.Exception e) { Say(e.Message); }
+        }
+
         /// <summary>How much daylight to leave, said in centimetres because
         /// that is the unit anybody placing a block is thinking in.</summary>
         private string Gap()
@@ -474,7 +540,13 @@ namespace MarkerOne.Unity
                 row.width = w * 2 + pad;
                 if (GUI.Button(row, "Put it here", _button))
                 {
-                    _rig.Adjust(_moving ?? _selected, _target, Facing());
+                    string what = _moving ?? _selected;
+
+                    // Whichever world the move started in is the one it lands
+                    // in: a venue pose and a coordinate are not interchangeable,
+                    // and writing either into the other is a placement lost.
+                    if (Indoors()) { Shift(what); }
+                    else { _rig.Adjust(what, _target, Facing()); }
                     _adjusting = false;
                     _moving = null;
                 }
@@ -528,15 +600,7 @@ namespace MarkerOne.Unity
             {
                 if (Indoors())
                 {
-                    // Building works in here; moving and removing do not yet,
-                    // and a button whose only outcome is nothing is worse than
-                    // no button.
-                    if (GUI.Button(row, "Build on", _button))
-                    {
-                        _building = _selected;
-                        Say("aim where the next piece goes");
-                    }
-
+                    Inside(row, w, pad);
                     return;
                 }
 

@@ -697,6 +697,32 @@ namespace MarkerOne.Core
             await SendAsync(request, cancel).ConfigureAwait(false);
         }
 
+        /// <summary>
+        /// Move something inside a venue.
+        ///
+        /// Only the venue pose, because that is the whole of where a venue
+        /// placement is — there are no coordinates to keep in step with, which
+        /// is the point of a venue.
+        /// </summary>
+        public async Task MoveInVenueAsync(string id, Attachment at,
+            CancellationToken cancel = default)
+        {
+            if (string.IsNullOrEmpty(id)) { throw new ArgumentException("no id"); }
+            if (at == null) { throw new ArgumentNullException(nameof(at)); }
+
+            await SignInAsync(cancel).ConfigureAwait(false);
+
+            using var request = new HttpRequestMessage(
+                new HttpMethod("PATCH"),
+                $"{Documents}/{_collection}/{Uri.EscapeDataString(id)}?updateMask.fieldPaths=at")
+            {
+                Content = Body(Json.Object().Set("fields", Json.Object().Set("at", Pose(at))))
+            };
+            await AuthorizeAsync(request, cancel).ConfigureAwait(false);
+
+            await SendAsync(request, cancel).ConfigureAwait(false);
+        }
+
         public async Task RemoveAsync(string id, CancellationToken cancel = default)
         {
             await SignInAsync(cancel).ConfigureAwait(false);

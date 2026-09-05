@@ -1213,6 +1213,33 @@ namespace MarkerOne.Unity
         /// <summary>Whether this is a piece of something larger.</summary>
         public bool IsAttached(string id) => !string.IsNullOrEmpty(Info(id)?.Parent);
 
+        /// <summary>Move something inside a venue, by its pose in that venue.
+        /// </summary>
+        public async Task MoveInVenueAsync(string id, Attachment at)
+        {
+            if (!(_store is FirestorePlacementStore store))
+            {
+                throw new InvalidOperationException("no Firestore store");
+            }
+
+            await store.MoveInVenueAsync(id, at);
+        }
+
+        /// <summary>
+        /// Delete a placement the outdoor session has never heard of.
+        ///
+        /// Remove goes through the session, which knows what it has loaded and
+        /// nothing about a venue's contents. The store does not care which
+        /// world a document belongs to, so this is the same deletion without
+        /// the bookkeeping that would not apply.
+        /// </summary>
+        public async Task RemoveDirectAsync(string id)
+        {
+            if (_store == null) { throw new InvalidOperationException("no store"); }
+
+            await _store.RemoveAsync(id);
+        }
+
         /// <summary>Which venue a marker belongs to, or null.</summary>
         public async Task<Placement> FindMarkerAsync(string marker)
         {
