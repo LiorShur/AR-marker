@@ -99,31 +99,47 @@ Venue placements are written with a zero geopose, so nothing indoors is ever
 returned by a nearby query. A hall full of party decorations has no business
 appearing to somebody walking past the building.
 
-## Building structures indoors
+## Building indoors
 
-There is nothing to do. Everything in a venue is already a child of the venue
-root, so everything is already rigid with respect to everything else — the
-problem **Build on** exists to solve outdoors, where each placement carries its
-own separately-corrected anchor, does not arise in here. Place the pieces where
-they go and they stay in that arrangement, and the whole arrangement moves as
-one when a marker re-pins the frame.
+**Build on** works in a venue exactly as it does outdoors — the same faces, the
+same gaps, the same badge on a piece. A structure in here stores both a venue
+pose and an offset from its parent, so it keeps its shape if the thing
+underneath it is ever moved, and still has somewhere to stand if that thing is
+removed.
 
-## Leaving
+## Walking between venues
 
-**Leave**, in the venue panel. Closing the panel is not leaving — the venue is
-remembered across launches, so without this somebody who set one up once found
-every placement afterwards refused until they scanned a marker they might be
-nowhere near, with nothing on screen saying why.
+Point the camera at a marker belonging to a venue this device has never heard of
+and it goes there: the name is looked up, the venue loads, the frame pins.
+Walking from one hall to the next needs nothing but pointing the phone at the
+marker by the door.
 
-While in a venue the placement bar reads **Place in <name>** rather than
-**Place**, so which world a thing is about to go into is said at the button that
-does it.
+A name is looked up once. One that nobody has recorded is remembered as such, so
+an organizer standing in front of a fresh marker is not asking the store about
+it every frame.
+
+## The two worlds, and the switch between them
+
+**Mode: venues** — markers decide. The default, and what somebody walking a
+building wants.
+
+**Mode: outdoors** — markers are ignored entirely and everything is placed on
+the Earth, whatever the camera can see.
+
+The button is in the venue panel, and it is a separate thing from **Leave**.
+Leave puts down the current venue while staying in venue mode, so the next
+marker picks one up again; the mode switch is how you stop venues happening at
+all. Both are needed, because a venue is remembered across launches and a marker
+can now enter one without being asked.
+
+Whichever world is current, the placement bar says so on the button that acts:
+**Place in <name>** rather than **Place**.
 
 ## What a venue cannot do yet
 
-Venue objects cannot be selected, moved or deleted from the app. Aiming picks
-from the outdoor rig's placements, and a venue's live somewhere else — so the
-crosshair does not find them and the bar offers nothing for them. Placing works;
-correcting a mistake means clearing it from the console.
+Venue objects can be aimed at and built on, but not moved or deleted from the
+app. Correcting a mistake means clearing it from the Firestore console.
+
+Worth knowing before an event rather than during one.
 
 Worth knowing before an event rather than during one.
