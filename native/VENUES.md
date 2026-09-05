@@ -122,7 +122,17 @@ Moving takes deliberateness, which matters at a doorway where markers from both
 sides are in view at once. A marker belonging to the current venue means you are
 still in it, whatever else the camera can also see; the stranger has to stay in
 view for a second and a half before it counts; and nothing is a stranger until
-the current venue's own markers have loaded. Without the last of those, switching
+the current venue's own markers have loaded.
+
+"In view" is measured rather than asked: within twelve metres and roughly in the
+picture. A tracked image is never removed once found — it keeps reporting a pose
+from the next room, the next floor, and after an hour in a pocket — so asking
+tracking state instead answers "was one ever seen", which is true forever and
+means walking into another room changes nothing at all.
+
+The practical consequence: turn to face the new room's marker, with the old one
+behind you, and it switches. Standing in a doorway looking at both keeps you in
+the one you came from, which is the right answer for a doorway. Without the last of those, switching
 made every marker unfamiliar for a moment — including the one just walked away
 from — and a single step through a door became a loop.
 

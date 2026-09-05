@@ -273,7 +273,7 @@ namespace MarkerOne.Unity
 
             foreach (ARTrackedImage image in _images.trackables)
             {
-                if (!Usable(image)) { continue; }
+                if (!Seeing(image)) { continue; }
 
                 string name = image.referenceImage.name;
                 if (!_markers.ContainsKey(name)) { continue; }
@@ -626,18 +626,48 @@ namespace MarkerOne.Unity
             Refresh();
         }
 
+        /// <summary>How far away a marker can be and still count as one you
+        /// are looking at, and how far off centre.</summary>
+        private const float SeeWithinM = 12f;
+
+        private const float SeeWithinDeg = 45f;
+
         /// <summary>
-        /// Whether an image's pose can be believed.
+        /// Whether a marker is actually in front of the camera now.
         ///
-        /// Limited counts. A marker screwed to a wall is not moving, so once
-        /// ARKit has found it there is often nothing left to refine and it
-        /// reports Limited rather than Tracking — the pose is still the one it
-        /// measured, and refusing it means refusing every marker that is doing
-        /// its job properly. Only None is useless.
+        /// Not the same question as whether its pose can be believed, which is
+        /// what tracking state answers. A tracked image is never removed: once
+        /// ARKit has found a marker it stays in the list for the rest of the
+        /// session, reporting Limited from the next room, the next floor, and
+        /// after the phone has been in a pocket for an hour. So "is one of this
+        /// venue's markers in view" asked of tracking state alone is really
+        /// "was one ever seen", which is true forever and was why walking into
+        /// another room stopped changing anything.
+        ///
+        /// Asked of geometry instead: near enough, and roughly in the picture.
         /// </summary>
-        private static bool Usable(ARTrackedImage image) =>
-            image != null &&
-            image.trackingState != UnityEngine.XR.ARSubsystems.TrackingState.None;
+        private bool Seeing(ARTrackedImage image)
+        {
+            if (image == null ||
+                image.trackingState == UnityEngine.XR.ARSubsystems.TrackingState.None)
+            {
+                return false;
+            }
+
+            Camera eye = _rig != null ? _rig.SessionCamera : Camera.main;
+            if (eye == null)
+            {
+                return image.trackingState ==
+                       UnityEngine.XR.ARSubsystems.TrackingState.Tracking;
+            }
+
+            Vector3 to = image.transform.position - eye.transform.position;
+            float away = to.magnitude;
+
+            if (away > SeeWithinM) { return false; }
+
+            return away < 0.05f || Vector3.Angle(eye.transform.forward, to) <= SeeWithinDeg;
+        }
 
         /// <summary>
         /// Put a piece on something already in the venue.
@@ -707,7 +737,7 @@ namespace MarkerOne.Unity
 
             foreach (ARTrackedImage image in _images.trackables)
             {
-                if (Usable(image) && image.referenceImage.name == marker) { return image; }
+                if (Seeing(image) && image.referenceImage.name == marker) { return image; }
             }
 
             return null;
@@ -721,7 +751,7 @@ namespace MarkerOne.Unity
 
             foreach (ARTrackedImage image in _images.trackables)
             {
-                if (Usable(image)) { yield return image.referenceImage.name; }
+                if (Seeing(image)) { yield return image.referenceImage.name; }
             }
         }
 
