@@ -13,6 +13,6 @@ namespace MarkerOne.Unity
     /// </summary>
     public static class Build
     {
-        public const string Stamp = "b10 · in view means in view";
+        public const string Stamp = "b11 · a real sighting";
     }
 }

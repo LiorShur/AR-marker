@@ -132,7 +132,24 @@ means walking into another room changes nothing at all.
 
 The practical consequence: turn to face the new room's marker, with the old one
 behind you, and it switches. Standing in a doorway looking at both keeps you in
-the one you came from, which is the right answer for a doorway. Without the last of those, switching
+the one you came from, which is the right answer for a doorway.
+
+Changing venue also takes an actual sighting rather than a marker that merely
+lies ahead. Nothing in this app recognises a room — there is no scene matching
+of any kind, and the only thing that can identify a place is a printed image. But
+ARKit keeps the anchor of every marker it has ever found, for the whole session,
+so walking back towards where one used to be satisfies the geometry without the
+camera having seen anything. That is what a room appearing to change itself with
+no marker in front of the phone actually was.
+
+## Nothing is drawn until the venue is pinned
+
+Loading a venue finishes before pinning it does, so for a moment after arriving
+the new room's contents would otherwise be drawn against the old room's frame:
+the right objects in the wrong place, floating, which reads as the app being
+confused about which room you are in. So a venue shows nothing until one of its
+own markers has said where it is, and the panel says as much while you are
+pointing the camera around looking for one. Without the last of those, switching
 made every marker unfamiliar for a moment — including the one just walked away
 from — and a single step through a door became a loop.
 

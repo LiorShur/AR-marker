@@ -167,6 +167,16 @@ namespace MarkerOne.Unity
             if (Venue != _loaded && !_loading) { Load(); }
 
             Pin();
+
+            // Hidden until one of this venue's markers has said where the venue
+            // is. Loading finishes before pinning does, so without this the new
+            // room's contents are drawn for a moment against the old room's
+            // frame — the right objects in the wrong place, floating, which
+            // reads as the app being confused about which room you are in.
+            Transform root = Root();
+            bool known = PinnedTo != null;
+
+            if (root.gameObject.activeSelf != known) { root.gameObject.SetActive(known); }
         }
 
         /// <summary>
@@ -180,14 +190,30 @@ namespace MarkerOne.Unity
         /// </summary>
         private async void Elsewhere()
         {
-            if (_rig == null || _asking || _loading) { return; }
+            if (_rig == null || _images == null || _asking || _loading) { return; }
 
             string stranger = null;
             bool ours = false;
 
-            foreach (string marker in InView())
+            foreach (ARTrackedImage image in _images.trackables)
             {
+                if (!Seeing(image)) { continue; }
+
+                string marker = image.referenceImage.name;
                 if (_markers.ContainsKey(marker)) { ours = true; break; }
+
+                // Changing room takes an actual sighting, not merely a marker
+                // that happens to lie ahead. ARKit keeps the anchor of every
+                // marker it has ever found, so walking back towards where one
+                // used to be satisfies the geometry without the camera having
+                // seen anything — which is how a room appeared to change
+                // itself with no marker in front of the phone.
+                if (image.trackingState !=
+                    UnityEngine.XR.ARSubsystems.TrackingState.Tracking)
+                {
+                    continue;
+                }
+
                 if (stranger == null && !_refused.Contains(marker)) { stranger = marker; }
             }
 

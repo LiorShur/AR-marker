@@ -205,7 +205,8 @@ namespace MarkerOne.Unity
 
             if (_venue.PinnedTo == null)
             {
-                return _venue.Markers + " markers · point the camera at one";
+                return _venue.Markers + " markers · point the camera at one. "
+                     + "Nothing is drawn until one of them says where this venue is.";
             }
 
             return string.Format("{0}{1} · {2} items · pinned to {3} {4:0}s ago · {5}/{6} markers",
