@@ -186,20 +186,18 @@ namespace MarkerOne.Unity
                      + "the Earth. Switch to venues to use one.";
             }
 
+            // Before anything else, whether the camera could recognise a
+            // marker at all. A venue with none, a venue whose markers are not
+            // in view, and a phone that could not see one if it were, all read
+            // identically otherwise — and only the last is a broken setup.
+            string blind = _venue.Blind;
+            if (blind != null) { return blind; }
+
             if (string.IsNullOrEmpty(_venue.Venue))
             {
-                string blind = _venue.Blind;
-                if (blind != null) { return blind; }
-
                 return "Point the camera at a marker and it will find its venue. "
                      + "Or type a name and press Enter — a new name starts one.";
             }
-
-            // Before anything about this venue, whether the camera is able to
-            // see a marker at all. A venue with no markers and a phone that
-            // could not recognise one if it saw it read identically.
-            string blind = _venue.Blind;
-            if (blind != null) { return blind; }
 
             if (!string.IsNullOrEmpty(_venue.Trouble)) { return _venue.Trouble; }
 
