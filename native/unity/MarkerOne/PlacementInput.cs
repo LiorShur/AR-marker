@@ -489,19 +489,23 @@ namespace MarkerOne.Unity
                 return;
             }
 
+            // Asked once, before any of the three worlds gets a look at it:
+            // there is nothing to place in any of them without it.
+            string scene = SceneId();
+            if (string.IsNullOrEmpty(scene)) { Say("no scenes configured on the rig"); return; }
+
             if (Sketching())
             {
-                Quaternion facing = Quaternion.Euler(0, Facing(), 0);
-                Say(_sketch.Place(scene, _target, facing, _label) != null
+                // Nothing to wait for. There is no fix to acquire and nothing
+                // to write, so this is the one world where placing is immediate
+                // by construction rather than by patience.
+                Say(_sketch.Place(scene, _target, Quaternion.Euler(0, Facing(), 0), _label) != null
                     ? "placed for this session"
                     : "no prefab for " + scene);
                 return;
             }
 
             if (!_rig.CanPlace) { Say("not located yet — " + _rig.State); return; }
-
-            string scene = SceneId();
-            if (string.IsNullOrEmpty(scene)) { Say("no scenes configured on the rig"); return; }
 
             // Refusing while ARCore is still settling is right. Refusing where
             // ARCore will never arrive is not.
