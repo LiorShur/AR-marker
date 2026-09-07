@@ -212,7 +212,12 @@ namespace MarkerOne.Unity
             _drawn.Clear();
         }
 
-        private float Floor() => _rig != null && _rig.Floor != null ? _rig.Floor.Floor : 0;
+        /// <summary>The floor's height, narrowed here and nowhere earlier. The
+        /// core keeps heights in double because a float loses centimetres a few
+        /// hundred metres out; Unity's transforms take float, so the boundary
+        /// is the right place to cross.</summary>
+        private float Floor() =>
+            _rig != null && _rig.Floor != null ? (float)_rig.Floor.Floor : 0f;
 
         private static Vector3 Flat(Vector3 v)
         {
