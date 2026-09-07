@@ -579,6 +579,51 @@ namespace MarkerOne.Unity
 
         /// <summary>Whether this placement has waited long enough for ARCore
         /// that the frame is now the better of two poor answers.</summary>
+        /// <summary>
+        /// Show what was held back once waiting stops being worth it.
+        ///
+        /// Patience was only ever consulted while drawing, and drawing only
+        /// happens when the set of placements changes — so somewhere ARCore
+        /// cannot place anything, a new placement was hidden and stayed hidden
+        /// until the next one was made or one was deleted. Which is exactly
+        /// what "it only appears when I place another" was: the second
+        /// placement was not revealing the first, it was causing the redraw
+        /// that revealed it.
+        ///
+        /// So the expiry is checked continuously instead. Indoors that is the
+        /// difference between an app that works and an app that appears to
+        /// swallow everything you do.
+        /// </summary>
+        private void Waited()
+        {
+            foreach (KeyValuePair<string, GameObject> entry in _spawned)
+            {
+                GameObject go = entry.Value;
+                if (go == null || go.activeSelf) { continue; }
+
+                // Pieces are positioned by what they hang off and are shown by
+                // the same pass that hangs them.
+                if (IsAttached(entry.Key)) { continue; }
+
+                if (Anchors != null && !PatienceRunOut(entry.Key)) { continue; }
+
+                PlacedItem item = Info(entry.Key);
+                if (item == null) { continue; }
+
+                if (go.transform.parent != PlacementRoot)
+                {
+                    go.transform.SetParent(PlacementRoot, false);
+                }
+
+                go.transform.localPosition = new Vector3(
+                    (float)item.Local.X, (float)item.Local.Y, (float)item.Local.Z);
+                go.transform.localRotation =
+                    Quaternion.Euler(0, (float)(item.YawRad * Mathf.Rad2Deg), 0);
+
+                go.SetActive(true);
+            }
+        }
+
         private bool PatienceRunOut(string id)
         {
             if (!_waitingSince.TryGetValue(id, out float since))
@@ -610,6 +655,8 @@ namespace MarkerOne.Unity
             {
                 Reposition(entry.Key, entry.Value);
             }
+
+            Waited();
 
             HasNearest = false;
             NearestM = -1;
