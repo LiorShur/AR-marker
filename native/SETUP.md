@@ -282,6 +282,14 @@ Choose **Replace** rather than **Append** whenever packages, player settings or
 plugins have changed. Append refreshes Unity's own output and leaves the
 dependency wiring as it found it. Append is fine for script and asset edits.
 
+Prefer Append when it is fine, rather than treating Replace as the safe default.
+Replace regenerates the Xcode project, which throws away the resolved Swift
+packages and starts the download again — and a build begun before that finishes
+fails with the missing `ARCoreBase.xcframework` below. Everything under
+`native/unity/MarkerOne/` and `native/MarkerOne.Core/` is scripts, so pulling a
+change from this repo and rebuilding is an Append unless the notes say
+otherwise.
+
 ### How ARCore actually reaches the build
 
 Extensions 1.54 ships its iOS dependency as a **Swift package**, not a pod:
