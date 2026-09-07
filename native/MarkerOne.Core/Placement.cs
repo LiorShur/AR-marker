@@ -126,6 +126,23 @@ namespace MarkerOne.Core
         /// </summary>
         public string Marker;
 
+        /// <summary>
+        /// The building a venue is a room of, or null for a venue standing on
+        /// its own.
+        ///
+        /// Rooms are separate venues rather than one large one because each
+        /// needs its own frame. Tracking drifts about one per cent of the
+        /// distance walked, so a marker in a far room recorded by walking to it
+        /// carries the whole walk's error — and every object measured from that
+        /// frame inherits it. A room pinned by its own marker starts from zero
+        /// however far away it is.
+        ///
+        /// So this groups rather than positions. Nothing is measured from a
+        /// space; it is what lets a building be listed, named and walked
+        /// through as one thing.
+        /// </summary>
+        public string Space;
+
         public bool InVenue => !string.IsNullOrEmpty(Venue) && At != null;
 
         public bool IsMarker => InVenue && !string.IsNullOrEmpty(Marker);
@@ -169,6 +186,8 @@ namespace MarkerOne.Core
             }
             if (Math.Abs(GroundOffset) > 100) { bad.Add("ground offset"); }
             if (Venue != null && (Venue.Length == 0 || Venue.Length > 64)) { bad.Add("venue id"); }
+            if (Space != null && (Space.Length == 0 || Space.Length > 64)) { bad.Add("space name"); }
+            if (Space != null && Venue == null) { bad.Add("a space needs a venue"); }
             if (Marker != null && (Marker.Length == 0 || Marker.Length > 64)) { bad.Add("marker name"); }
             if (Marker != null && Venue == null) { bad.Add("a marker needs a venue"); }
 

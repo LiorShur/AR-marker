@@ -86,7 +86,7 @@ namespace MarkerOne.Unity
 
         private void OnGUI()
         {
-            if (!Open || _rig == null || SignInScreen.Blocking) { return; }
+            if (!Open || _rig == null || SignInScreen.Blocking || ModeMenu.Blocking) { return; }
 
             EnsureStyles();
 

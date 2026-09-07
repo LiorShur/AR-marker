@@ -915,6 +915,7 @@ namespace MarkerOne.Core
                 fields.Set("venue", Wrap(p.Venue)).Set("at", Pose(p.At));
 
                 if (!string.IsNullOrEmpty(p.Marker)) { fields.Set("marker", Wrap(p.Marker)); }
+                if (!string.IsNullOrEmpty(p.Space)) { fields.Set("space", Wrap(p.Space)); }
             }
 
             return Json.Object().Set("fields", fields);
@@ -994,6 +995,7 @@ namespace MarkerOne.Core
 
             p.Venue = Str(fields, "venue");
             p.Marker = Str(fields, "marker");
+            p.Space = Str(fields, "space");
             if (!string.IsNullOrEmpty(p.Venue) && fields.Has("at"))
             {
                 p.At = ReadPose(Inner(fields, "at"));

@@ -261,6 +261,7 @@ namespace MarkerOne.Unity
                 if (found.Venue == Venue) { return; }
 
                 Venue = found.Venue;
+                Space = found.Space;
                 Entered = stranger;
                 _loaded = null;
                 _refused.Clear();
@@ -279,6 +280,11 @@ namespace MarkerOne.Unity
         /// <summary>Which marker walked this device into the current venue, if
         /// one did rather than somebody typing the name.</summary>
         public string Entered { get; private set; }
+
+        /// <summary>The building this room belongs to, if it belongs to one.
+        /// Read from whatever the venue contains rather than set, so walking
+        /// into a room tells you which building you are in.</summary>
+        public string Space { get; private set; }
 
         /// <summary>
         /// Put the venue frame where the marker in front of the camera says it
@@ -363,6 +369,12 @@ namespace MarkerOne.Unity
                 }
 
                 Markers = _markers.Count;
+
+                foreach (Placement p in items)
+                {
+                    if (!string.IsNullOrEmpty(p.Space)) { Space = p.Space; break; }
+                }
+
                 Trouble = _markers.Count == 0
                     ? "this venue has no markers yet — scan one to start it"
                     : null;
@@ -578,7 +590,43 @@ namespace MarkerOne.Unity
         /// which is why the organizer has to walk from a marker they have
         /// already recorded rather than starting afresh in another room.
         /// </summary>
-        public async Task RecordMarkerAsync(string marker)
+        /// <summary>
+        /// Start a room here, at this marker, with no walking involved.
+        ///
+        /// The difference between this and adding a marker to an existing room
+        /// is the whole reason rooms exist. A marker added to a room has to be
+        /// measured through the frame that room is already pinned by, which
+        /// means walking there without losing tracking and carrying that walk's
+        /// error into everything placed afterwards. A room started here begins
+        /// at zero, however far from the last one it is — so a building is a
+        /// set of rooms rather than one frame stretched across it.
+        /// </summary>
+        public async Task StartRoomAsync(string space, string room, string marker)
+        {
+            if (string.IsNullOrEmpty(room)) { throw new ArgumentException("no room name"); }
+            if (string.IsNullOrEmpty(marker)) { throw new ArgumentException("no marker"); }
+
+            string id = string.IsNullOrEmpty(space) ? room : space + " / " + room;
+
+            Venue = id;
+            Space = string.IsNullOrEmpty(space) ? null : space;
+            Entered = null;
+            _loaded = id;
+
+            // Emptied so the marker about to be recorded is the first, and
+            // therefore the origin this room is measured from.
+            _known.Clear();
+            _markers.Clear();
+            _seen.Clear();
+            Markers = 0;
+            PinnedTo = null;
+
+            await RecordMarkerAsync(marker, Space);
+        }
+
+        public Task RecordMarkerAsync(string marker) => RecordMarkerAsync(marker, Space);
+
+        public async Task RecordMarkerAsync(string marker, string space)
         {
             if (_rig == null) { throw new InvalidOperationException("no rig"); }
             if (string.IsNullOrEmpty(Venue)) { throw new InvalidOperationException("no venue"); }
@@ -618,7 +666,7 @@ namespace MarkerOne.Unity
                 };
             }
 
-            await _rig.PlaceInVenueAsync(Venue, "marker", at, marker, marker);
+            await _rig.PlaceInVenueAsync(Venue, "marker", at, marker, marker, space: space);
             Refresh();
         }
 
@@ -648,7 +696,7 @@ namespace MarkerOne.Unity
                 Rotation = new Quat(turn.x, turn.y, turn.z, turn.w)
             };
 
-            await _rig.PlaceInVenueAsync(Venue, scene, at, null, label);
+            await _rig.PlaceInVenueAsync(Venue, scene, at, null, label, space: Space);
             Refresh();
         }
 
@@ -727,7 +775,7 @@ namespace MarkerOne.Unity
                 Rotation = new Quat(inVenue.x, inVenue.y, inVenue.z, inVenue.w)
             };
 
-            await _rig.PlaceInVenueAsync(Venue, scene, at, null, label, parent, offset);
+            await _rig.PlaceInVenueAsync(Venue, scene, at, null, label, parent, offset, Space);
             Refresh();
         }
 

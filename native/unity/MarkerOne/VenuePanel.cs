@@ -31,6 +31,8 @@ namespace MarkerOne.Unity
 
         private VenueRig _venue;
         private string _name = "";
+        private string _space = "";
+        private string _room = "";
         private string _said = "";
         private bool _busy;
         private float _rescan;
@@ -75,7 +77,7 @@ namespace MarkerOne.Unity
 
         private void OnGUI()
         {
-            if (!Open || _venue == null || SignInScreen.Blocking)
+            if (!Open || _venue == null || SignInScreen.Blocking || ModeMenu.Blocking)
             {
                 Occupied = new Rect();
                 return;
@@ -89,7 +91,7 @@ namespace MarkerOne.Unity
             float pad = _text.fontSize;
 
             float width = Mathf.Min(safe.width - pad * 2, _text.fontSize * 26);
-            float height = line * 10 + pad * 2;
+            float height = line * 13 + pad * 2;
 
             var panel = new Rect(safe.x + (safe.width - width) * 0.5f,
                                  Mathf.Max(MarkerOneHud.Occupied.yMax + pad,
@@ -124,13 +126,47 @@ namespace MarkerOne.Unity
             // Adding markers is the organizer's job and the only part of this
             // that has to be done in the right order: each new marker is
             // measured through the frame the ones before it pinned.
+            // A building, and a room in it. Both optional: a single room needs
+            // no building name, and a venue that is one room is the common case.
+            float half = (row.width - pad) / 2;
+            GUI.Label(new Rect(row.x, row.y, half, line), "Building", _text);
+            GUI.Label(new Rect(row.x + half + pad, row.y, half, line), "New room", _text);
+
+            row.y += line;
+            _space = GUI.TextField(new Rect(row.x, row.y, half, line), _space, 64, _field);
+            _room = GUI.TextField(new Rect(row.x + half + pad, row.y, half, line),
+                                  _room, 64, _field);
+
+            row.y += line * 1.3f;
+
             foreach (string marker in _venue.InView())
             {
                 bool known = _venue.Knows(marker);
-                string what = known ? marker + " · known" : "Add " + marker;
 
-                if (_busy) { GUI.Label(row, what, _text); }
-                else if (GUI.Button(row, what, _button) && !known) { Add(marker); }
+                if (_busy) { GUI.Label(row, "…", _text); }
+                else if (known)
+                {
+                    GUI.Label(row, marker + " · this room already knows it", _text);
+                }
+                else
+                {
+                    // Two quite different things to do with an unrecorded
+                    // marker, and the difference matters more than it looks.
+                    // Adding measures it through the frame this room is already
+                    // pinned by, which means the walk here is part of the
+                    // answer; starting a room begins from zero at this piece of
+                    // paper, however far away the last one is.
+                    var left = new Rect(row.x, row.y, half, line);
+                    var right = new Rect(row.x + half + pad, row.y, half, line);
+
+                    if (!string.IsNullOrEmpty(_venue.Venue) &&
+                        GUI.Button(left, "Add to this room", _button))
+                    {
+                        Add(marker);
+                    }
+
+                    if (GUI.Button(right, "Start room here", _button)) { Start(marker); }
+                }
 
                 row.y += line * 1.1f;
                 break;
@@ -209,11 +245,37 @@ namespace MarkerOne.Unity
                      + "Nothing is drawn until one of them says where this venue is.";
             }
 
+            if (!string.IsNullOrEmpty(_venue.Space) && _space != _venue.Space)
+            {
+                _space = _venue.Space;
+            }
+
             return string.Format("{0}{1} · {2} items · pinned to {3} {4:0}s ago · {5}/{6} markers",
                                  _venue.Venue,
                                  _venue.Entered == null ? "" : " (found by " + _venue.Entered + ")",
                                  _venue.Items, _venue.PinnedTo, _venue.PinnedSecondsAgo,
                                  _venue.Seen, _venue.Markers);
+        }
+
+        private async void Start(string marker)
+        {
+            if (string.IsNullOrEmpty(_room.Trim()))
+            {
+                _said = "give the room a name first";
+                return;
+            }
+
+            _busy = true;
+            _said = "starting…";
+
+            try
+            {
+                await _venue.StartRoomAsync(_space.Trim(), _room.Trim(), marker);
+                _said = _room.Trim() + " started";
+                _room = "";
+            }
+            catch (System.Exception e) { _said = e.Message; }
+            finally { _busy = false; }
         }
 
         private async void Add(string marker)

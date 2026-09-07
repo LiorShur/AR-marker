@@ -43,6 +43,32 @@ solid block in one corner is what makes which-way-up unambiguous.
 Substitute your own images if you like; they must be feature-rich, matte rather
 than glossy, and mounted flat.
 
+## Rooms, and the building they are in
+
+A venue is a room. A building is a set of them, named by a **Building** field
+they share.
+
+Rooms are separate venues rather than one large one because each needs its own
+frame. Tracking drifts about one per cent of the distance walked, so a marker in
+a far room recorded by walking to it carries the whole walk's error, and
+everything placed from that frame inherits it. A room started at its own marker
+begins from zero however far from the last one it is.
+
+So the panel offers two things for a marker it does not know, and the difference
+matters more than it looks:
+
+**Add to this room** measures the marker through the frame this room is already
+pinned by. Use it for a second marker in a large hall, and walk there without
+losing tracking — the walk is part of the answer.
+
+**Start room here** begins a new room at this piece of paper, at zero. Use it
+for the next room, the next floor, or anywhere the walk would be long enough to
+matter. Fill in **Building** and **New room** first.
+
+Scanning any marker still takes you to whichever room it belongs to, so once a
+building is set up, walking it needs nothing but pointing the phone at each
+door.
+
 ## The organizer walks it once
 
 1. **Venue** on the readout, type a name, **Enter**. A new name starts a venue.

@@ -557,6 +557,31 @@ time and cannot check for a cycle, so the depth cap is what stops a chain that
 loops — at the cost of a structure that never draws rather than an app that
 hangs.
 
+### The three modes
+
+Signing in is followed by one question — where are you — because the three
+answers are not settings on one thing. They are three different answers to "how
+does this app know where something is", and each is right where the others are
+useless:
+
+**Outdoors** anchors to the Earth: half a metre in a city, worse in open
+country, nothing at all indoors.
+
+**Indoors, this session** keeps nothing. Indoors there is no fix worth storing —
+geospatial reports about ±9 m in a room — so this holds things steady while you
+work and forgets them when the app closes. No setup, nothing to print.
+
+**Venue** pins to printed markers: centimetres, repeatable, shared. See
+`VENUES.md`.
+
+The mode is asked once per launch and never remembered, because which one is
+right depends on where somebody is standing and where they stood yesterday is no
+guide. It is changed any time from **Mode** on the readout.
+
+That question exists because of the failure that came up most in testing:
+standing indoors in the outdoor mode, where everything works, nothing complains,
+and the placements come back metres away tomorrow.
+
 ### Indoors
 
 Geospatial needs sky and street imagery and has neither in a hall, so indoors is

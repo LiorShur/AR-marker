@@ -124,7 +124,7 @@ namespace MarkerOne.Unity
             // Nothing behind the sign-in screen, which is opaque: drawing
             // underneath it costs a layout pass to produce something nobody can
             // see, and gets the buttons pressed by taps meant for it.
-            if (SignInScreen.Blocking)
+            if (SignInScreen.Blocking || ModeMenu.Blocking)
             {
                 Occupied = new Rect();
                 return;
@@ -211,12 +211,17 @@ namespace MarkerOne.Unity
             var venue = new Rect(occlusion.xMax + lineHeight * 0.4f, box.yMax + 6,
                                  lineHeight * 4, lineHeight * 1.5f);
             if (GUI.Button(venue, "Venue", _button)) { VenuePanel.Open = !VenuePanel.Open; }
+
+            var mode = new Rect(venue.xMax + lineHeight * 0.4f, box.yMax + 6,
+                                lineHeight * 4, lineHeight * 1.5f);
+            if (GUI.Button(mode, "Mode", _button)) { ModeMenu.Open = !ModeMenu.Open; }
         }
 
         private string Body()
         {
             _text.Length = 0;
 
+            _text.Append("Mode   ").Append(AppMode.Called(AppMode.Now)).Append('\n');
             _text.Append("Build  ").Append(Build.Stamp).Append('\n');
             _text.Append("AR     ").Append(ARSession.state).Append('\n');
 

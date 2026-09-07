@@ -106,7 +106,7 @@ service cloud.firestore {
     return data.keys().hasOnly([
              'geopose', 'geohash', 'scene', 'scale', 'fix', 'groundOffset',
              'label', 'author', 'visibility', 'owner', 'createdAt',
-             'parent', 'local', 'venue', 'at', 'marker'
+             'parent', 'local', 'venue', 'at', 'marker', 'space'
            ])
            && data.keys().hasAll(['geopose', 'geohash', 'scene', 'scale', 'visibility', 'owner'])
            && isGeoPose(data.geopose)
@@ -163,7 +163,10 @@ service cloud.firestore {
                && data.at.rotation.z is number && data.at.rotation.w is number
                && (!('marker' in data.keys()) ||
                    (data.marker is string
-                    && data.marker.size() > 0 && data.marker.size() <= 64)));
+                    && data.marker.size() > 0 && data.marker.size() <= 64))
+               && (!('space' in data.keys()) ||
+                   (data.space is string
+                    && data.space.size() > 0 && data.space.size() <= 64)));
   }
 
   /* A piece of something larger, rather than a thing on its own.

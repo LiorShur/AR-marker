@@ -1320,7 +1320,7 @@ namespace MarkerOne.Unity
         /// </summary>
         public async Task<Placement> PlaceInVenueAsync(string venue, string scene,
             Attachment at, string marker = null, string label = "",
-            string parent = null, Attachment offset = null)
+            string parent = null, Attachment offset = null, string space = null)
         {
             if (!(_store is FirestorePlacementStore store))
             {
@@ -1338,6 +1338,7 @@ namespace MarkerOne.Unity
                 Venue = venue,
                 At = at,
                 Marker = marker,
+                Space = space,
                 Parent = parent,
                 Offset = offset,
                 Fix = new FixQuality { Provider = "venue", PositionM = 0, HeadingDeg = 0 }

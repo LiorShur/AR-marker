@@ -61,6 +61,7 @@ namespace MarkerOne.Unity
         private string _moving;
 
         private VenueRig _venue;
+        private SketchRig _sketch;
 
         /// <summary>Which face of the parent the next piece goes on, or Free to
         /// put it where the crosshair is.</summary>
@@ -111,6 +112,7 @@ namespace MarkerOne.Unity
                     if (_rig != null) { _rig.Placed += OnPlaced; }
                 }
                 if (_venue == null) { _venue = FindFirstObjectByType<VenueRig>(); }
+                if (_sketch == null) { _sketch = FindFirstObjectByType<SketchRig>(); }
                 if (_raycaster == null) { _raycaster = FindFirstObjectByType<ARRaycastManager>(); }
                 if (_camera == null) { _camera = Camera.main; }
             }
@@ -145,7 +147,9 @@ namespace MarkerOne.Unity
             // until this looked at both the crosshair could not see a single
             // thing indoors and the bar offered nothing for any of it.
             IEnumerable<KeyValuePair<string, GameObject>> world =
-                Indoors() ? _venue.Objects : _rig.Objects;
+                Venued() ? _venue.Objects
+                         : Sketching() ? _sketch.Objects
+                                       : _rig.Objects;
 
             foreach (KeyValuePair<string, GameObject> entry in world)
             {
@@ -304,6 +308,33 @@ namespace MarkerOne.Unity
             Erase(_selected);
         }
 
+        /// <summary>A sketch is this device's alone, so there is nothing to
+        /// check about who may edit it.</summary>
+        private void Sketched(Rect row, float w, float pad)
+        {
+            if (GUI.Button(row, "Move", _button))
+            {
+                _adjusting = true;
+                _moving = _selected;
+                Say("aim at where it belongs");
+            }
+
+            row.x += w + pad;
+            if (GUI.Button(row, "Build on", _button))
+            {
+                _building = _selected;
+                Say("aim where the next piece goes");
+            }
+
+            row.x += w + pad;
+            if (GUI.Button(row, "Delete", _button))
+            {
+                _sketch.Remove(_selected);
+                _selected = null;
+                Say("gone");
+            }
+        }
+
         private async void Erase(string id)
         {
             Say("removing…");
@@ -340,8 +371,22 @@ namespace MarkerOne.Unity
             string scene = SceneId();
             if (string.IsNullOrEmpty(scene)) { Say("no scenes configured on the rig"); return; }
 
-            bool indoors = Indoors();
+            bool indoors = Venued();
             var facing = Quaternion.Euler(0, Facing(), 0);
+
+            if (Sketching())
+            {
+                string on = _building;
+                _building = null;
+
+                bool done = _face == MarkerOneRig.Face.Free
+                    ? _sketch.Attach(on, scene, _target, facing, _label) != null
+                    : _sketch.Snap(on, scene, _face, Gaps[_gap % Gaps.Length], _label);
+
+                Say(done ? "built on it" : "could not work out where that goes");
+                return;
+            }
+
 
             Attachment offset = _face == MarkerOneRig.Face.Free
                 ? (indoors ? _venue.OffsetFor(_building, _target, facing)
@@ -367,7 +412,14 @@ namespace MarkerOne.Unity
         /// <summary>Whether what is being aimed at and placed lives in a venue.
         /// One question asked in one place, because getting it wrong means
         /// writing a placement into the wrong world entirely.</summary>
-        private bool Indoors() => _venue != null && _venue.Active;
+        /// <summary>
+        /// Which world this is placing into. Three of them now, and getting the
+        /// answer wrong writes a placement into a frame it does not belong in.
+        /// </summary>
+        private bool Venued() => AppMode.Now == AppMode.Working.Venue &&
+                                 _venue != null && _venue.Active;
+
+        private bool Sketching() => AppMode.Now == AppMode.Working.Indoors && _sketch != null;
 
         /// <summary>
         /// Put it in the venue rather than on the Earth.
@@ -431,9 +483,18 @@ namespace MarkerOne.Unity
         {
             if (_rig == null) { Say("no rig in scene"); return; }
 
-            if (Indoors())
+            if (Venued())
             {
                 InVenue();
+                return;
+            }
+
+            if (Sketching())
+            {
+                Quaternion facing = Quaternion.Euler(0, Facing(), 0);
+                Say(_sketch.Place(scene, _target, facing, _label) != null
+                    ? "placed for this session"
+                    : "no prefab for " + scene);
                 return;
             }
 
@@ -495,7 +556,7 @@ namespace MarkerOne.Unity
             // Nothing to place until somebody has signed in. The bar drawn
             // underneath a screen that must be answered first is an invitation
             // to do work that will be refused.
-            if (SignInScreen.Blocking) { return; }
+            if (SignInScreen.Blocking || ModeMenu.Blocking) { return; }
 
             EnsureStyles();
 
@@ -545,7 +606,11 @@ namespace MarkerOne.Unity
                     // Whichever world the move started in is the one it lands
                     // in: a venue pose and a coordinate are not interchangeable,
                     // and writing either into the other is a placement lost.
-                    if (Indoors()) { Shift(what); }
+                    if (Venued()) { Shift(what); }
+                    else if (Sketching())
+                    {
+                        _sketch.Move(what, _target, Quaternion.Euler(0, Facing(), 0));
+                    }
                     else { _rig.Adjust(what, _target, Facing()); }
                     _adjusting = false;
                     _moving = null;
@@ -598,9 +663,15 @@ namespace MarkerOne.Unity
             // top of the first, which is never what was meant.
             if (_selected != null)
             {
-                if (Indoors())
+                if (Venued())
                 {
                     Inside(row, w, pad);
+                    return;
+                }
+
+                if (Sketching())
+                {
+                    Sketched(row, w, pad);
                     return;
                 }
 
@@ -648,10 +719,11 @@ namespace MarkerOne.Unity
             // Which world this goes into, said on the button that does it. A
             // venue is remembered across launches, so somebody who set one up
             // last week is in it today without anything having said so.
-            bool indoors = Indoors();
+            string into = Venued() ? "Place in " + _venue.Venue
+                                   : Sketching() ? "Place (session)" : "Place";
 
             row.x += w + pad;
-            if (GUI.Button(row, indoors ? "Place in " + _venue.Venue : "Place", _button))
+            if (GUI.Button(row, into, _button))
             {
                 Place();
             }
@@ -785,7 +857,8 @@ namespace MarkerOne.Unity
         /// </summary>
         private string Describe(string id)
         {
-            if (Indoors()) { return Indoor(id); }
+            if (Venued()) { return Indoor(id); }
+            if (Sketching()) { return _sketch.Describe(id); }
 
             PlacedItem item = _rig.Info(id);
             if (item == null) { return "aiming at a placement"; }
