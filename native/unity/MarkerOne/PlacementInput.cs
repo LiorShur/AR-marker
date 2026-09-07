@@ -62,6 +62,7 @@ namespace MarkerOne.Unity
 
         private VenueRig _venue;
         private SketchRig _sketch;
+        private SurveyPanel _survey;
 
         /// <summary>Which face of the parent the next piece goes on, or Free to
         /// put it where the crosshair is.</summary>
@@ -113,6 +114,7 @@ namespace MarkerOne.Unity
                 }
                 if (_venue == null) { _venue = FindFirstObjectByType<VenueRig>(); }
                 if (_sketch == null) { _sketch = FindFirstObjectByType<SketchRig>(); }
+                if (_survey == null) { _survey = FindFirstObjectByType<SurveyPanel>(); }
                 if (_raycaster == null) { _raycaster = FindFirstObjectByType<ARRaycastManager>(); }
                 if (_camera == null) { _camera = Camera.main; }
             }
@@ -723,6 +725,21 @@ namespace MarkerOne.Unity
             // Which world this goes into, said on the button that does it. A
             // venue is remembered across launches, so somebody who set one up
             // last week is in it today without anything having said so.
+            // Surveying takes over the middle of the bar. Placing a beacon
+            // while halfway through measuring a door is not a thing anybody
+            // means to do, and the crosshair can only be aimed at one thing.
+            if (SurveyPanel.Open && _survey != null)
+            {
+                row.x += w + pad;
+                if (GUI.Button(new Rect(row.x, row.y, w * 2 + pad, row.height),
+                               "Measure", _button))
+                {
+                    _survey.Measure(_target);
+                }
+
+                return;
+            }
+
             string into = Venued() ? "Place in " + _venue.Venue
                                    : Sketching() ? "Place (session)" : "Place";
 

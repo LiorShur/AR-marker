@@ -215,6 +215,10 @@ namespace MarkerOne.Unity
             var mode = new Rect(venue.xMax + lineHeight * 0.4f, box.yMax + 6,
                                 lineHeight * 4, lineHeight * 1.5f);
             if (GUI.Button(mode, "Mode", _button)) { ModeMenu.Open = !ModeMenu.Open; }
+
+            var survey = new Rect(mode.xMax + lineHeight * 0.4f, box.yMax + 6,
+                                  lineHeight * 4, lineHeight * 1.5f);
+            if (GUI.Button(survey, "Survey", _button)) { SurveyPanel.Open = !SurveyPanel.Open; }
         }
 
         private string Body()

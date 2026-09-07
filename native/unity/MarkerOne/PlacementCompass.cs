@@ -140,6 +140,10 @@ namespace MarkerOne.Unity
             {
                 top = Mathf.Max(top, MarkerOneHud.Occupied.yMax + margin);
             }
+            if (SurveyPanel.Occupied.height > 0)
+            {
+                top = Mathf.Max(top, SurveyPanel.Occupied.yMax + margin);
+            }
             if (SignInScreen.Occupied.height > 0)
             {
                 floor = Mathf.Min(floor, SignInScreen.Occupied.yMin - margin);

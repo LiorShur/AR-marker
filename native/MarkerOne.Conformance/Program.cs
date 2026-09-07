@@ -62,6 +62,8 @@ internal static class Program
         Console.WriteLine("\n  coordinate field");
         CoordinateTests.Run(Check);
 
+        AccessTests.Run(Check);
+
         Console.WriteLine("\n  placement store");
         await StoreTests.Run(Check);
 

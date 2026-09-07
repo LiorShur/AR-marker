@@ -601,6 +601,13 @@ app, not the script. Two things can: an admin, listed by verified email in
 `isAdmin()` in `firestore.rules`, or the first person to stand in front of it
 and correct it, which is what seeds are for.
 
+### Surveying
+
+`native/SURVEY.md`. Measuring a room against a written accessibility requirement
+and drawing what the standard asks for where it asks for it. The figures shipped
+are an unverified draft — read the warning at the top of that file before
+trusting one.
+
 ### What it achieves, measured
 
 Cape Town, on an iPhone 12 Pro, placements checked across app restarts:
