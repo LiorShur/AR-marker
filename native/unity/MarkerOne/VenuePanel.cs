@@ -165,7 +165,7 @@ namespace MarkerOne.Unity
                         Add(marker);
                     }
 
-                    if (GUI.Button(right, "Start room here", _button)) { Start(marker); }
+                    if (GUI.Button(right, "Start room here", _button)) { Begin(marker); }
                 }
 
                 row.y += line * 1.1f;
@@ -257,7 +257,13 @@ namespace MarkerOne.Unity
                                  _venue.Seen, _venue.Markers);
         }
 
-        private async void Start(string marker)
+        /// <summary>
+        /// Deliberately not called Start. That is one of Unity's own message
+        /// names, and a MonoBehaviour declaring one that takes an argument is
+        /// refused at load rather than at compile — so the whole panel simply
+        /// does not run, with the error naming the method and not the reason.
+        /// </summary>
+        private async void Begin(string marker)
         {
             if (string.IsNullOrEmpty(_room.Trim()))
             {
