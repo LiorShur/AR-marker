@@ -25,19 +25,46 @@ namespace MarkerOne.Unity
     /// </summary>
     public sealed class MarkerOneHud : MonoBehaviour
     {
-        /// <summary>Toggled by the on-screen button; static so a real UI can
-        /// hide the diagnostic without holding a reference to it.</summary>
-        public static bool Visible = true;
+        /// <summary>
+        /// Toggled by the on-screen button; static so a real UI can hide the
+        /// diagnostic without holding a reference to it.
+        ///
+        /// Closed to begin with. It was open by default back when there was no
+        /// interface at all and this was the only thing on the screen — now
+        /// there is one, and a diagnostic that takes the top third of a phone
+        /// before anybody asks for it is in the way of the app rather than in
+        /// service of it.
+        /// </summary>
+        public static bool Visible;
 
-        /// <summary>What this is covering, so nothing else draws underneath it.
-        /// Empty while hidden.</summary>
+        /// <summary>
+        /// What this is covering, so the compass can keep its arrows clear.
+        /// Empty while hidden.
+        ///
+        /// Deliberately not consulted by the panels any more. It floats over
+        /// them rather than displacing them: opening it to read a line of state
+        /// used to shove everything down the screen and off the bottom, which
+        /// is a strange thing for a diagnostic to do to the app it is
+        /// diagnosing.
+        /// </summary>
         public static Rect Occupied;
+
+        /// <summary>
+        /// Just the row of buttons, which is there whether the readout is open
+        /// or shut.
+        ///
+        /// What the panels sit below. They keep clear of this and not of
+        /// Occupied, which is the whole of "floats over rather than displaces":
+        /// a short row of controls is worth making room for, a diagnostic
+        /// somebody opened for a moment is not.
+        /// </summary>
+        public static Rect Buttons;
 
 #if !MARKERONE_NO_HUD
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Install()
         {
-            Visible = true;
+            Visible = false;
             var go = new GameObject("MarkerOne HUD");
             go.AddComponent<MarkerOneHud>();
             DontDestroyOnLoad(go);
@@ -127,10 +154,14 @@ namespace MarkerOne.Unity
             if (SignInScreen.Blocking || ModeMenu.Blocking)
             {
                 Occupied = new Rect();
+                Buttons = new Rect();
                 return;
             }
 
-            GUI.depth = 0;
+            // Above the panels rather than behind them, which is what makes
+            // floating over them work: something that overlaps and loses is
+            // just something you cannot read.
+            GUI.depth = -700;
 
             EnsureStyles();
 
@@ -142,12 +173,13 @@ namespace MarkerOne.Unity
             float top = Screen.height - (safe.y + safe.height) + 8;
             float lineHeight = _style.fontSize * 1.35f;
 
+            // The controls are the app's, not the diagnostic's. They ended up
+            // in this row by accretion and collapsing them along with the state
+            // would hide Venue, Mode and Survey behind a button labelled
+            // "state" — which is where nobody would look for them.
             if (!Visible)
             {
-                var collapsed = new Rect(left, top, lineHeight * 4, lineHeight * 1.6f);
-                Occupied = collapsed;
-
-                if (GUI.Button(collapsed, "▸ state", _button)) { Visible = true; }
+                Controls(left, top, safe.width - 16, lineHeight);
                 return;
             }
 
@@ -178,52 +210,15 @@ namespace MarkerOne.Unity
             GUI.DrawTexture(box, _panel);
             GUI.Label(new Rect(box.x + 8, box.y + 8, box.width - 16, box.height - 16), body, _style);
 
-            if (GUI.Button(new Rect(box.xMax - lineHeight * 2.2f, box.y, lineHeight * 2.2f,
-                                    lineHeight * 1.4f), "×", _button))
-            {
-                Visible = false;
-            }
-
             // Dropping a pin is not placing: it writes a coordinate somebody
             // read off a map, and needs no localization at all. So it lives
             // here rather than in the placement bar, which is about the thing
             // in front of you.
-            // Laid out rather than positioned. Five buttons at fixed widths ran
-            // off the side of a phone held in portrait, and each one added
-            // since has made that worse — so they wrap, and the row grows
-            // downwards instead of past the edge.
-            var row = new Row(box.x, box.yMax + 6, box.width, lineHeight);
-
-            if (GUI.Button(row.Next(4f), MapPin.Open ? "Hide pin" : "Drop pin", _button))
-            {
-                MapPin.Open = !MapPin.Open;
-            }
-
-            // Occlusion is a judgement rather than a setting: it makes a
-            // placement behind a wall correctly invisible, and it also eats the
-            // edges of one standing in front of a surface. Which of those
-            // matters more depends on where you are, so it belongs on a button
-            // rather than in a file.
-            Occlusion(row.Next(4.4f));
-
-            // Indoors is a different mode rather than a different app: the same
-            // content, the same bar, a frame pinned by paper instead of by the
-            // Earth.
-            if (GUI.Button(row.Next(4f), "Venue", _button))
-            {
-                VenuePanel.Open = !VenuePanel.Open;
-            }
-
-            if (GUI.Button(row.Next(3.6f), "Mode", _button)) { ModeMenu.Open = !ModeMenu.Open; }
-
-            if (GUI.Button(row.Next(4f), "Survey", _button))
-            {
-                SurveyPanel.Open = !SurveyPanel.Open;
-            }
+            var after = Controls(box.x, box.yMax + 6, box.width, lineHeight);
 
             // What the readout is covering, buttons and all — however many
             // lines they ended up taking.
-            Occupied = new Rect(box.x, box.y, box.width, row.Bottom - box.y + 6);
+            Occupied = new Rect(box.x, box.y, box.width, after - box.y + 6);
         }
 
         private string Body()
@@ -418,6 +413,55 @@ namespace MarkerOne.Unity
                 sb.Append(line).Append('\n');
             }
             return sb;
+        }
+
+        /// <summary>
+        /// The row of things to press, wherever the readout happens to be.
+        ///
+        /// Laid out rather than positioned: five buttons at fixed widths ran off
+        /// the side of a phone held in portrait, and each one added since made
+        /// that worse, because every button was placed relative to the last with
+        /// nothing checking where the last one ended.
+        /// </summary>
+        private float Controls(float left, float top, float width, float lineHeight)
+        {
+            var row = new Row(left, top, width, lineHeight);
+
+            if (GUI.Button(row.Next(3.4f), Visible ? "Hide" : "State", _button))
+            {
+                Visible = !Visible;
+            }
+
+            if (GUI.Button(row.Next(4f), MapPin.Open ? "Hide pin" : "Drop pin", _button))
+            {
+                MapPin.Open = !MapPin.Open;
+            }
+
+            // Occlusion is a judgement rather than a setting: it makes a
+            // placement behind a wall correctly invisible, and it also eats the
+            // edges of one standing in front of a surface. Which of those
+            // matters more depends on where you are, so it belongs on a button
+            // rather than in a file.
+            Occlusion(row.Next(4.4f));
+
+            // Indoors is a different mode rather than a different app: the same
+            // content, the same bar, a frame pinned by paper instead of by the
+            // Earth.
+            if (GUI.Button(row.Next(4f), "Venue", _button))
+            {
+                VenuePanel.Open = !VenuePanel.Open;
+            }
+
+            if (GUI.Button(row.Next(3.6f), "Mode", _button)) { ModeMenu.Open = !ModeMenu.Open; }
+
+            if (GUI.Button(row.Next(4f), "Survey", _button))
+            {
+                SurveyPanel.Open = !SurveyPanel.Open;
+            }
+
+            Buttons = new Rect(left, top, width, row.Bottom - top);
+            Occupied = Buttons;
+            return row.Bottom;
         }
 
         /// <summary>

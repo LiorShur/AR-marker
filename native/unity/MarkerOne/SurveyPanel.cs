@@ -83,7 +83,10 @@ namespace MarkerOne.Unity
             // contents want. The readout is above and the account chip and the
             // control bar are below, and a panel that ignores them runs off the
             // bottom of the phone and takes its own buttons with it.
-            float top = Mathf.Max(MarkerOneHud.Occupied.yMax + pad,
+            // Below the button row, which is always there, and not below the
+            // readout, which is not — it floats over this rather than pushing
+            // it down the screen and off the bottom.
+            float top = Mathf.Max(MarkerOneHud.Buttons.yMax + pad,
                                   Screen.height - (safe.y + safe.height) + pad);
 
             float floor = Screen.height - safe.y - pad;
@@ -249,6 +252,10 @@ namespace MarkerOne.Unity
             }
             return 0;
         }
+
+        /// <summary>Whether one point of a pair is already down, so the bar can
+        /// say which side is being asked for.</summary>
+        public bool Half => _survey != null && _survey.Half;
 
         /// <summary>Called by the placement bar, which owns the crosshair.</summary>
         public void Measure(Vector3 where)

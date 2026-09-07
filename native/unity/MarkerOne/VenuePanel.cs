@@ -95,7 +95,10 @@ namespace MarkerOne.Unity
             // Kept inside what is free, for the same reason as the survey
             // panel: the readout above it grows when its buttons wrap, and the
             // chip and the control bar own the bottom.
-            float top = Mathf.Max(MarkerOneHud.Occupied.yMax + pad,
+            // Below the button row, which is always there, and not below the
+            // readout, which is not — it floats over this rather than pushing
+            // it down the screen and off the bottom.
+            float top = Mathf.Max(MarkerOneHud.Buttons.yMax + pad,
                                   Screen.height - (safe.y + safe.height) + pad);
 
             float floor = Screen.height - safe.y - pad;

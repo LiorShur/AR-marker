@@ -664,6 +664,22 @@ namespace MarkerOne.Unity
                 return;
             }
 
+            // Surveying takes the whole bar, before anything else gets a say.
+            // It was previously offered after the scene and the label and after
+            // the branch for having something selected — so aiming at anything
+            // at all hid the one button the survey needs, and the survey panel
+            // sitting over the bar hid it the rest of the time.
+            if (SurveyPanel.Open && _survey != null)
+            {
+                if (GUI.Button(new Rect(row.x, row.y, w * 2 + pad, row.height),
+                               _survey.Half ? "Measure the far side" : "Measure", _button))
+                {
+                    _survey.Measure(_target);
+                }
+
+                return;
+            }
+
             // Aiming at something changes what the bar is for. Aiming at a
             // placement and pressing Place would otherwise put a second one on
             // top of the first, which is never what was meant.
@@ -725,21 +741,6 @@ namespace MarkerOne.Unity
             // Which world this goes into, said on the button that does it. A
             // venue is remembered across launches, so somebody who set one up
             // last week is in it today without anything having said so.
-            // Surveying takes over the middle of the bar. Placing a beacon
-            // while halfway through measuring a door is not a thing anybody
-            // means to do, and the crosshair can only be aimed at one thing.
-            if (SurveyPanel.Open && _survey != null)
-            {
-                row.x += w + pad;
-                if (GUI.Button(new Rect(row.x, row.y, w * 2 + pad, row.height),
-                               "Measure", _button))
-                {
-                    _survey.Measure(_target);
-                }
-
-                return;
-            }
-
             string into = Venued() ? "Place in " + _venue.Venue
                                    : Sketching() ? "Place (session)" : "Place";
 
