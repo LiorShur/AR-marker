@@ -35,6 +35,7 @@ namespace MarkerOne.Unity
         private float _rescan;
         private bool _list;
         private string _said = "";
+        private Vector2 _scroll;
 
         private GUIStyle _text;
         private GUIStyle _dim;
@@ -77,27 +78,58 @@ namespace MarkerOne.Unity
             float pad = _text.fontSize;
 
             float width = Mathf.Min(safe.width - pad * 2, _text.fontSize * 30);
-            float height = _list ? line * 14 + pad * 2 : line * 11 + pad * 2;
 
-            var panel = new Rect(safe.x + (safe.width - width) * 0.5f,
-                                 Mathf.Max(MarkerOneHud.Occupied.yMax + pad,
-                                           Screen.height - (safe.y + safe.height) + line),
-                                 width, height);
+            // Fitted into what is actually free rather than sized to what the
+            // contents want. The readout is above and the account chip and the
+            // control bar are below, and a panel that ignores them runs off the
+            // bottom of the phone and takes its own buttons with it.
+            float top = Mathf.Max(MarkerOneHud.Occupied.yMax + pad,
+                                  Screen.height - (safe.y + safe.height) + pad);
+
+            float floor = Screen.height - safe.y - pad;
+            if (PlacementInput.Occupied.height > 0)
+            {
+                floor = Mathf.Min(floor, PlacementInput.Occupied.yMin - pad);
+            }
+            if (SignInScreen.Occupied.height > 0)
+            {
+                floor = Mathf.Min(floor, SignInScreen.Occupied.yMin - pad);
+            }
+
+            float wants = (_list ? line * (3 + _survey.Checks.Count) : line * 11) + pad * 2;
+            float height = Mathf.Min(wants, Mathf.Max(line * 6 + pad * 2, floor - top));
+
+            var panel = new Rect(safe.x + (safe.width - width) * 0.5f, top, width, height);
             Occupied = panel;
 
             GUI.DrawTexture(panel, _panel);
 
-            var row = new Rect(panel.x + pad, panel.y + pad, panel.width - pad * 2, line);
+            // The buttons along the bottom are the fixed part; everything above
+            // them scrolls, because eight checks and a long instruction do not
+            // fit a phone and are not worth cutting off.
+            var close = new Rect(panel.x + pad, panel.yMax - pad - line,
+                                 _text.fontSize * 6, line);
+
+            var inside = new Rect(panel.x + pad, panel.y + pad,
+                                  panel.width - pad * 2, close.y - panel.y - pad * 1.5f);
+
+            var content = new Rect(0, 0, inside.width - pad, wants - pad * 2);
+            _scroll = GUI.BeginScrollView(inside, _scroll, content);
+
+            var row = new Rect(0, 0, content.width, line);
 
             if (_list) { List(ref row, line, pad); }
             else { One(ref row, line, pad); }
 
-            var close = new Rect(panel.x + pad, panel.yMax - pad - line,
-                                 _text.fontSize * 6, line);
+            GUI.EndScrollView();
             if (GUI.Button(close, "Close", _button)) { Open = false; }
 
             var swap = new Rect(close.xMax + pad, close.y, _text.fontSize * 7, line);
-            if (GUI.Button(swap, _list ? "This one" : "All of them", _button)) { _list = !_list; }
+            if (GUI.Button(swap, _list ? "This one" : "All of them", _button))
+            {
+                _list = !_list;
+                _scroll = Vector2.zero;
+            }
 
             var reset = new Rect(swap.xMax + pad, close.y, _text.fontSize * 6, line);
             if (GUI.Button(reset, "Start over", _button))
@@ -145,7 +177,7 @@ namespace MarkerOne.Unity
             float third = (row.width - pad * 2) / 3;
             var cell = new Rect(row.x, row.y, third, line);
 
-            if (GUI.Button(cell, "Back", _button)) { _survey.Back(); }
+            if (GUI.Button(cell, "Back", _button)) { _survey.Back(); _scroll = Vector2.zero; }
 
             cell.x += third + pad;
 
@@ -164,7 +196,12 @@ namespace MarkerOne.Unity
             GUI.Label(cell, _said, _dim);
 
             cell.x += third + pad;
-            if (GUI.Button(cell, "Next", _button)) { _survey.Next(); _said = ""; }
+            if (GUI.Button(cell, "Next", _button))
+            {
+                _survey.Next();
+                _said = "";
+                _scroll = Vector2.zero;
+            }
         }
 
         private static string Prompt(AccessCheck check)
@@ -197,6 +234,7 @@ namespace MarkerOne.Unity
                 {
                     _survey.Go(IndexOf(check));
                     _list = false;
+                    _scroll = Vector2.zero;
                 }
 
                 row.y += line * 1.05f;

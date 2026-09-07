@@ -13,6 +13,6 @@ namespace MarkerOne.Unity
     /// </summary>
     public static class Build
     {
-        public const string Stamp = "b15 · survey";
+        public const string Stamp = "b16 · fits the screen";
     }
 }

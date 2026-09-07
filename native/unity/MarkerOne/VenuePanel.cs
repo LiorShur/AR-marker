@@ -91,12 +91,27 @@ namespace MarkerOne.Unity
             float pad = _text.fontSize;
 
             float width = Mathf.Min(safe.width - pad * 2, _text.fontSize * 26);
-            float height = line * 13 + pad * 2;
 
-            var panel = new Rect(safe.x + (safe.width - width) * 0.5f,
-                                 Mathf.Max(MarkerOneHud.Occupied.yMax + pad,
-                                           Screen.height - (safe.y + safe.height) + line),
-                                 width, height);
+            // Kept inside what is free, for the same reason as the survey
+            // panel: the readout above it grows when its buttons wrap, and the
+            // chip and the control bar own the bottom.
+            float top = Mathf.Max(MarkerOneHud.Occupied.yMax + pad,
+                                  Screen.height - (safe.y + safe.height) + pad);
+
+            float floor = Screen.height - safe.y - pad;
+            if (PlacementInput.Occupied.height > 0)
+            {
+                floor = Mathf.Min(floor, PlacementInput.Occupied.yMin - pad);
+            }
+            if (SignInScreen.Occupied.height > 0)
+            {
+                floor = Mathf.Min(floor, SignInScreen.Occupied.yMin - pad);
+            }
+
+            float height = Mathf.Min(line * 13 + pad * 2,
+                                     Mathf.Max(line * 7 + pad * 2, floor - top));
+
+            var panel = new Rect(safe.x + (safe.width - width) * 0.5f, top, width, height);
             Occupied = panel;
 
             GUI.DrawTexture(panel, _panel);

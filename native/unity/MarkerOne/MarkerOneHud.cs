@@ -174,8 +174,6 @@ namespace MarkerOne.Unity
 
             var box = new Rect(left, top, width, height);
 
-            // Plus the row of buttons that sits under it.
-            Occupied = new Rect(box.x, box.y, box.width, box.height + lineHeight * 1.5f + 6);
 
             GUI.DrawTexture(box, _panel);
             GUI.Label(new Rect(box.x + 8, box.y + 8, box.width - 16, box.height - 16), body, _style);
@@ -190,8 +188,13 @@ namespace MarkerOne.Unity
             // read off a map, and needs no localization at all. So it lives
             // here rather than in the placement bar, which is about the thing
             // in front of you.
-            var pin = new Rect(box.x, box.yMax + 6, lineHeight * 4, lineHeight * 1.5f);
-            if (GUI.Button(pin, MapPin.Open ? "Hide pin" : "Drop pin", _button))
+            // Laid out rather than positioned. Five buttons at fixed widths ran
+            // off the side of a phone held in portrait, and each one added
+            // since has made that worse — so they wrap, and the row grows
+            // downwards instead of past the edge.
+            var row = new Row(box.x, box.yMax + 6, box.width, lineHeight);
+
+            if (GUI.Button(row.Next(4f), MapPin.Open ? "Hide pin" : "Drop pin", _button))
             {
                 MapPin.Open = !MapPin.Open;
             }
@@ -201,24 +204,26 @@ namespace MarkerOne.Unity
             // edges of one standing in front of a surface. Which of those
             // matters more depends on where you are, so it belongs on a button
             // rather than in a file.
-            var occlusion = new Rect(pin.xMax + lineHeight * 0.4f, box.yMax + 6,
-                                     lineHeight * 4.4f, lineHeight * 1.5f);
-            Occlusion(occlusion);
+            Occlusion(row.Next(4.4f));
 
             // Indoors is a different mode rather than a different app: the same
             // content, the same bar, a frame pinned by paper instead of by the
             // Earth.
-            var venue = new Rect(occlusion.xMax + lineHeight * 0.4f, box.yMax + 6,
-                                 lineHeight * 4, lineHeight * 1.5f);
-            if (GUI.Button(venue, "Venue", _button)) { VenuePanel.Open = !VenuePanel.Open; }
+            if (GUI.Button(row.Next(4f), "Venue", _button))
+            {
+                VenuePanel.Open = !VenuePanel.Open;
+            }
 
-            var mode = new Rect(venue.xMax + lineHeight * 0.4f, box.yMax + 6,
-                                lineHeight * 4, lineHeight * 1.5f);
-            if (GUI.Button(mode, "Mode", _button)) { ModeMenu.Open = !ModeMenu.Open; }
+            if (GUI.Button(row.Next(3.6f), "Mode", _button)) { ModeMenu.Open = !ModeMenu.Open; }
 
-            var survey = new Rect(mode.xMax + lineHeight * 0.4f, box.yMax + 6,
-                                  lineHeight * 4, lineHeight * 1.5f);
-            if (GUI.Button(survey, "Survey", _button)) { SurveyPanel.Open = !SurveyPanel.Open; }
+            if (GUI.Button(row.Next(4f), "Survey", _button))
+            {
+                SurveyPanel.Open = !SurveyPanel.Open;
+            }
+
+            // What the readout is covering, buttons and all — however many
+            // lines they ended up taking.
+            Occupied = new Rect(box.x, box.y, box.width, row.Bottom - box.y + 6);
         }
 
         private string Body()
@@ -413,6 +418,48 @@ namespace MarkerOne.Unity
                 sb.Append(line).Append('\n');
             }
             return sb;
+        }
+
+        /// <summary>
+        /// Buttons across a fixed width, wrapping when they run out of it.
+        ///
+        /// Widths are in multiples of the line height rather than in pixels, so
+        /// they scale with the text the way everything else here does.
+        /// </summary>
+        private struct Row
+        {
+            private readonly float _left;
+            private readonly float _width;
+            private readonly float _line;
+            private float _x;
+            private float _y;
+
+            public Row(float left, float top, float width, float line)
+            {
+                _left = left;
+                _width = width;
+                _line = line;
+                _x = left;
+                _y = top;
+            }
+
+            public float Bottom => _y + _line * 1.5f;
+
+            public Rect Next(float lines)
+            {
+                float wide = _line * lines;
+                const float Gap = 0.4f;
+
+                if (_x > _left && _x + wide > _left + _width)
+                {
+                    _x = _left;
+                    _y += _line * 1.5f + _line * Gap;
+                }
+
+                var at = new Rect(_x, _y, wide, _line * 1.5f);
+                _x += wide + _line * Gap;
+                return at;
+            }
         }
 
         private void EnsureStyles()
