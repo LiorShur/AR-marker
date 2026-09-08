@@ -257,7 +257,7 @@ namespace MarkerOne.Unity
             // that can say the app is working from memory rather than from the
             // store — which changes what every other part of it means.
             if (_rig.Offline) { name += " · offline"; }
-            if (_rig.Waiting > 0) { name += " · " + _rig.Waiting + " to send"; }
+            if (_rig.Unsent > 0) { name += " · " + _rig.Unsent + " to send"; }
 
             // Only while it is worth doing something about: an account whose
             // address is unproven is one an admin rule matching on the email

@@ -291,15 +291,15 @@ namespace MarkerOne.Unity
             // Said plainly, because everything downstream of it looks like a
             // different fault: nothing new appears, nothing is saved, and the
             // world seems empty rather than unreachable.
-            if (_rig.Offline || _rig.Waiting > 0)
+            if (_rig.Offline || _rig.Unsent > 0)
             {
                 _text.Append("Net    ")
                      .Append(_rig.Offline ? "offline, on the account this device remembers" : "");
 
-                if (_rig.Waiting > 0)
+                if (_rig.Unsent > 0)
                 {
                     if (_rig.Offline) { _text.Append(" · "); }
-                    _text.Append(_rig.Waiting).Append(" waiting to send");
+                    _text.Append(_rig.Unsent).Append(" waiting to send");
                 }
 
                 _text.Append('\n');

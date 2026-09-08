@@ -1647,7 +1647,15 @@ namespace MarkerOne.Unity
         /// </summary>
         public bool Offline => (_store as FirestorePlacementStore)?.Offline ?? false;
 
-        public int Waiting =>
+        /// <summary>
+        /// Placements written while out of coverage and not yet sent.
+        ///
+        /// Deliberately not called Waiting, which already means something else
+        /// here and something a person would confuse it with: how many are
+        /// waiting for ARCore to work out where they are. One is about the
+        /// network, the other about the sky.
+        /// </summary>
+        public int Unsent =>
             _store is FirestorePlacementStore store ? store.Waiting : 0;
 
         public string Named => Called();
