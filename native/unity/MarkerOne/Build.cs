@@ -13,6 +13,6 @@ namespace MarkerOne.Unity
     /// </summary>
     public static class Build
     {
-        public const string Stamp = "b17 · out of the way";
+        public const string Stamp = "b18 · works without a signal";
     }
 }

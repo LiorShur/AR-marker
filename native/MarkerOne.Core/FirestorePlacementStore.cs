@@ -89,6 +89,82 @@ namespace MarkerOne.Core
         public Action<string> WriteAccount { get; set; }
 
         /// <summary>
+        /// Whether the device thinks it has a network, asked of the host.
+        ///
+        /// A delegate rather than an exception caught after the fact, because
+        /// the two failures need telling apart and they arrive looking the
+        /// same: a refused token and an unreachable server both surface as a
+        /// failed request. One means sign in again, the other means carry on
+        /// without asking.
+        /// </summary>
+        public Func<bool> Reachable { get; set; }
+
+        /// <summary>
+        /// Running on a remembered identity that cannot currently be proved.
+        ///
+        /// Not a security decision. The uid only decides what this app offers;
+        /// the rules judge every write when it eventually lands, so trusting a
+        /// name kept on the device costs nothing and refusing to trust it costs
+        /// the whole app — which is what it did, in a field with no signal,
+        /// after signing in was made obligatory.
+        /// </summary>
+        public bool Offline { get; private set; }
+
+        /// <summary>
+        /// Where writes wait, and where reads are remembered.
+        ///
+        /// Both are plain strings the host puts somewhere — a file, in
+        /// practice. This assembly stays ignorant of where a device keeps
+        /// things, the same way it does for the refresh token, because the
+        /// answer differs on every platform it will ever run on.
+        /// </summary>
+        public Func<string> ReadOutbox { get; set; }
+
+        public Action<string> WriteOutbox { get; set; }
+
+        public Func<string> ReadMirror { get; set; }
+
+        public Action<string> WriteMirror { get; set; }
+
+        /// <summary>How many placements are waiting to be sent.</summary>
+        public int Waiting => Queued().Count;
+
+        /// <summary>
+        /// An id made here rather than by the server.
+        ///
+        /// What makes a queued write safe to retry. A create with no id appends
+        /// a new document every time it is sent, so a flush interrupted after
+        /// the request and before the acknowledgement duplicates everything it
+        /// had already done. A create with an id is a put: sending it twice
+        /// leaves one document, which is the only reason retrying is allowed to
+        /// be as unconsidered as it is.
+        ///
+        /// Twenty characters from Firestore's own alphabet, so a local id and a
+        /// server one are indistinguishable and nothing downstream has to care
+        /// which it is holding.
+        /// </summary>
+        public static string NewId()
+        {
+            const string Alphabet =
+                "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+
+            var made = new char[20];
+            var bytes = new byte[20];
+
+            using (var random = System.Security.Cryptography.RandomNumberGenerator.Create())
+            {
+                random.GetBytes(bytes);
+            }
+
+            for (int i = 0; i < made.Length; i++)
+            {
+                made[i] = Alphabet[bytes[i] % Alphabet.Length];
+            }
+
+            return new string(made);
+        }
+
+        /// <summary>
         /// Anonymous sign-in identifies the device without asking anyone for
         /// anything. It is not a security boundary — anyone can mint one — so
         /// it answers "who wrote this", never "who is allowed".
@@ -107,10 +183,26 @@ namespace MarkerOne.Core
                 return _idToken;
             }
 
+            // Asked before anything is attempted. Out of coverage every call
+            // below takes its timeout and then fails, which turns a cold start
+            // into a minute of a blank screen before the same answer.
+            if (Reachable != null && !Reachable())
+            {
+                if (Remember())
+                {
+                    Offline = true;
+                    return null;
+                }
+
+                throw new InvalidOperationException(
+                    "offline, and no account has been signed into on this device yet");
+            }
+
             string refresh = ReadRefreshToken?.Invoke();
             if (!string.IsNullOrEmpty(refresh) &&
                 await TryRefreshAsync(refresh, cancel).ConfigureAwait(false))
             {
+                Offline = false;
                 return _idToken;
             }
 
@@ -123,6 +215,7 @@ namespace MarkerOne.Core
             Json root = await SendAsync(request, cancel).ConfigureAwait(false);
             _idToken = root["idToken"].AsString;
             Uid = root["localId"].AsString;
+            Offline = false;
             WriteRefreshToken?.Invoke(root["refreshToken"].AsString);
 
             // expiresIn arrives as a string of seconds.
@@ -323,6 +416,28 @@ namespace MarkerOne.Core
             WriteAccount?.Invoke(Uid + "\t" + Signed);
         }
 
+        /// <summary>
+        /// Come up as whoever was signed in last, without a token.
+        ///
+        /// False when nobody ever has been, which is the one case where being
+        /// offline genuinely stops the app: there is nothing to be. Everything
+        /// else — placing, drawing, the account on the screen — needs a uid and
+        /// not a token, and the uid is on the device.
+        /// </summary>
+        private bool Remember()
+        {
+            string saved = ReadAccount?.Invoke();
+            if (string.IsNullOrEmpty(saved)) { return false; }
+
+            int tab = saved.IndexOf('\t');
+            if (tab <= 0) { return false; }
+
+            Uid = saved.Substring(0, tab);
+            Signed = saved.Substring(tab + 1);
+
+            return !string.IsNullOrEmpty(Uid) && !string.IsNullOrEmpty(Signed);
+        }
+
         /// <summary>The saved name, but only if it belongs to this uid. Signing
         /// in as somebody else and inheriting the last person's name is a worse
         /// failure than showing no name at all.</summary>
@@ -400,6 +515,7 @@ namespace MarkerOne.Core
             Email = null;
             EmailVerified = false;
             _tokenExpires = DateTimeOffset.MinValue;
+            Offline = false;
             WriteRefreshToken?.Invoke("");
             WriteAccount?.Invoke("");
         }
@@ -462,6 +578,12 @@ namespace MarkerOne.Core
         {
             await SignInAsync(cancel).ConfigureAwait(false);
 
+            // Whatever was last seen here, filtered exactly as the server would
+            // filter it. Somewhere already visited comes back rather than
+            // looking empty, and an empty world and an unreachable one stop
+            // being the same picture.
+            if (Offline) { return FromMirror(lat, lon, radiusM); }
+
             var found = new Dictionary<string, Placement>();
 
             foreach ((string start, string end) in Geodesy.GeohashQueryBounds(lat, lon, radiusM))
@@ -491,7 +613,49 @@ namespace MarkerOne.Core
                 }
             }
 
-            return found.Values.OrderBy(p => p.DistanceM).ToList();
+            List<Placement> near = found.Values.OrderBy(p => p.DistanceM).ToList();
+            Remember(near);
+            return near;
+        }
+
+        /// <summary>
+        /// The same query, run against what is kept on the device.
+        ///
+        /// The geohash bounds are applied as well as the distance, so a cached
+        /// answer and a served one contain the same placements — a mirror that
+        /// quietly returns more than the server would is a mirror that makes
+        /// things appear and disappear as the signal comes and goes.
+        /// </summary>
+        private List<Placement> FromMirror(double lat, double lon, double radiusM)
+        {
+            var bounds = new List<(string Start, string End)>(
+                Geodesy.GeohashQueryBounds(lat, lon, radiusM));
+
+            var near = new List<Placement>();
+
+            foreach (Placement p in Unpack(ReadMirror?.Invoke()))
+            {
+                string hash = p.Geohash;
+                bool inside = false;
+
+                foreach ((string start, string end) in bounds)
+                {
+                    if (string.CompareOrdinal(hash, start) >= 0 &&
+                        string.CompareOrdinal(hash, end) <= 0)
+                    {
+                        inside = true;
+                        break;
+                    }
+                }
+
+                if (!inside) { continue; }
+
+                p.DistanceM = Geodesy.Haversine(lat, lon, p.Position.Lat, p.Position.Lon);
+                if (p.DistanceM <= radiusM) { near.Add(p); }
+            }
+
+            near.Sort((a, b) => a.DistanceM.CompareTo(b.DistanceM));
+            return near;
         }
 
         /// <summary>
@@ -640,14 +804,181 @@ namespace MarkerOne.Core
             placement.Owner = Uid;
             placement.CreatedAt = DateTimeOffset.UtcNow.ToString("o", CultureInfo.InvariantCulture);
 
-            using var request = new HttpRequestMessage(HttpMethod.Post, $"{Documents}/{_collection}")
+            // Named here whether or not it is going anywhere yet, so the one
+            // that waits in a field and the one that lands immediately are the
+            // same document and the app cannot tell them apart.
+            if (string.IsNullOrEmpty(placement.Id)) { placement.Id = NewId(); }
+
+            if (Offline)
+            {
+                Queue(placement);
+                Remember(placement);
+                return placement;
+            }
+
+            Placement written = await PutAsync(placement, cancel).ConfigureAwait(false);
+            Remember(written);
+            return written;
+        }
+
+        private async Task<Placement> PutAsync(Placement placement, CancellationToken cancel)
+        {
+            string id = Uri.EscapeDataString(placement.Id);
+
+            using var request = new HttpRequestMessage(HttpMethod.Post,
+                $"{Documents}/{_collection}?documentId={id}")
             {
                 Content = Body(ToDocument(placement))
             };
             await AuthorizeAsync(request, cancel).ConfigureAwait(false);
 
             Json saved = await SendAsync(request, cancel).ConfigureAwait(false);
-            return FromDocument(saved);
+            return FromDocument(saved) ?? placement;
+        }
+
+        /// <summary>
+        /// Send whatever has been waiting.
+        ///
+        /// A document that is already there counts as sent. That is not
+        /// leniency — it is the point of naming the document on the device: a
+        /// flush cut off between the request and the acknowledgement leaves the
+        /// write done and the queue entry intact, and the only sane thing to do
+        /// with the second attempt is agree it worked.
+        ///
+        /// Returns how many went. Stops at the first real failure and leaves
+        /// the rest queued, because the usual cause is the signal going again
+        /// and hammering the remainder achieves nothing.
+        /// </summary>
+        public async Task<int> FlushAsync(CancellationToken cancel = default)
+        {
+            List<Placement> waiting = Queued();
+            if (waiting.Count == 0) { return 0; }
+
+            await SignInAsync(cancel).ConfigureAwait(false);
+            if (Offline) { return 0; }
+
+            int sent = 0;
+
+            foreach (Placement placement in waiting)
+            {
+                try
+                {
+                    Placement written = await PutAsync(placement, cancel).ConfigureAwait(false);
+                    Remember(written);
+                }
+                catch (HttpRequestException e) when (e.Message.Contains("ALREADY_EXISTS") ||
+                                                     e.Message.Contains("409"))
+                {
+                    // Sent last time, acknowledged to nobody.
+                }
+                catch (Exception)
+                {
+                    break;
+                }
+
+                sent++;
+            }
+
+            waiting.RemoveRange(0, sent);
+            WriteOutbox?.Invoke(Pack(waiting));
+
+            return sent;
+        }
+
+        private void Queue(Placement placement)
+        {
+            List<Placement> waiting = Queued();
+
+            // Replaced rather than appended if it is already there, so a
+            // placement corrected before the signal returns is sent once and in
+            // its final state.
+            waiting.RemoveAll(p => p.Id == placement.Id);
+            waiting.Add(placement);
+
+            WriteOutbox?.Invoke(Pack(waiting));
+        }
+
+        private List<Placement> Queued() => Unpack(ReadOutbox?.Invoke());
+
+        // ── the local mirror ─────────────────────────────────────
+
+        /// <summary>
+        /// Keep what was read, so somewhere already visited is not empty when
+        /// the signal goes.
+        ///
+        /// An empty world and an unreachable one look identical, and the second
+        /// is far commoner in exactly the places this is used. So every
+        /// placement that arrives is kept, and offline the same geohash bounds
+        /// are applied to what is kept — the query is the same, only the source
+        /// is different.
+        /// </summary>
+        private void Remember(IEnumerable<Placement> seen)
+        {
+            if (WriteMirror == null) { return; }
+
+            var by = new Dictionary<string, Placement>();
+            foreach (Placement p in Unpack(ReadMirror?.Invoke()))
+            {
+                if (p?.Id != null) { by[p.Id] = p; }
+            }
+
+            foreach (Placement p in seen)
+            {
+                if (p?.Id != null) { by[p.Id] = p; }
+            }
+
+            WriteMirror(Pack(new List<Placement>(by.Values)));
+        }
+
+        private void Remember(Placement one)
+        {
+            if (one != null) { Remember(new[] { one }); }
+        }
+
+        private void Forget(string id)
+        {
+            if (WriteMirror == null) { return; }
+
+            List<Placement> kept = Unpack(ReadMirror?.Invoke());
+            if (kept.RemoveAll(p => p.Id == id) > 0) { WriteMirror(Pack(kept)); }
+        }
+
+        /// <summary>Placements as a Firestore document array, which is a format
+        /// this already reads and writes — a second serialiser would be a second
+        /// thing to get subtly wrong about numbers.</summary>
+        private static string Pack(IEnumerable<Placement> placements)
+        {
+            Json list = Json.Array_();
+            foreach (Placement p in placements)
+            {
+                Json doc = ToDocument(p);
+                doc.Set("name", Json.Of("local/" + p.Id));
+                list.Add(doc);
+            }
+
+            return list.ToString();
+        }
+
+        private static List<Placement> Unpack(string packed)
+        {
+            var found = new List<Placement>();
+            if (string.IsNullOrEmpty(packed)) { return found; }
+
+            try
+            {
+                foreach (Json doc in Json.Parse(packed).Items)
+                {
+                    Placement p = FromDocument(doc);
+                    if (p?.Id != null) { found.Add(p); }
+                }
+            }
+            catch (Exception)
+            {
+                // A corrupt store is an empty one. Refusing to start because a
+                // cache will not parse is worse than losing the cache.
+            }
+
+            return found;
         }
 
         /// <summary>Correct a placement already saved. One written while the
@@ -725,6 +1056,24 @@ namespace MarkerOne.Core
 
         public async Task RemoveAsync(string id, CancellationToken cancel = default)
         {
+            await SignInAsync(cancel).ConfigureAwait(false);
+
+            if (Offline)
+            {
+                // Only what has not been sent. Deleting somebody's placement
+                // needs the server's permission, and pretending otherwise would
+                // show it gone until the next refresh brought it back.
+                List<Placement> waiting = Queued();
+                if (waiting.RemoveAll(p => p.Id == id) > 0)
+                {
+                    WriteOutbox?.Invoke(Pack(waiting));
+                    Forget(id);
+                    return;
+                }
+
+                throw new InvalidOperationException("offline — this can be removed once connected");
+            }
+
             await SignInAsync(cancel).ConfigureAwait(false);
 
             using var request = new HttpRequestMessage(HttpMethod.Delete,

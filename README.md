@@ -601,6 +601,13 @@ app, not the script. Two things can: an admin, listed by verified email in
 `isAdmin()` in `firestore.rules`, or the first person to stand in front of it
 and correct it, which is what seeds are for.
 
+### Without a signal
+
+`native/OFFLINE.md`. Coming up on the account the device remembers, queueing
+placements until there is something to send them over, and serving somewhere
+already visited from what was kept. No hardwired credential — one would not work
+and would not be safe.
+
 ### Surveying
 
 `native/SURVEY.md`. Measuring a room against a written accessibility requirement

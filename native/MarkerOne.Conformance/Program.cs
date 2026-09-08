@@ -70,6 +70,8 @@ internal static class Program
         Console.WriteLine("\n  world session");
         await SessionTests.Run(Check);
 
+        await OfflineTests.Run(Check);
+
         Console.WriteLine();
         foreach (string failure in Failures) { Console.WriteLine("  ✗ " + failure); }
 

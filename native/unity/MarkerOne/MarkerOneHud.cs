@@ -288,6 +288,23 @@ namespace MarkerOne.Unity
                      .Append('\n');
             }
 
+            // Said plainly, because everything downstream of it looks like a
+            // different fault: nothing new appears, nothing is saved, and the
+            // world seems empty rather than unreachable.
+            if (_rig.Offline || _rig.Waiting > 0)
+            {
+                _text.Append("Net    ")
+                     .Append(_rig.Offline ? "offline, on the account this device remembers" : "");
+
+                if (_rig.Waiting > 0)
+                {
+                    if (_rig.Offline) { _text.Append(" · "); }
+                    _text.Append(_rig.Waiting).Append(" waiting to send");
+                }
+
+                _text.Append('\n');
+            }
+
             // Anything beyond this is clipped rather than missing, and the
             // two are indistinguishable from the outside.
             Camera eye = _rig.SessionCamera;

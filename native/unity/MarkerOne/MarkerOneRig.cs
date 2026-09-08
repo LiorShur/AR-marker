@@ -341,7 +341,21 @@ namespace MarkerOne.Unity
                 {
                     PlayerPrefs.SetString(who, account ?? "");
                     PlayerPrefs.Save();
-                }
+                },
+
+                // Asked rather than inferred from a failed request, because a
+                // refused token and an unreachable server arrive looking the
+                // same and mean opposite things.
+                Reachable = () =>
+                    Application.internetReachability != NetworkReachability.NotReachable,
+
+                // Files rather than PlayerPrefs: a queue and a mirror grow, and
+                // PlayerPrefs on iOS is a plist rewritten whole every time it
+                // is touched.
+                ReadOutbox = () => Kept("outbox.json"),
+                WriteOutbox = it => Keep("outbox.json", it),
+                ReadMirror = () => Kept("seen.json"),
+                WriteMirror = it => Keep("seen.json", it)
             };
             Session = new WorldSession(_store, () => Floor != null ? Floor.Floor : 0)
             {
@@ -624,6 +638,46 @@ namespace MarkerOne.Unity
             }
         }
 
+        /// <summary>
+        /// Send what has been waiting, once there is something to send it over.
+        ///
+        /// Tried on a timer rather than the moment reachability changes: the
+        /// phone reports a network the instant it associates with one, which is
+        /// several seconds before anything can actually be reached, and a flush
+        /// that fires then fails and gives up.
+        /// </summary>
+        private async void Flush()
+        {
+            if (_flushing || Session == null) { return; }
+            if (Time.unscaledTime < _flushAt) { return; }
+
+            _flushAt = Time.unscaledTime + 15f;
+
+            if (!(_store is FirestorePlacementStore store)) { return; }
+            if (store.Waiting == 0) { return; }
+            if (Application.internetReachability == NetworkReachability.NotReachable) { return; }
+
+            _flushing = true;
+            try
+            {
+                int sent = await store.FlushAsync();
+                if (sent > 0)
+                {
+                    Debug.Log("MarkerOne: " + sent + " placement(s) sent");
+                    Placed?.Invoke(true, sent + " sent");
+                    await Session.RefreshAsync();
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning("MarkerOne: could not send what was waiting — " + e.Message);
+            }
+            finally { _flushing = false; }
+        }
+
+        private bool _flushing;
+        private float _flushAt;
+
         private bool PatienceRunOut(string id)
         {
             if (!_waitingSince.TryGetValue(id, out float since))
@@ -643,6 +697,7 @@ namespace MarkerOne.Unity
             // carry the name.
             if (Session != null) { Session.Author = Called(); }
 
+            Flush();
             Retry();
             Rewrite();
             Anchor();
@@ -1558,6 +1613,43 @@ namespace MarkerOne.Unity
         /// address on every placement a person leaves in the world is more than
         /// they agreed to when they signed in.
         /// </summary>
+        /// <summary>Reading and writing whatever the store wants kept, wherever
+        /// this platform keeps things.</summary>
+        private static string Kept(string name)
+        {
+            try
+            {
+                string at = System.IO.Path.Combine(Application.persistentDataPath, name);
+                return System.IO.File.Exists(at) ? System.IO.File.ReadAllText(at) : null;
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning("MarkerOne: could not read " + name + " — " + e.Message);
+                return null;
+            }
+        }
+
+        private static void Keep(string name, string what)
+        {
+            try
+            {
+                System.IO.File.WriteAllText(
+                    System.IO.Path.Combine(Application.persistentDataPath, name), what ?? "");
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning("MarkerOne: could not write " + name + " — " + e.Message);
+            }
+        }
+
+        /// <summary>Whether this is running on a remembered account it cannot
+        /// currently prove, and how many placements are waiting to be sent.
+        /// </summary>
+        public bool Offline => (_store as FirestorePlacementStore)?.Offline ?? false;
+
+        public int Waiting =>
+            _store is FirestorePlacementStore store ? store.Waiting : 0;
+
         public string Named => Called();
 
         private string Called()

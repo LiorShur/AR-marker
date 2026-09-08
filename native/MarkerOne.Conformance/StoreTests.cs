@@ -18,6 +18,9 @@ namespace MarkerOne.Conformance
         public readonly List<(string Method, string Url, string Body)> Calls = new();
         public List<(string Id, double Lat, double Lon)> Fixtures = new();
 
+        /// <summary>When set, every create is refused with this message.</summary>
+        public string Refuse;
+
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken)
         {
@@ -67,6 +70,18 @@ namespace MarkerOne.Conformance
 
             if (request.Method == HttpMethod.Post)
             {
+                // A create that has already been through. The acknowledgement
+                // was lost, not the write.
+                if (Refuse != null)
+                {
+                    return new HttpResponseMessage(HttpStatusCode.Conflict)
+                    {
+                        Content = new StringContent(
+                            "{\"error\":{\"message\":\"" + Refuse + "\"}}",
+                            System.Text.Encoding.UTF8, "application/json")
+                    };
+                }
+
                 return Reply(Document("new-1", 51.5, -0.12));
             }
 
@@ -167,8 +182,15 @@ namespace MarkerOne.Conformance
                 Fix = new FixQuality { Provider = "geospatial", PositionM = 0.8, HeadingDeg = 1.2 }
             });
 
-            var write = writeStub.Calls.Last(c => c.Method == "POST" && c.Url.EndsWith("/placements"));
+            // The create carries the id it is to be stored under, which is what
+            // makes a queued write safe to send twice.
+            var write = writeStub.Calls.Last(c => c.Method == "POST" &&
+                                                  c.Url.Contains("/placements?documentId="));
+
             check("a placement carries its own geohash", write.Body.Contains("\"geohash\""), "");
+            check("a placement is named before it is sent",
+                  write.Url.Split("documentId=")[1].Length == 20,
+                  write.Url);
             check("the server stamps the owner", saved.Owner == "anon-1", saved.Owner);
             check("height above the floor is stored apart from the globe",
                 write.Body.Contains("\"groundOffset\""), "");

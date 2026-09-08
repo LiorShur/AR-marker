@@ -253,6 +253,12 @@ namespace MarkerOne.Unity
             string name = _rig.Named;
             if (string.IsNullOrEmpty(name)) { name = "Signed in"; }
 
+            // The readout starts shut now, so this is the only thing on screen
+            // that can say the app is working from memory rather than from the
+            // store — which changes what every other part of it means.
+            if (_rig.Offline) { name += " · offline"; }
+            if (_rig.Waiting > 0) { name += " · " + _rig.Waiting + " to send"; }
+
             // Only while it is worth doing something about: an account whose
             // address is unproven is one an admin rule matching on the email
             // will never fire for, and the whole remedy is one tap that nothing
