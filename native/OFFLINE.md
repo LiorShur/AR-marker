@@ -28,6 +28,23 @@ the launch screen blocked for ever in a field.
 The one case where being offline genuinely stops the app is a device nobody has
 ever signed in on. There is nothing to be.
 
+## Noticing
+
+Reachability is asked before every call, not only when a token has to be minted.
+A token is good for an hour, and checking only at sign-in meant the app could go
+a full hour without ever wondering whether it could reach anything — so airplane
+mode produced a failed write rather than a queued one, which is the opposite of
+what the queue is for.
+
+It is asked of the device, and the device can be wrong. A captive portal, a wifi
+with no route out, and a phone halfway out of a building all report a connection.
+So a request that never lands is also treated as being offline, and what it was
+carrying waits rather than failing.
+
+A refusal is not the same thing and is not queued. The rules said no; retrying a
+no for ever would fill the queue with writes that can never succeed. Only silence
+is worth trying again.
+
 ## Placing
 
 Placements queue to a file and go when there is something to send them over.

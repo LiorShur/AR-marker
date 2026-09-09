@@ -136,6 +136,73 @@ namespace MarkerOne.Conformance
             check("offline: and stops waiting", interrupted.Waiting == 0,
                   interrupted.Waiting.ToString());
 
+            // ── a token in hand and nowhere to send it ───────────
+
+            // The failure this missed in the field. A token is good for an
+            // hour, so signing in returned early without ever asking whether
+            // anything could be reached — and every write in that hour failed
+            // outright instead of waiting in the queue built for it.
+            var going = new Store();
+            bool signal = true;
+
+            var flaky = new FirestorePlacementStore("p", "k", new HttpClient(new StubFirestore()))
+            {
+                Reachable = () => signal,
+                ReadAccount = () => "uid-7\tliorshur@gmail.com",
+                ReadOutbox = going.ReadOutbox, WriteOutbox = going.WriteOutbox,
+                ReadMirror = going.ReadMirror, WriteMirror = going.WriteMirror
+            };
+
+            await flaky.SignInAsync();
+            check("offline: a token is held while connected", !flaky.Offline, "");
+
+            signal = false;
+            await flaky.PlaceAsync(Somewhere(51.5, -0.12));
+
+            check("offline: a live token does not mean a live network", flaky.Offline, "");
+            check("offline: and the write waits rather than failing",
+                  flaky.Waiting == 1, flaky.Waiting.ToString());
+
+            // ── a network that says it is there and is not ───────
+
+            // Reachability lies: a captive portal, a wifi with no route out and
+            // a phone half out of the door all report a connection.
+            var lying = new Store();
+            var liar = new FirestorePlacementStore("p", "k",
+                new HttpClient(new StubFirestore { Vanish = true }))
+            {
+                Reachable = () => true,
+                ReadAccount = () => "uid-7\tliorshur@gmail.com",
+                ReadOutbox = lying.ReadOutbox, WriteOutbox = lying.WriteOutbox,
+                ReadMirror = lying.ReadMirror, WriteMirror = lying.WriteMirror
+            };
+
+            await liar.SignInAsync();
+            Placement kept2 = await liar.PlaceAsync(Somewhere(51.5, -0.12));
+
+            check("offline: a request that never landed is not lost",
+                  kept2 != null && liar.Waiting == 1, liar.Waiting.ToString());
+            check("offline: and the app knows it is out", liar.Offline, "");
+
+            // A refusal is an answer, and answers are not retried for ever.
+            var refused2 = new Store();
+            var told = new FirestorePlacementStore("p", "k",
+                new HttpClient(new StubFirestore { Refuse = "PERMISSION_DENIED" }))
+            {
+                Reachable = () => true,
+                ReadAccount = () => "uid-7\tliorshur@gmail.com",
+                ReadOutbox = refused2.ReadOutbox, WriteOutbox = refused2.WriteOutbox
+            };
+
+            await told.SignInAsync();
+
+            bool threw = false;
+            try { await told.PlaceAsync(Somewhere(51.5, -0.12)); }
+            catch (HttpRequestException) { threw = true; }
+
+            check("offline: a refusal is not queued", threw && told.Waiting == 0,
+                  told.Waiting.ToString());
+
             // ── ids ──────────────────────────────────────────────
 
             var seen = new HashSet<string>();

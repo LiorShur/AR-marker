@@ -13,6 +13,6 @@ namespace MarkerOne.Unity
     /// </summary>
     public static class Build
     {
-        public const string Stamp = "b18 · works without a signal";
+        public const string Stamp = "b19 · a token is not a network";
     }
 }

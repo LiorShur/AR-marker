@@ -178,24 +178,30 @@ namespace MarkerOne.Core
         /// </summary>
         public async Task<string> SignInAsync(CancellationToken cancel = default)
         {
-            if (_idToken != null && DateTimeOffset.UtcNow < _tokenExpires.AddMinutes(-1))
-            {
-                return _idToken;
-            }
-
-            // Asked before anything is attempted. Out of coverage every call
-            // below takes its timeout and then fails, which turns a cold start
-            // into a minute of a blank screen before the same answer.
+            // Asked first, and asked whether or not a token is already in hand.
+            //
+            // Checking this only when a token had to be minted was the whole of
+            // why airplane mode still tried to send: a token is good for an
+            // hour, so the app went a full hour without ever wondering whether
+            // it could reach anything, and every write in that hour failed
+            // outright instead of waiting in the queue built for exactly this.
             if (Reachable != null && !Reachable())
             {
-                if (Remember())
+                if (_idToken != null || !string.IsNullOrEmpty(Uid) || Remember())
                 {
                     Offline = true;
-                    return null;
+                    return _idToken;
                 }
 
                 throw new InvalidOperationException(
                     "offline, and no account has been signed into on this device yet");
+            }
+
+            Offline = false;
+
+            if (_idToken != null && DateTimeOffset.UtcNow < _tokenExpires.AddMinutes(-1))
+            {
+                return _idToken;
             }
 
             string refresh = ReadRefreshToken?.Invoke();
@@ -584,6 +590,21 @@ namespace MarkerOne.Core
             // being the same picture.
             if (Offline) { return FromMirror(lat, lon, radiusM); }
 
+            try
+            {
+                return await AskAsync(lat, lon, radiusM, cancel).ConfigureAwait(false);
+            }
+            catch (Exception e) when (Unreachable(e))
+            {
+                Offline = true;
+                return FromMirror(lat, lon, radiusM);
+            }
+        }
+
+        private async Task<IReadOnlyList<Placement>> AskAsync(
+            double lat, double lon, double radiusM, CancellationToken cancel)
+        {
+
             var found = new Dictionary<string, Placement>();
 
             foreach ((string start, string end) in Geodesy.GeohashQueryBounds(lat, lon, radiusM))
@@ -741,6 +762,31 @@ namespace MarkerOne.Core
                 .Set("limit", 4));
         }
 
+        /// <summary>
+        /// Whether this failure means nothing arrived, as opposed to arriving
+        /// and being refused.
+        ///
+        /// The distinction decides whether a write waits or is thrown away. A
+        /// refusal is an answer — the rules said no, and queueing it would mean
+        /// retrying a no for ever. Silence is not an answer, and the request is
+        /// still worth making later.
+        /// </summary>
+        private static bool Unreachable(Exception e)
+        {
+            if (e is TaskCanceledException || e is OperationCanceledException) { return true; }
+            if (e is System.Net.Sockets.SocketException) { return true; }
+
+            if (e is HttpRequestException http)
+            {
+                // Everything this throws for a refusal begins with the status,
+                // so anything that does not is the request never having landed.
+                return string.IsNullOrEmpty(http.Message) ||
+                       !char.IsDigit(http.Message[0]);
+            }
+
+            return false;
+        }
+
         private Json VenueQuery(string venue)
         {
             // The visibility equality for the same reason as the nearby query:
@@ -816,9 +862,26 @@ namespace MarkerOne.Core
                 return placement;
             }
 
-            Placement written = await PutAsync(placement, cancel).ConfigureAwait(false);
-            Remember(written);
-            return written;
+            try
+            {
+                Placement written = await PutAsync(placement, cancel).ConfigureAwait(false);
+                Remember(written);
+                return written;
+            }
+            catch (Exception e) when (Unreachable(e))
+            {
+                // The device believed it had a network and did not. A captive
+                // portal, a wifi with no route out, a phone that has just left
+                // the building — all report a connection and none of them
+                // carry a request. Queued rather than lost, which is the
+                // difference between this and what the outbox was built for
+                // being two different mechanisms.
+                Offline = true;
+
+                Queue(placement);
+                Remember(placement);
+                return placement;
+            }
         }
 
         private async Task<Placement> PutAsync(Placement placement, CancellationToken cancel)

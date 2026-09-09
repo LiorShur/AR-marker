@@ -21,6 +21,13 @@ namespace MarkerOne.Conformance
         /// <summary>When set, every create is refused with this message.</summary>
         public string Refuse;
 
+        /// <summary>When set, every request after the first fails as though the
+        /// network had gone — which is what a phone leaving a building does,
+        /// and what a captive portal does from the first request.</summary>
+        public bool Vanish;
+
+        private int _served;
+
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken)
         {
@@ -30,6 +37,13 @@ namespace MarkerOne.Conformance
 
             Calls.Add((request.Method.Method, request.RequestUri!.ToString(), body));
             string url = request.RequestUri.ToString();
+
+            // No status, no body — the shape a request takes when nothing was
+            // listening, as opposed to something answering no.
+            if (Vanish && _served++ > 0)
+            {
+                throw new HttpRequestException("The request could not be sent");
+            }
 
             if (url.Contains("accounts:signUp"))
             {
